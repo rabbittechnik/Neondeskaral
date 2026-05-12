@@ -16,7 +16,7 @@
     "serve:client": "node scripts/serve-client.mjs",
     "start": "npm run serve:client"
   },
-  "devDependencies": {
+  "dependencies": {
     "serve": "^14.2.4"
   }
 }
