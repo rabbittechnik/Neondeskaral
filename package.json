@@ -12,6 +12,11 @@
     "build": "npm run build -w client && npm run build -w server",
     "build:client": "npm run build -w client",
     "build:server": "npm run build -w server",
-    "preview:client": "npm run preview -w client"
+    "preview:client": "npm run preview -w client",
+    "serve:client": "node scripts/serve-client.mjs",
+    "start": "npm run serve:client"
+  },
+  "devDependencies": {
+    "serve": "^14.2.4"
   }
 }
