@@ -10,6 +10,7 @@ export const PERMISSION_KEYS = [
   'employees.create',
   'employees.edit',
   'employees.deactivate',
+  'employees.delete',
   'employees.qr',
   'employees.viewSensitive',
   'payroll.view',
@@ -54,4 +55,5 @@ export const TEAMLEAD_PERMISSIONS: Record<string, boolean> = {
   'employees.viewSensitive': false,
   'payroll.view': false,
   'employees.manageSensitive': false,
+  'employees.delete': false,
 }

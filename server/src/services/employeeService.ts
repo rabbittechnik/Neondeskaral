@@ -893,3 +893,59 @@ export function setEmployeeAccessEnabled(db: Database, id: string, enabled: bool
   if (r.changes === 0) throw new Error('Mitarbeiter nicht gefunden')
   return getEmployee(db, id, { includeAccessToken: true, includeSensitive: true })
 }
+
+export function employeeHistoryCounts(db: Database, employeeId: string) {
+  const shifts = (db.prepare(`SELECT COUNT(*) as c FROM shifts WHERE employee_id = ?`).get(employeeId) as { c: number })
+    .c
+  const times = (db.prepare(`SELECT COUNT(*) as c FROM time_entries WHERE employee_id = ?`).get(employeeId) as {
+    c: number
+  }).c
+  const abs = (db.prepare(`SELECT COUNT(*) as c FROM absences WHERE employee_id = ?`).get(employeeId) as {
+    c: number
+  }).c
+  const logs = (db.prepare(`SELECT COUNT(*) as c FROM task_logs WHERE employee_id = ?`).get(employeeId) as {
+    c: number
+  }).c
+  const chk = (
+    db
+      .prepare(
+        `SELECT COUNT(*) as c FROM shift_close_checklists WHERE employee_id = ? OR time_entry_id IN (SELECT id FROM time_entries WHERE employee_id = ?)`,
+      )
+      .get(employeeId, employeeId) as { c: number }
+  ).c
+  const total = shifts + times + abs + logs + chk
+  return { shifts, times, abs, logs, chk, total, any: total > 0 }
+}
+
+/** Hard-Delete nur ohne Historie; sonst soft deaktivieren. */
+export function deleteEmployeeHardOrFallback(db: Database, id: string): {
+  outcome: 'hard_deleted' | 'soft_fallback'
+  message?: string
+} {
+  const hist = employeeHistoryCounts(db, id)
+  if (hist.any) {
+    softDeleteEmployee(db, id)
+    return {
+      outcome: 'soft_fallback',
+      message:
+        'Mitarbeiter hat historische Daten und kann nicht endgültig gelöscht werden. Er wurde deaktiviert.',
+    }
+  }
+  const tx = db.transaction(() => {
+    db.prepare(
+      `DELETE FROM shift_close_checklists WHERE time_entry_id IN (SELECT id FROM time_entries WHERE employee_id = ?) OR employee_id = ?`,
+    ).run(id, id)
+    db.prepare(`DELETE FROM time_entries WHERE employee_id = ?`).run(id)
+    db.prepare(`DELETE FROM absences WHERE employee_id = ?`).run(id)
+    db.prepare(`DELETE FROM task_logs WHERE employee_id = ?`).run(id)
+    db.prepare(`UPDATE shifts SET employee_id = NULL WHERE employee_id = ?`).run(id)
+    db.prepare(`UPDATE tasks SET assigned_employee_id = NULL WHERE assigned_employee_id = ?`).run(id)
+    db.prepare(`DELETE FROM employee_work_areas WHERE employee_id = ?`).run(id)
+    db.prepare(`DELETE FROM employee_access_logs WHERE employee_id = ?`).run(id)
+    db.prepare(`UPDATE card_entry_events SET employee_id = NULL WHERE employee_id = ?`).run(id)
+    const r = db.prepare(`DELETE FROM employees WHERE id = ?`).run(id)
+    if (r.changes === 0) throw new Error('Mitarbeiter nicht gefunden')
+  })
+  tx()
+  return { outcome: 'hard_deleted' }
+}

@@ -24,7 +24,7 @@ export function ScheduleAssistantWizard({ open, initialWeekStartIso, onClose, on
   const [weekStartIso, setWeekStartIso] = useState(initialWeekStartIso)
   const [mode, setMode] = useState<AssistantMode>('fill_gaps')
   const [requirements, setRequirements] = useState<DayRequirement[]>(() =>
-    buildDefaultWeekRequirements(initialWeekStartIso),
+    buildDefaultWeekRequirements(initialWeekStartIso, stationId ?? '', federalState),
   )
   const [suggested, setSuggested] = useState<AssistantSuggestedShift[]>([])
   const [warnings, setWarnings] = useState<string[]>([])
@@ -42,8 +42,8 @@ export function ScheduleAssistantWizard({ open, initialWeekStartIso, onClose, on
   }, [open, initialWeekStartIso])
 
   useEffect(() => {
-    setRequirements(buildDefaultWeekRequirements(weekStartIso))
-  }, [weekStartIso])
+    setRequirements(buildDefaultWeekRequirements(weekStartIso, stationId ?? '', federalState))
+  }, [weekStartIso, stationId, federalState])
 
   const runGenerate = useCallback(async () => {
     if (!stationId) return false

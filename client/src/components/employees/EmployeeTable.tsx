@@ -1,7 +1,8 @@
 import { Link } from 'react-router-dom'
-import { Pencil, User, UserCheck, UserX } from 'lucide-react'
+import { Pencil, Trash2, User, UserCheck, UserX } from 'lucide-react'
 import type { Employee } from '../../types/employee'
 import { useStation } from '../../context/station-context'
+import { useAuth } from '../../context/auth-context'
 import { Avatar } from '../ui/Avatar'
 import { EmployeeStatusBadge } from './EmployeeStatusBadge'
 import { EmploymentTypeBadge } from './EmploymentTypeBadge'
@@ -14,10 +15,16 @@ type Props = {
   onEdit: (e: Employee) => void
   onDeactivate: (e: Employee) => void
   onReactivate: (e: Employee) => void
+  onRequestDelete?: (e: Employee) => void
 }
 
-export function EmployeeTable({ employees, onEdit, onDeactivate, onReactivate }: Props) {
+export function EmployeeTable({ employees, onEdit, onDeactivate, onReactivate, onRequestDelete }: Props) {
   const { hasPermission } = useStation()
+  const { user } = useAuth()
+  const canHardDelete =
+    Boolean(user?.globalAdmin) ||
+    hasPermission('employees.manageSensitive') ||
+    hasPermission('employees.delete')
   const canSensitive =
     hasPermission('employees.viewSensitive') ||
     hasPermission('payroll.view') ||
@@ -140,6 +147,16 @@ export function EmployeeTable({ employees, onEdit, onDeactivate, onReactivate }:
                         <UserX className="h-4 w-4" />
                       </button>
                     )}
+                    {canHardDelete && onRequestDelete ? (
+                      <button
+                        type="button"
+                        title="Mitarbeiter löschen"
+                        onClick={() => onRequestDelete(e)}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] border border-rose-400/35 text-rose-200 hover:bg-rose-500/10"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    ) : null}
                   </div>
                 </td>
               </tr>

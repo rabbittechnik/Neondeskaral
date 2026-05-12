@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { Pencil, QrCode, User, UserCheck, UserX } from 'lucide-react'
+import { Pencil, QrCode, Trash2, User, UserCheck, UserX } from 'lucide-react'
 import type { Employee } from '../../types/employee'
 import { Avatar } from '../ui/Avatar'
 import { Button } from '../ui/Button'
@@ -8,6 +8,7 @@ import { EmploymentTypeBadge } from './EmploymentTypeBadge'
 import { WorkAreaBadges } from './WorkAreaBadges'
 import { formatEuroDe, formatHoursDe } from './employeeFormat'
 import { useStation } from '../../context/station-context'
+import { useAuth } from '../../context/auth-context'
 
 import { formatShiftPrefList, formatWeekdayPrefList } from './planning/planningPreferenceLabels'
 
@@ -56,15 +57,21 @@ type Props = {
   onEdit: () => void
   onDeactivate: () => void
   onReactivate?: () => void
+  onRequestDelete?: () => void
 }
 
-export function EmployeeCard({ employee, onEdit, onDeactivate, onReactivate }: Props) {
+export function EmployeeCard({ employee, onEdit, onDeactivate, onReactivate, onRequestDelete }: Props) {
   const inactive = employee.status === 'inaktiv'
   const { hasPermission } = useStation()
+  const { user } = useAuth()
   const canSensitive =
     hasPermission('employees.viewSensitive') ||
     hasPermission('payroll.view') ||
     hasPermission('employees.manageSensitive')
+  const canHardDelete =
+    Boolean(user?.globalAdmin) ||
+    hasPermission('employees.manageSensitive') ||
+    hasPermission('employees.delete')
 
   return (
     <div
@@ -190,6 +197,18 @@ export function EmployeeCard({ employee, onEdit, onDeactivate, onReactivate }: P
             >
               <UserX className="h-3.5 w-3.5" aria-hidden />
               Deaktivieren
+            </Button>
+          ) : null}
+          {canHardDelete && onRequestDelete ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="min-w-[2.5rem] px-2 py-2 text-xs text-rose-200"
+              title="Mitarbeiter löschen"
+              onClick={onRequestDelete}
+            >
+              <Trash2 className="h-3.5 w-3.5" aria-hidden />
+              <span className="sr-only">Löschen</span>
             </Button>
           ) : null}
         </div>

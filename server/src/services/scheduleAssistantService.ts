@@ -2,6 +2,7 @@ import type { Database } from 'better-sqlite3'
 import { randomUUID } from 'node:crypto'
 import { DEFAULT_STATION_ID } from '../constants.js'
 import { nowIso } from '../utils/timestamps.js'
+import { buildDefaultWeekRequirements as buildStationDefaultWeekRequirements } from '../data/defaultShiftRequirements.js'
 import { getHolidayBadgeForDate } from '../data/germanHolidays2026.js'
 import type { GermanState } from '../data/germanHolidays2026.js'
 import type { AbsenceRow } from './absenceService.js'
@@ -128,41 +129,6 @@ function prefKindMatchesSlot(
     school: 'school',
   }
   return pref.includes(map[kind])
-}
-
-export function buildDefaultWeekRequirements(weekStart: string): DayRequirement[] {
-  const dates = [0, 1, 2, 3, 4, 5, 6].map((i) => addDaysIso(weekStart, i))
-  return dates.map((date) => {
-    const wd = isoWeekdayKey(date)
-    let early = { start: '05:30', end: '14:00' }
-    let late = { start: '14:00', end: '21:15' }
-    if (wd === 'saturday') {
-      early = { start: '06:30', end: '14:00' }
-      late = { start: '14:00', end: '20:15' }
-    } else if (wd === 'sunday') {
-      early = { start: '07:30', end: '14:00' }
-      late = { start: '14:00', end: '20:15' }
-    }
-    return {
-      date,
-      slots: [
-        {
-          kind: 'early' as const,
-          startTime: early.start,
-          endTime: early.end,
-          workAreaId: 'kasse',
-          required: true,
-        },
-        {
-          kind: 'late' as const,
-          startTime: late.start,
-          endTime: late.end,
-          workAreaId: 'kasse',
-          required: true,
-        },
-      ],
-    }
-  })
 }
 
 type Emp = ReturnType<typeof employeeService.listEmployees>[number]
@@ -350,7 +316,9 @@ export function generateScheduleSuggestions(db: Database, body: GenerateBody) {
   const weekEnd = addDaysIso(weekStart, 6)
 
   const requirements =
-    body.requirements && body.requirements.length > 0 ? body.requirements : buildDefaultWeekRequirements(weekStart)
+    body.requirements && body.requirements.length > 0
+      ? body.requirements
+      : buildStationDefaultWeekRequirements(weekStart, stationId, federalState)
 
   const employees = employeeService.listEmployees(db, stationId).filter((e) => e.status === 'aktiv' && e.visibleInTeamSchedule !== false)
   const absenceRows = listApprovedAbsenceRows(db, stationId, weekStart, weekEnd)

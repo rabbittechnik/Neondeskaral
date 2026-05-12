@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Plus } from 'lucide-react'
 import { EmployeeCard } from '../../components/employees/EmployeeCard'
+import { EmployeeDeleteDialog } from '../../components/employees/EmployeeDeleteDialog'
 import { EmployeeModal } from '../../components/employees/EmployeeModal'
 import { EmployeeTable } from '../../components/employees/EmployeeTable'
 import { EmployeesToolbar, type ViewMode } from '../../components/employees/EmployeesToolbar'
@@ -32,8 +33,16 @@ function filterEmployees(
 }
 
 export function EmployeesPage() {
-  const { employees, addEmployee, updateEmployee, deactivateEmployee, reactivateEmployee, loading, error } =
-    useEmployees()
+  const {
+    employees,
+    addEmployee,
+    updateEmployee,
+    deactivateEmployee,
+    deleteEmployee,
+    reactivateEmployee,
+    loading,
+    error,
+  } = useEmployees()
 
   const [search, setSearch] = useState('')
   const [employment, setEmployment] = useState<EmploymentType | 'all'>('all')
@@ -46,6 +55,8 @@ export function EmployeesPage() {
   const [editTarget, setEditTarget] = useState<Employee | null>(null)
 
   const [confirmDeactivateId, setConfirmDeactivateId] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<Employee | null>(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
 
   const filtered = useMemo(
     () => filterEmployees(employees, search, employment, status, workAreaId),
@@ -112,6 +123,7 @@ export function EmployeesPage() {
               onReactivate={
                 e.status === 'inaktiv' ? () => void reactivateEmployee(e.id) : undefined
               }
+              onRequestDelete={() => setDeleteTarget(e)}
             />
           ))}
         </div>
@@ -121,6 +133,7 @@ export function EmployeesPage() {
           onEdit={openEdit}
           onDeactivate={(e) => setConfirmDeactivateId(e.id)}
           onReactivate={(e) => void reactivateEmployee(e.id)}
+          onRequestDelete={(e) => setDeleteTarget(e)}
         />
       )}
 
@@ -150,6 +163,38 @@ export function EmployeesPage() {
         onConfirm={() => {
           if (confirmDeactivateId) void deactivateEmployee(confirmDeactivateId)
           setConfirmDeactivateId(null)
+        }}
+      />
+
+      <EmployeeDeleteDialog
+        open={deleteTarget !== null}
+        employee={deleteTarget}
+        busy={deleteBusy}
+        onClose={() => {
+          if (!deleteBusy) setDeleteTarget(null)
+        }}
+        onDeactivateInstead={async () => {
+          if (!deleteTarget) return
+          setDeleteBusy(true)
+          try {
+            await deactivateEmployee(deleteTarget.id)
+            setDeleteTarget(null)
+          } catch (err) {
+            window.alert(err instanceof Error ? err.message : 'Fehler')
+          }
+          setDeleteBusy(false)
+        }}
+        onHardDelete={async () => {
+          if (!deleteTarget) return
+          setDeleteBusy(true)
+          try {
+            const r = await deleteEmployee(deleteTarget.id, 'hard')
+            if (r.message) window.alert(r.message)
+            setDeleteTarget(null)
+          } catch (err) {
+            window.alert(err instanceof Error ? err.message : 'Fehler')
+          }
+          setDeleteBusy(false)
         }}
       />
     </div>

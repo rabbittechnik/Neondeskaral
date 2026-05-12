@@ -15,7 +15,12 @@ export function PendingTimeApprovalsCard() {
   const [err, setErr] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    if (!allowed || !stationId) return
+    if (!allowed) return
+    if (!stationId) {
+      setCount(null)
+      setErr(null)
+      return
+    }
     const res = await apiGet<{ count: number }>('/time-entries/pending-approval', { stationId })
     if (!res.ok) {
       setErr(res.error)
@@ -40,13 +45,20 @@ export function PendingTimeApprovalsCard() {
         </div>
         <div className="min-w-0 flex-1">
           <h3 className="text-base font-semibold text-[var(--text-main)]">Zeiten zur Freigabe</h3>
-          <p className="mt-1 text-sm text-[var(--text-muted)]">
-            Offene Zeitbuchungen:{' '}
-            <span className="font-semibold tabular-nums text-amber-100">
-              {count === null ? '…' : count}
-            </span>
-          </p>
-          {err ? <p className="mt-2 text-xs text-rose-300">{err}</p> : null}
+          {!stationId ? (
+            <p className="mt-1 text-sm text-[var(--text-muted)]">Keine Station ausgewählt.</p>
+          ) : err ? (
+            <p className="mt-2 text-sm text-rose-300">{err}</p>
+          ) : count === null ? (
+            <p className="mt-1 text-sm text-[var(--text-muted)]">Lade…</p>
+          ) : count === 0 ? (
+            <p className="mt-1 text-sm text-[var(--text-muted)]">Keine offenen Zeitfreigaben.</p>
+          ) : (
+            <p className="mt-1 text-sm text-[var(--text-muted)]">
+              Offene Zeitbuchungen:{' '}
+              <span className="font-semibold tabular-nums text-amber-100">{count}</span>
+            </p>
+          )}
           <div className="mt-3 flex flex-wrap gap-2">
             <Link
               to="/zeiterfassung/freigaben"

@@ -22,6 +22,7 @@ type EmployeesContextValue = {
   addEmployee: (e: Employee) => Promise<void>
   updateEmployee: (e: Employee) => Promise<void>
   deactivateEmployee: (id: string) => Promise<void>
+  deleteEmployee: (id: string, mode: 'soft' | 'hard') => Promise<{ mode: string; message?: string }>
   reactivateEmployee: (id: string) => Promise<void>
   regenerateEmployeeAccess: (id: string) => Promise<Employee>
   disableEmployeeAccess: (id: string) => Promise<void>
@@ -84,10 +85,26 @@ export function EmployeesProvider({ children }: { children: ReactNode }) {
   }, [refetch])
 
   const deactivateEmployee = useCallback(async (id: string) => {
-    const res = await apiSend('DELETE', `/employees/${encodeURIComponent(id)}`)
+    const res = await apiSend('DELETE', `/employees/${encodeURIComponent(id)}`, undefined, { mode: 'soft' })
     if (!res.ok) throw new Error(res.error)
     await refetch()
   }, [refetch])
+
+  const deleteEmployee = useCallback(
+    async (id: string, mode: 'soft' | 'hard') => {
+      const res = await apiSend<{ deleted?: boolean; mode?: string; message?: string }>(
+        'DELETE',
+        `/employees/${encodeURIComponent(id)}`,
+        undefined,
+        { mode },
+      )
+      if (!res.ok) throw new Error(res.error)
+      await refetch()
+      const d = res.ok ? (res as { data?: { mode?: string; message?: string } }).data : undefined
+      return { mode: d?.mode ?? mode, message: d?.message }
+    },
+    [refetch],
+  )
 
   const reactivateEmployee = useCallback(
     async (id: string) => {
@@ -143,6 +160,7 @@ export function EmployeesProvider({ children }: { children: ReactNode }) {
       addEmployee,
       updateEmployee,
       deactivateEmployee,
+      deleteEmployee,
       reactivateEmployee,
       regenerateEmployeeAccess,
       disableEmployeeAccess,
@@ -157,6 +175,7 @@ export function EmployeesProvider({ children }: { children: ReactNode }) {
       addEmployee,
       updateEmployee,
       deactivateEmployee,
+      deleteEmployee,
       reactivateEmployee,
       regenerateEmployeeAccess,
       disableEmployeeAccess,

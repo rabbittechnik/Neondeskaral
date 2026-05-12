@@ -2,7 +2,7 @@ import { Router } from 'express'
 import { getDb } from '../db/database.js'
 import { jsonErr, jsonOk } from '../utils/http.js'
 import { requirePermission, getAccess } from '../middleware/stationAuth.js'
-import { hasPermission } from '../services/stationAccessService.js'
+import { canAccessStation, hasPermission } from '../services/stationAccessService.js'
 import * as employeeService from '../services/employeeService.js'
 
 export const employeesRouter = Router()
@@ -114,9 +114,33 @@ employeesRouter.delete('/:id', (req, res) => {
   try {
     const row = employeeService.getEmployeeRowInternal(getDb(), req.params.id)
     if (!row) return jsonErr(res, 'Mitarbeiter nicht gefunden', 404)
-    if (!requirePermission(req, res, row.station_id, 'employees.deactivate')) return
-    employeeService.softDeleteEmployee(getDb(), req.params.id)
-    jsonOk(res, { deleted: true })
+    const ctx = getAccess(req)
+    if (!ctx) return jsonErr(res, 'Intern', 500)
+    if (!canAccessStation(ctx, row.station_id)) return jsonErr(res, 'Kein Zugriff auf diese Station', 403)
+
+    const modeRaw = typeof req.query.mode === 'string' ? req.query.mode.trim() : 'soft'
+    const mode = modeRaw === 'hard' ? 'hard' : 'soft'
+
+    if (mode === 'soft') {
+      if (!hasPermission(ctx, row.station_id, 'employees.deactivate')) {
+        jsonErr(res, 'Keine Berechtigung', 403)
+        return
+      }
+      employeeService.softDeleteEmployee(getDb(), req.params.id)
+      jsonOk(res, { deleted: true, mode: 'soft' as const })
+      return
+    }
+
+    const canHard =
+      ctx.globalAdmin ||
+      hasPermission(ctx, row.station_id, 'employees.manageSensitive') ||
+      hasPermission(ctx, row.station_id, 'employees.delete')
+    if (!canHard) {
+      jsonErr(res, 'Keine Berechtigung für endgültiges Löschen', 403)
+      return
+    }
+    const out = employeeService.deleteEmployeeHardOrFallback(getDb(), req.params.id)
+    jsonOk(res, { deleted: true, mode: out.outcome, message: out.message })
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
   }

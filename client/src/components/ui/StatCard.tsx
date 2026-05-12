@@ -10,21 +10,50 @@ type Props = {
   /** `compact` = Mini-KPI (Dashboard links), `feature` = große Karte (z. B. Aufgaben) */
   density?: 'default' | 'compact' | 'feature'
   className?: string
+  /** Zusatzzeile unter Wert (nur `compact`) */
+  compactFooter?: ReactNode
+  onClick?: () => void
 }
 
-export function StatCard({ title, value, hint, icon, accentClass, density = 'default', className = '' }: Props) {
+export function StatCard({
+  title,
+  value,
+  hint,
+  icon,
+  accentClass,
+  density = 'default',
+  className = '',
+  compactFooter,
+  onClick,
+}: Props) {
   if (density === 'compact') {
     return (
       <Card
         padding="sm"
-        className={`relative min-h-[88px] max-h-[100px] overflow-hidden ${accentClass} ${className}`}
+        role={onClick ? 'button' : undefined}
+        tabIndex={onClick ? 0 : undefined}
+        onClick={onClick}
+        onKeyDown={
+          onClick
+            ? (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  onClick()
+                }
+              }
+            : undefined
+        }
+        className={`relative min-h-[88px] max-h-none overflow-hidden ${accentClass} ${onClick ? 'cursor-pointer transition hover:bg-white/[0.03]' : ''} ${className}`}
       >
-        <div className="flex h-full items-center justify-between gap-3">
+        <div className="flex items-center justify-between gap-3">
           <div className="min-w-0 flex-1">
             <p className="text-[11px] font-medium leading-tight text-[var(--text-muted)]">{title}</p>
             <p className="mt-0.5 truncate text-lg font-semibold leading-tight tracking-tight text-[var(--text-main)] md:text-xl">
               {value}
             </p>
+            {compactFooter ? (
+              <div className="mt-1 text-[10px] leading-snug text-[var(--text-muted)]">{compactFooter}</div>
+            ) : null}
           </div>
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-sm)] bg-black/30 text-[var(--text-main)] shadow-inner shadow-black/20">
             {icon}

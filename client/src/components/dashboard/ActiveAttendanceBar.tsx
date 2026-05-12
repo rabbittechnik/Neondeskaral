@@ -1,16 +1,17 @@
-import { useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Users } from 'lucide-react'
 import { useEmployees } from '../../context/employees-context'
-import { useTimeTracking } from '../../context/time-tracking-context'
 import type { TimeEntry } from '../../types/timeTracking'
 import { calculateWorkedMinutes, formatWorkedDuration } from '../../utils/timeTrackingUtils'
+import { apiGet } from '../../services/api'
+import { useStation } from '../../context/station-context'
 
 function sourceBadge(source: string | undefined): { label: string; className: string } {
   if (source === 'tablet' || source === 'cash_register_card_terminal') {
     return { label: 'Tablet', className: 'border-cyan-400/50 bg-cyan-950/80 text-cyan-100' }
   }
   if (source === 'employee_mobile_app') {
-    return { label: 'App', className: 'border-emerald-400/45 bg-emerald-950/70 text-emerald-100' }
+    return { label: 'Mitarbeiter-App', className: 'border-emerald-400/45 bg-emerald-950/70 text-emerald-100' }
   }
   if (source === 'manual') {
     return { label: 'Manuell', className: 'border-amber-400/45 bg-amber-950/70 text-amber-100' }
@@ -27,14 +28,42 @@ function formatSince(iso: string): string {
 }
 
 export function ActiveAttendanceBar() {
-  const { timeEntries } = useTimeTracking()
+  const { stationId } = useStation()
   const { employees } = useEmployees()
+  const [running, setRunning] = useState<TimeEntry[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const running = useMemo(() => {
-    const list = timeEntries.filter((e: TimeEntry) => e.status === 'running')
+  const load = useCallback(async () => {
+    if (!stationId) {
+      setRunning([])
+      setLoading(false)
+      setError(null)
+      return
+    }
+    setLoading(true)
+    setError(null)
+    const res = await apiGet<TimeEntry[]>('/time-entries/running', { stationId })
+    if (!res.ok) {
+      setRunning([])
+      setError(res.error)
+    } else {
+      setRunning(Array.isArray(res.data) ? res.data : [])
+    }
+    setLoading(false)
+  }, [stationId])
+
+  useEffect(() => {
+    void load()
+    const id = window.setInterval(() => void load(), 45_000)
+    return () => window.clearInterval(id)
+  }, [load])
+
+  const sorted = useMemo(() => {
+    const list = [...running]
     list.sort((a, b) => a.startAt.localeCompare(b.startAt))
     return list
-  }, [timeEntries])
+  }, [running])
 
   const byId = useMemo(() => new Map(employees.map((e) => [e.id, e])), [employees])
 
@@ -49,13 +78,17 @@ export function ActiveAttendanceBar() {
           <h2 className="text-sm font-semibold tracking-tight">Aktuell eingestempelt</h2>
         </div>
 
-        {running.length === 0 ? (
+        {error ? (
+          <p className="text-sm text-rose-300">{error}</p>
+        ) : loading ? (
+          <p className="text-sm text-[var(--text-muted)]">Lade laufende Zeiten…</p>
+        ) : sorted.length === 0 ? (
           <p className="text-sm text-[var(--text-muted)]">Aktuell ist niemand eingestempelt.</p>
         ) : (
           <ul className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-            {running.map((e) => {
+            {sorted.map((e) => {
               const emp = byId.get(e.employeeId)
-              const name = emp?.displayName ?? 'Mitarbeiter'
+              const name = emp?.displayName ?? e.employeeId
               const mins = calculateWorkedMinutes(e.startAt, undefined, new Date())
               const dur = formatWorkedDuration(mins)
               const since = formatSince(e.startAt)
