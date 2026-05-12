@@ -11,7 +11,14 @@ import {
   UserCircle,
 } from 'lucide-react'
 
-export type NavLeaf = { to: string; label: string; approverOnly?: boolean }
+export type NavLeaf = {
+  to: string
+  label: string
+  approverOnly?: boolean
+  globalAdminOnly?: boolean
+  /** Sichtbar, wenn mindestens eine dieser Berechtigungen gesetzt ist (Station-Kontext). */
+  anyPermission?: string[]
+}
 
 export type NavGroup = {
   type: 'group'
@@ -26,6 +33,7 @@ export type NavSingle = {
   to: string
   label: string
   icon: LucideIcon
+  globalAdminOnly?: boolean
 }
 
 export type NavEntry = NavGroup | NavSingle
@@ -68,6 +76,11 @@ export const navEntries: NavEntry[] = [
       { to: '/work-areas', label: 'Arbeitsbereiche' },
       { to: '/vacation-blocks', label: 'Urlaubssperren' },
       { to: '/holidays', label: 'Feiertage' },
+      {
+        to: '/tuv-berichte',
+        label: 'Monatlicher TÜV-Bericht',
+        anyPermission: ['tuvReports.view', 'tuvReports.create'],
+      },
     ],
   },
   {
@@ -91,7 +104,7 @@ export const navEntries: NavEntry[] = [
     children: [
       { to: '/settings/general', label: 'Allgemein' },
       { to: '/settings/email', label: 'E-Mail-Benachrichtigungen' },
-      { to: '/settings/appearance', label: 'Ansicht / Darstellung' },
+      { to: '/settings/access', label: 'Zugriffsberechtigungen', globalAdminOnly: true },
     ],
   },
   {
@@ -112,6 +125,7 @@ export const navEntries: NavEntry[] = [
     to: '/stations',
     label: 'Stationen verwalten',
     icon: Building2,
+    globalAdminOnly: true,
   },
   {
     type: 'single',

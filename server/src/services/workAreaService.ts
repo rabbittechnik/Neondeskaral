@@ -37,6 +37,11 @@ export function getWorkArea(db: Database, id: string) {
   return r ? rowToWorkAreaApi(r) : undefined
 }
 
+export function getWorkAreaStationId(db: Database, id: string): string | undefined {
+  const r = db.prepare(`SELECT station_id FROM work_areas WHERE id = ?`).get(id) as { station_id: string } | undefined
+  return r?.station_id
+}
+
 export function createWorkArea(db: Database, body: Record<string, unknown>, stationId = DEFAULT_STATION_ID) {
   const name = String(body.name ?? '').trim()
   if (!name) throw new Error('name erforderlich')

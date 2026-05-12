@@ -42,6 +42,8 @@ export type AbsenceRow = {
   requested_at: string | null
   approved_by: string | null
   approved_at: string | null
+  rejected_by: string | null
+  rejected_at: string | null
   rejected_reason: string | null
 }
 
@@ -59,6 +61,8 @@ export function rowToAbsenceApi(r: AbsenceRow) {
     approvedBy: r.approved_by ?? undefined,
     approvedAt: r.approved_at ?? undefined,
     rejectedReason: r.rejected_reason ?? undefined,
+    rejectedBy: r.rejected_by ?? undefined,
+    rejectedAt: r.rejected_at ?? undefined,
   }
 }
 
@@ -103,6 +107,47 @@ export function listAbsences(
   return rows.map(rowToAbsenceApi)
 }
 
+export function countRequestedAbsences(db: Database, stationId = DEFAULT_STATION_ID): number {
+  const row = db
+    .prepare(`SELECT COUNT(*) as c FROM absences WHERE station_id = ? AND status = 'requested'`)
+    .get(stationId) as { c: number }
+  return row?.c ?? 0
+}
+
+function formatDeYmd(ymd: string): string {
+  const [y, m, d] = ymd.split('-')
+  if (!y || !m || !d) return ymd
+  return `${d.padStart(2, '0')}.${m.padStart(2, '0')}.${y}`
+}
+
+const ABS_TYPE_SNIPPET_DE: Record<string, string> = {
+  vacation: 'Urlaub',
+  day_off: 'Frei',
+  sick: 'Krank',
+  special_leave: 'Sonderurlaub',
+  child_sick: 'Kind krank',
+  unpaid: 'Unbezahlt',
+  other: 'Sonstiges',
+  school: 'Berufsschule',
+}
+
+/** Letzte offene Antrags-Zeile für Benachrichtigungstext (Name + Zeitraum). */
+export function getLatestRequestedAbsenceSnippet(db: Database, stationId: string): string | null {
+  const r = db
+    .prepare(
+      `SELECT e.display_name as dn, a.type as ty, a.start_date as sd, a.end_date as ed
+       FROM absences a
+       JOIN employees e ON e.id = a.employee_id
+       WHERE a.station_id = ? AND a.status = 'requested'
+       ORDER BY datetime(COALESCE(a.requested_at, a.created_at, a.updated_at)) DESC
+       LIMIT 1`,
+    )
+    .get(stationId) as { dn: string; ty: string; sd: string; ed: string } | undefined
+  if (!r) return null
+  const t = ABS_TYPE_SNIPPET_DE[r.ty] ?? 'Abwesenheit'
+  return `${r.dn} beantragt ${t} vom ${formatDeYmd(r.sd)} bis ${formatDeYmd(r.ed)}.`
+}
+
 export function getAbsence(db: Database, id: string) {
   const r = db.prepare(`SELECT * FROM absences WHERE id = ?`).get(id) as AbsenceRow | undefined
   return r ? rowToAbsenceApi(r) : undefined
@@ -122,8 +167,8 @@ export function createAbsence(db: Database, body: Record<string, unknown>, stati
   const ts = nowIso()
   const status = DE_TO_STATUS[String(body.status ?? 'beantragt')] ?? 'requested'
   db.prepare(
-    `INSERT INTO absences (id, station_id, employee_id, type, start_date, end_date, half_day, status, comment, requested_at, approved_by, approved_at, rejected_reason, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?)`,
+    `INSERT INTO absences (id, station_id, employee_id, type, start_date, end_date, half_day, status, comment, requested_at, approved_by, approved_at, rejected_by, rejected_at, rejected_reason, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, ?, ?)`,
   ).run(
     id,
     stationId,
@@ -183,20 +228,34 @@ export function approveAbsence(db: Database, id: string, by = 'Station') {
   const ts = nowIso()
   const r = db
     .prepare(
-      `UPDATE absences SET status = 'approved', approved_by = ?, approved_at = ?, rejected_reason = NULL, updated_at = ? WHERE id = ?`,
+      `UPDATE absences SET status = 'approved', approved_by = ?, approved_at = ?, rejected_reason = NULL, rejected_by = NULL, rejected_at = NULL, updated_at = ? WHERE id = ?`,
     )
     .run(by, ts, ts, id)
   if (r.changes === 0) throw new Error('Abwesenheit nicht gefunden')
   return getAbsence(db, id)
 }
 
-export function rejectAbsence(db: Database, id: string, reason?: string) {
+export function rejectAbsence(db: Database, id: string, reason: string | undefined, rejectedByUserId?: string) {
+  const trimmed = String(reason ?? '').trim()
+  if (!trimmed) throw new Error('Ablehnungsgrund erforderlich')
   const ts = nowIso()
   const r = db
     .prepare(
-      `UPDATE absences SET status = 'rejected', rejected_reason = ?, approved_by = NULL, approved_at = NULL, updated_at = ? WHERE id = ?`,
+      `UPDATE absences SET status = 'rejected', rejected_reason = ?, rejected_by = ?, rejected_at = ?, approved_by = NULL, approved_at = NULL, updated_at = ? WHERE id = ?`,
     )
-    .run(reason ?? '', ts, id)
+    .run(trimmed, rejectedByUserId ?? null, ts, ts, id)
+  if (r.changes === 0) throw new Error('Abwesenheit nicht gefunden')
+  return getAbsence(db, id)
+}
+
+export function cancelAbsence(db: Database, id: string) {
+  const existing = db.prepare(`SELECT status FROM absences WHERE id = ?`).get(id) as { status: string } | undefined
+  if (!existing) throw new Error('Abwesenheit nicht gefunden')
+  if (existing.status !== 'requested') throw new Error('Nur beantragte Abwesenheiten können storniert werden')
+  const ts = nowIso()
+  const r = db
+    .prepare(`UPDATE absences SET status = 'cancelled', updated_at = ? WHERE id = ?`)
+    .run(ts, id)
   if (r.changes === 0) throw new Error('Abwesenheit nicht gefunden')
   return getAbsence(db, id)
 }

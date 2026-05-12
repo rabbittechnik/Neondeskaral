@@ -5,7 +5,7 @@ import { useEmployees } from '../../context/employees-context'
 import { useAbsences } from '../../context/absences-context'
 import { useScheduleShifts } from '../../context/schedule-shifts-context'
 import { checkAbsenceConflicts } from '../../utils/absenceConflicts'
-import { STATION_FEDERAL_STATE } from '../../data/station'
+import { useStation } from '../../context/station-context'
 import { ABSENCE_TYPE_LABELS } from './absenceLabels'
 import { AbsenceConflictWarningBox } from './AbsenceConflictWarningBox'
 import { Button } from '../ui/Button'
@@ -35,6 +35,7 @@ function emptyDraft(): Absence {
 }
 
 export function AbsenceModal({ open, mode, absence, onClose, onSave }: Props) {
+  const { federalState } = useStation()
   const { employees } = useEmployees()
   const { absences, vacationBlocks } = useAbsences()
   const { shifts } = useScheduleShifts()
@@ -71,11 +72,11 @@ export function AbsenceModal({ open, mode, absence, onClose, onSave }: Props) {
         vacationBlocks,
         shifts,
         employees,
-        federalState: STATION_FEDERAL_STATE,
+        federalState,
         excludeAbsenceId: mode === 'edit' ? form.id : undefined,
       },
     )
-  }, [form.employeeId, form.startDate, form.endDate, form.type, absences, vacationBlocks, shifts, employees, mode, form.id])
+  }, [form.employeeId, form.startDate, form.endDate, form.type, absences, vacationBlocks, shifts, employees, mode, form.id, federalState])
 
   const validate = (): string[] => {
     const err: string[] = []

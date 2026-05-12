@@ -12,7 +12,7 @@ export const ABSENCE_TYPE_LABELS: Record<AbsenceType, string> = {
 }
 
 export const ABSENCE_STATUS_LABELS: Record<AbsenceStatus, string> = {
-  beantragt: 'Beantragt',
+  beantragt: 'Wartet auf Prüfung',
   genehmigt: 'Genehmigt',
   abgelehnt: 'Abgelehnt',
   storniert: 'Storniert',

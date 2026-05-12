@@ -10,12 +10,14 @@ import {
 import { QuickActions } from './QuickActions'
 import { WeeklySchedule } from './WeeklySchedule'
 import { WelcomeBanner } from './WelcomeBanner'
+import { TuvReportDashboardReminder } from '../../components/tuv/TuvReportDashboardReminder'
 
 export function DashboardPage() {
   return (
-    <div className="space-y-5 pb-6">
-      <section className="grid gap-4 xl:grid-cols-12 xl:items-stretch">
-        <div className="xl:col-span-8">
+    <div className="space-y-4 pb-6">
+      <section className="grid gap-3 xl:grid-cols-12 xl:items-stretch">
+        <div className="space-y-3 xl:col-span-8">
+          <TuvReportDashboardReminder />
           <WelcomeBanner />
         </div>
         <div className="xl:col-span-4">
@@ -25,18 +27,18 @@ export function DashboardPage() {
 
       <ActiveAttendanceBar />
 
-      <section className="grid gap-4 xl:grid-cols-12 xl:items-stretch">
-        <div className="space-y-4 xl:col-span-8">
+      <section className="grid gap-3 xl:grid-cols-12 xl:items-stretch">
+        <div className="space-y-3 xl:col-span-8">
           <WeeklySchedule />
         </div>
-        <div className="space-y-4 xl:col-span-4">
+        <div className="space-y-3 xl:col-span-4">
           <PendingTimeApprovalsCard />
           <PendingAbsencesCard />
           <UnfilledShiftsCard />
         </div>
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-12">
+      <section className="grid gap-3 lg:grid-cols-12">
         <div className="lg:col-span-4">
           <QuickActions />
         </div>

@@ -112,6 +112,10 @@ export function getTimeEntry(db: Database, id: string) {
   return r ? rowToTimeEntryApi(r) : undefined
 }
 
+export function getTimeEntryRow(db: Database, id: string): TimeEntryRow | undefined {
+  return db.prepare(`SELECT * FROM time_entries WHERE id = ?`).get(id) as TimeEntryRow | undefined
+}
+
 export function createManualTimeEntry(db: Database, body: Record<string, unknown>, stationId = DEFAULT_STATION_ID) {
   const employeeId = String(body.employeeId ?? '').trim()
   const startAt = String(body.startAt ?? '').trim()

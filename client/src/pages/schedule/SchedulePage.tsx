@@ -31,10 +31,11 @@ import {
 } from '../../components/schedule/schedulePanelUtils'
 import { useEmployees } from '../../context/employees-context'
 import { persistShiftDelete, persistShiftUpsert, useScheduleShifts } from '../../context/schedule-shifts-context'
-import { STATION_FEDERAL_STATE } from '../../data/station'
+import { useStation } from '../../context/station-context'
 import { ScheduleAssistantModal } from '../../components/schedule/assistant/ScheduleAssistantModal'
 
 export function SchedulePage() {
+  const { federalState, stationId } = useStation()
   const { employees } = useEmployees()
   const { shifts, setShifts, ensureWeekSeeded, loading: shiftsLoading, error: shiftsError, refetchRange } =
     useScheduleShifts()
@@ -145,7 +146,8 @@ export function SchedulePage() {
   }
 
   const handleUpsert = async (s: ScheduleShift) => {
-    const saved = await persistShiftUpsert(s)
+    if (!stationId) return
+    const saved = await persistShiftUpsert(s, stationId)
     if (!saved) {
       window.alert('Schicht konnte nicht gespeichert werden. Bitte API/Server prüfen.')
       return
@@ -260,7 +262,7 @@ export function SchedulePage() {
             <div className="space-y-4 xl:col-span-9">
               <WeeklyScheduleGrid
                 variant="full"
-                stationFederalState={STATION_FEDERAL_STATE}
+                stationFederalState={federalState}
                 weekMonday={weekMonday}
                 employees={scheduleRows}
                 blocks={gridBlocks}

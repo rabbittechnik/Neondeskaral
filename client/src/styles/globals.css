@@ -127,3 +127,25 @@
   border: 1px solid rgba(251, 191, 36, 0.45);
   box-shadow: var(--glow-amber);
 }
+
+@media print {
+  body.tuv-print-session aside,
+  body.tuv-print-session header,
+  body.tuv-print-session footer,
+  body.tuv-print-session .tuv-no-print {
+    display: none !important;
+  }
+  body.tuv-print-session main {
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+  body.tuv-print-session .tuv-print-only {
+    display: block !important;
+  }
+}
+
+.tuv-print-only {
+  display: none;
+}

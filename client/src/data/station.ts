@@ -1,8 +1,11 @@
 import type { GermanState } from './germanHolidays'
 
-/** Dummy-Station (später aus Backend / Kontext). */
+/** Physisches Tablet / Terminal ohne Admin-Session: feste Standard-Station. */
+export const DEFAULT_TABLET_STATION_ID = 'aral-bodelshausen'
+
+/** @deprecated Nutze useStation() in der Admin-App. */
 export const STATION = {
-  id: 'aral-bodelshausen',
+  id: DEFAULT_TABLET_STATION_ID,
   name: 'Aral Bodelshausen',
   federalState: 'BW' as GermanState,
 } as const

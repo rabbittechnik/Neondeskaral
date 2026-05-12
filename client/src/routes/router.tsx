@@ -16,6 +16,7 @@ import { ContactsPage } from '../pages/contacts/ContactsPage'
 import { CountersPage } from '../pages/counters/CountersPage'
 import { DashboardPage } from '../pages/dashboard/DashboardPage'
 import { DocumentsPage } from '../pages/documents/DocumentsPage'
+import { StationProvider } from '../context/station-context'
 import { WorkAreasProvider } from '../context/work-areas-context'
 import { EmployeesProvider } from '../context/employees-context'
 import { ScheduleShiftsProvider } from '../context/schedule-shifts-context'
@@ -33,9 +34,10 @@ import { PayrollSchedulePage } from '../pages/reports/PayrollSchedulePage'
 import { PayrollTimePage } from '../pages/reports/PayrollTimePage'
 import { TaskReportsPage } from '../pages/reports/TaskReportsPage'
 import { SchedulePage } from '../pages/schedule/SchedulePage'
-import { AppearanceSettingsPage } from '../pages/settings/AppearanceSettingsPage'
+import { AccessSettingsPage } from '../pages/settings/AccessSettingsPage'
 import { EmailSettingsPage } from '../pages/settings/EmailSettingsPage'
 import { GeneralSettingsPage } from '../pages/settings/GeneralSettingsPage'
+import { AppearanceSettingsPage } from '../pages/settings/AppearanceSettingsPage'
 import { StationsPage } from '../pages/stations/StationsPage'
 import { TasksPage } from '../pages/tasks/TasksPage'
 import { VacationBlocksPage } from '../pages/vacationBlocks/VacationBlocksPage'
@@ -45,7 +47,11 @@ import { SidebarProvider } from '../store/sidebar-context'
 import { RequireAuth } from '../components/auth/RequireAuth'
 import { EmployeeAppLayout } from '../layouts/EmployeeAppLayout'
 import { EmployeeAccessPage } from '../pages/employee-app/EmployeeAccessPage'
+import { EmployeeAppPage } from '../pages/employee-app/EmployeeAppPage'
+import { LandingChoicePage } from '../pages/employee-app/LandingChoicePage'
 import { TimeApprovalsPage } from '../pages/time-approvals/TimeApprovalsPage'
+import { TuvReportsPage } from '../pages/tuv/TuvReportsPage'
+import { TuvReportEditorPage } from '../pages/tuv/TuvReportEditorPage'
 
 function MitarbeiterToEmployeesProfile() {
   const { employeeId } = useParams()
@@ -64,17 +70,24 @@ export const router = createBrowserRouter([
     children: [{ index: true, element: <EmployeeAccessPage /> }],
   },
   {
+    path: '/employee-app',
+    element: <EmployeeAppLayout />,
+    children: [{ index: true, element: <EmployeeAppPage /> }],
+  },
+  {
     path: '/tablet',
     element: (
-      <WorkAreasProvider>
-        <EmployeesProvider>
-          <ScheduleShiftsProvider>
-            <TimeTrackingProvider>
-              <TerminalLayout />
-            </TimeTrackingProvider>
-          </ScheduleShiftsProvider>
-        </EmployeesProvider>
-      </WorkAreasProvider>
+      <StationProvider>
+        <WorkAreasProvider>
+          <EmployeesProvider>
+            <ScheduleShiftsProvider>
+              <TimeTrackingProvider>
+                <TerminalLayout />
+              </TimeTrackingProvider>
+            </ScheduleShiftsProvider>
+          </EmployeesProvider>
+        </WorkAreasProvider>
+      </StationProvider>
     ),
     children: [{ index: true, element: <StaffTerminalPage /> }],
   },
@@ -82,29 +95,33 @@ export const router = createBrowserRouter([
   { path: '/staff-terminal', element: <Navigate to="/tablet" replace /> },
   {
     path: '/',
-    element: (
-      <RequireAuth>
-        <SidebarProvider>
-          <WorkAreasProvider>
-            <EmployeesProvider>
-              <ScheduleShiftsProvider>
-                <AbsencesProvider>
-                  <TasksProvider>
-                    <TimeTrackingProvider>
-                      <Outlet />
-                    </TimeTrackingProvider>
-                  </TasksProvider>
-                </AbsencesProvider>
-              </ScheduleShiftsProvider>
-            </EmployeesProvider>
-          </WorkAreasProvider>
-        </SidebarProvider>
-      </RequireAuth>
-    ),
+    element: <Outlet />,
     children: [
+      { index: true, element: <LandingChoicePage /> },
       {
-        element: <AppLayout />,
+        element: (
+          <RequireAuth>
+            <SidebarProvider>
+              <WorkAreasProvider>
+                <EmployeesProvider>
+                  <ScheduleShiftsProvider>
+                    <AbsencesProvider>
+                      <TasksProvider>
+                        <TimeTrackingProvider>
+                          <Outlet />
+                        </TimeTrackingProvider>
+                      </TasksProvider>
+                    </AbsencesProvider>
+                  </ScheduleShiftsProvider>
+                </EmployeesProvider>
+              </WorkAreasProvider>
+            </SidebarProvider>
+          </RequireAuth>
+        ),
         children: [
+          {
+            element: <AppLayout />,
+            children: [
       {
         index: true,
         element: <Navigate to="/dashboard" replace />,
@@ -218,6 +235,20 @@ export const router = createBrowserRouter([
         handle: { title: 'Feiertage' },
       },
       {
+        path: 'tuv-berichte',
+        element: <TuvReportsPage />,
+        handle: { title: 'Monatlicher TÜV-Bericht' },
+      },
+      {
+        path: 'tuv-berichte/:reportId',
+        element: <TuvReportEditorPage />,
+        handle: { title: 'TÜV-Bericht bearbeiten' },
+      },
+      {
+        path: 'monthly-tuv-reports',
+        element: <Navigate to="/tuv-berichte" replace />,
+      },
+      {
         path: 'reports/payroll-time',
         element: <PayrollTimePage />,
         handle: { title: 'Lohnabrechnung (Zeiterfassung)' },
@@ -251,6 +282,15 @@ export const router = createBrowserRouter([
         path: 'settings/appearance',
         element: <AppearanceSettingsPage />,
         handle: { title: 'Ansicht / Darstellung' },
+      },
+      {
+        path: 'settings/access',
+        element: <AccessSettingsPage />,
+        handle: { title: 'Zugriffsberechtigungen' },
+      },
+      {
+        path: 'einstellungen/zugriffsberechtigungen',
+        element: <Navigate to="/settings/access" replace />,
       },
       {
         path: 'account',
@@ -307,9 +347,11 @@ export const router = createBrowserRouter([
         element: <Navigate to="/reports/payroll-time" replace />,
         handle: { title: 'Zeiterfassung' },
       },
+            ],
+          },
         ],
       },
     ],
   },
-  { path: '*', element: <Navigate to="/dashboard" replace /> },
+  { path: '*', element: <Navigate to="/" replace /> },
 ])

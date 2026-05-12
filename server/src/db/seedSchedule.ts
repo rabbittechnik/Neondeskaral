@@ -194,8 +194,8 @@ export function seedImportedStationGuideSchedule(
     }
 
     const insAbs = db.prepare(
-      `INSERT INTO absences (id, station_id, employee_id, type, start_date, end_date, half_day, status, comment, requested_at, approved_by, approved_at, rejected_reason, created_at, updated_at)
-       VALUES (?, ?, ?, 'vacation', ?, ?, 0, 'approved', ?, ?, ?, ?, NULL, ?, ?)`,
+      `INSERT INTO absences (id, station_id, employee_id, type, start_date, end_date, half_day, status, comment, requested_at, approved_by, approved_at, rejected_by, rejected_at, rejected_reason, created_at, updated_at)
+       VALUES (?, ?, ?, 'vacation', ?, ?, 0, 'approved', ?, ?, ?, ?, NULL, NULL, NULL, ?, ?)`,
     )
 
     for (const ab of stationGuideImportedAbsences) {

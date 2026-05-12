@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { getDb } from '../db/database.js'
 import { jsonErr, jsonOk } from '../utils/http.js'
+import { requirePermission } from '../middleware/stationAuth.js'
 import * as shiftService from '../services/shiftService.js'
 
 export const shiftsRouter = Router()
@@ -8,7 +9,8 @@ export const shiftsRouter = Router()
 shiftsRouter.get('/open', (req, res) => {
   try {
     const stationId = typeof req.query.stationId === 'string' ? req.query.stationId : undefined
-    jsonOk(res, shiftService.listOpenShifts(getDb(), stationId))
+    if (!requirePermission(req, res, stationId, 'schedule.view')) return
+    jsonOk(res, shiftService.listOpenShifts(getDb(), stationId!))
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
   }
@@ -17,7 +19,8 @@ shiftsRouter.get('/open', (req, res) => {
 shiftsRouter.get('/conflicts', (req, res) => {
   try {
     const stationId = typeof req.query.stationId === 'string' ? req.query.stationId : undefined
-    jsonOk(res, shiftService.listConflicts(getDb(), stationId))
+    if (!requirePermission(req, res, stationId, 'schedule.view')) return
+    jsonOk(res, shiftService.listConflicts(getDb(), stationId!))
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
   }
@@ -31,7 +34,8 @@ shiftsRouter.post('/publish-week', (req, res) => {
       typeof (req.body as { stationId?: string })?.stationId === 'string'
         ? (req.body as { stationId: string }).stationId
         : undefined
-    jsonOk(res, shiftService.publishWeek(getDb(), weekMonday, stationId))
+    if (!requirePermission(req, res, stationId, 'schedule.publish')) return
+    jsonOk(res, shiftService.publishWeek(getDb(), weekMonday, stationId!))
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
   }
@@ -39,10 +43,12 @@ shiftsRouter.post('/publish-week', (req, res) => {
 
 shiftsRouter.get('/', (req, res) => {
   try {
+    const stationId = typeof req.query.stationId === 'string' ? req.query.stationId : undefined
+    if (!requirePermission(req, res, stationId, 'schedule.view')) return
     jsonOk(
       res,
       shiftService.listShifts(getDb(), {
-        stationId: typeof req.query.stationId === 'string' ? req.query.stationId : undefined,
+        stationId: stationId!,
         from: typeof req.query.from === 'string' ? req.query.from : undefined,
         to: typeof req.query.to === 'string' ? req.query.to : undefined,
         employeeId: typeof req.query.employeeId === 'string' ? req.query.employeeId : undefined,
@@ -56,9 +62,10 @@ shiftsRouter.get('/', (req, res) => {
 
 shiftsRouter.get('/:id', (req, res) => {
   try {
-    const s = shiftService.getShift(getDb(), req.params.id)
-    if (!s) return jsonErr(res, 'Schicht nicht gefunden', 404)
-    jsonOk(res, s)
+    const row = shiftService.getShiftRow(getDb(), req.params.id)
+    if (!row) return jsonErr(res, 'Schicht nicht gefunden', 404)
+    if (!requirePermission(req, res, row.station_id, 'schedule.view')) return
+    jsonOk(res, shiftService.getShift(getDb(), req.params.id))
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
   }
@@ -67,7 +74,8 @@ shiftsRouter.get('/:id', (req, res) => {
 shiftsRouter.post('/', (req, res) => {
   try {
     const stationId = typeof req.query.stationId === 'string' ? req.query.stationId : undefined
-    jsonOk(res, shiftService.createShift(getDb(), req.body ?? {}, stationId), 201)
+    if (!requirePermission(req, res, stationId, 'schedule.create')) return
+    jsonOk(res, shiftService.createShift(getDb(), req.body ?? {}, stationId!), 201)
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
   }
@@ -75,6 +83,9 @@ shiftsRouter.post('/', (req, res) => {
 
 shiftsRouter.put('/:id', (req, res) => {
   try {
+    const row = shiftService.getShiftRow(getDb(), req.params.id)
+    if (!row) return jsonErr(res, 'Schicht nicht gefunden', 404)
+    if (!requirePermission(req, res, row.station_id, 'schedule.edit')) return
     jsonOk(res, shiftService.updateShift(getDb(), req.params.id, req.body ?? {}))
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
@@ -83,6 +94,9 @@ shiftsRouter.put('/:id', (req, res) => {
 
 shiftsRouter.delete('/:id', (req, res) => {
   try {
+    const row = shiftService.getShiftRow(getDb(), req.params.id)
+    if (!row) return jsonErr(res, 'Schicht nicht gefunden', 404)
+    if (!requirePermission(req, res, row.station_id, 'schedule.delete')) return
     shiftService.deleteShift(getDb(), req.params.id)
     jsonOk(res, { deleted: true })
   } catch (e) {
@@ -92,6 +106,9 @@ shiftsRouter.delete('/:id', (req, res) => {
 
 shiftsRouter.post('/:id/publish', (req, res) => {
   try {
+    const row = shiftService.getShiftRow(getDb(), req.params.id)
+    if (!row) return jsonErr(res, 'Schicht nicht gefunden', 404)
+    if (!requirePermission(req, res, row.station_id, 'schedule.publish')) return
     jsonOk(res, shiftService.publishShift(getDb(), req.params.id))
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)

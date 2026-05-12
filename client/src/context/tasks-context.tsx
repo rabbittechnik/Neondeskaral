@@ -10,7 +10,7 @@ import {
 import type { ControlResult, Task, TaskLog } from '../types/task'
 import { createTaskId } from '../data/mockTasks'
 import { apiGet, apiSend } from '../services/api'
-import { STATION } from '../data/station'
+import { useStation } from './station-context'
 
 const CURRENT_USER = 'Mathias Raselowski'
 
@@ -40,17 +40,24 @@ function mergeLogs(prev: TaskLog[], incoming: TaskLog[]): TaskLog[] {
 }
 
 export function TasksProvider({ children }: { children: ReactNode }) {
+  const { stationId } = useStation()
   const [tasks, setTasks] = useState<Task[]>([])
   const [logs, setLogs] = useState<TaskLog[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const refetch = useCallback(async () => {
+    if (!stationId) {
+      setTasks([])
+      setLogs([])
+      setLoading(false)
+      return
+    }
     setLoading(true)
     setError(null)
     const [tRes, lRes] = await Promise.all([
-      apiGet<Task[]>('/tasks', { stationId: STATION.id }),
-      apiGet<TaskLog[]>('/task-logs'),
+      apiGet<Task[]>('/tasks', { stationId }),
+      apiGet<TaskLog[]>('/task-logs', { stationId }),
     ])
     if (tRes.ok && Array.isArray(tRes.data)) setTasks(tRes.data)
     else {
@@ -60,7 +67,7 @@ export function TasksProvider({ children }: { children: ReactNode }) {
     if (lRes.ok && Array.isArray(lRes.data)) setLogs(lRes.data)
     else if (!lRes.ok) setError((p) => (p ? `${p}; ${lRes.error}` : lRes.error))
     setLoading(false)
-  }, [])
+  }, [stationId])
 
   useEffect(() => {
     void refetch()
@@ -68,18 +75,19 @@ export function TasksProvider({ children }: { children: ReactNode }) {
 
   const addTask = useCallback(
     async (t: Task) => {
+      if (!stationId) throw new Error('Keine Station gewählt')
       const id = t.id?.trim() ? t.id : createTaskId()
       const now = new Date().toISOString()
       const res = await apiSend<Task>(
         'POST',
         '/tasks',
         { ...t, id, createdAt: t.createdAt || now, updatedAt: now },
-        { stationId: STATION.id },
+        { stationId },
       )
       if (!res.ok) throw new Error(res.error)
       await refetch()
     },
-    [refetch],
+    [refetch, stationId],
   )
 
   const updateTask = useCallback(

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { AssistantMode, AssistantSuggestedShift, DayRequirement } from '../../../types/scheduleAssistant'
-import { STATION } from '../../../data/station'
+import { useStation } from '../../../context/station-context'
 import { scheduleAssistantApply, scheduleAssistantGenerate } from '../../../services/api'
 import { buildDefaultWeekRequirements } from '../../../utils/scheduleAssistantWeek'
 import { Button } from '../../ui/Button'
@@ -19,6 +19,7 @@ type Props = {
 }
 
 export function ScheduleAssistantWizard({ open, initialWeekStartIso, onClose, onApplied }: Props) {
+  const { stationId, federalState } = useStation()
   const [step, setStep] = useState(0)
   const [weekStartIso, setWeekStartIso] = useState(initialWeekStartIso)
   const [mode, setMode] = useState<AssistantMode>('fill_gaps')
@@ -45,14 +46,15 @@ export function ScheduleAssistantWizard({ open, initialWeekStartIso, onClose, on
   }, [weekStartIso])
 
   const runGenerate = useCallback(async () => {
+    if (!stationId) return false
     setBusy(true)
     setErr(null)
     const res = await scheduleAssistantGenerate({
-      stationId: STATION.id,
+      stationId,
       weekStart: weekStartIso,
       mode,
       requirements,
-      federalState: STATION.federalState,
+      federalState,
     })
     setBusy(false)
     if (!res.ok) {
@@ -62,16 +64,17 @@ export function ScheduleAssistantWizard({ open, initialWeekStartIso, onClose, on
     setSuggested(res.data.suggestedShifts)
     setWarnings(res.data.warnings ?? [])
     return true
-  }, [weekStartIso, mode, requirements])
+  }, [weekStartIso, mode, requirements, stationId, federalState])
 
   const apply = async (onlyOpen: boolean) => {
+    if (!stationId) return
     setBusy(true)
     setErr(null)
     const list = onlyOpen
       ? suggested.filter((s) => s.employeeId && s.existingShiftId)
       : suggested.filter((s) => s.employeeId)
     const res = await scheduleAssistantApply({
-      stationId: STATION.id,
+      stationId,
       weekStart: weekStartIso,
       mode,
       onlyOpen,

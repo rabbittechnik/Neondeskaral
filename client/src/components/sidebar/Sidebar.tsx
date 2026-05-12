@@ -4,6 +4,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import { useSidebar } from '../../store/sidebar-context'
 import { navEntries, type NavEntry, type NavGroup } from './navConfig'
 import { useAuth } from '../../context/auth-context'
+import { useStation } from '../../context/station-context'
 import { canApproveTimeEntries } from '../../utils/timeApproval'
 
 function pathMatches(pathname: string, to: string) {
@@ -19,6 +20,12 @@ function pathMatches(pathname: string, to: string) {
   }
   if (to === '/zeiterfassung/freigaben') {
     return pathname === '/zeiterfassung/freigaben' || pathname === '/time-tracking/approvals'
+  }
+  if (to === '/settings/access') {
+    return pathname === '/settings/access' || pathname === '/einstellungen/zugriffsberechtigungen'
+  }
+  if (to === '/tuv-berichte') {
+    return pathname === '/tuv-berichte' || pathname.startsWith('/tuv-berichte/')
   }
   return pathname === to || pathname.startsWith(`${to}/`)
 }
@@ -160,16 +167,31 @@ export function Sidebar() {
   const { pathname } = useLocation()
 
   const { user } = useAuth()
-  const canApprove = canApproveTimeEntries(user?.id)
+  const { hasPermission } = useStation()
+  const canApprove = canApproveTimeEntries(user)
   const visibleNav = useMemo(() => {
-    return navEntries.map((e) => {
-      if (e.type !== 'group') return e
-      return {
-        ...e,
-        children: e.children.filter((c) => !c.approverOnly || canApprove),
-      }
-    })
-  }, [canApprove])
+    return navEntries
+      .filter((e) => {
+        if (e.type === 'single' && e.globalAdminOnly && !user?.globalAdmin) return false
+        return true
+      })
+      .map((e) => {
+        if (e.type !== 'group') return e
+        return {
+          ...e,
+          children: e.children.filter((c) => {
+            if (c.globalAdminOnly && !user?.globalAdmin) return false
+            if (c.approverOnly && !canApprove) return false
+            if (c.anyPermission?.length) {
+              const ok = c.anyPermission.some((k) => hasPermission(k))
+              if (!ok) return false
+            }
+            return true
+          }),
+        }
+      })
+      .filter((e) => (e.type === 'group' ? e.children.length > 0 : true))
+  }, [canApprove, user?.globalAdmin, hasPermission])
 
   const defaultOpen = useMemo(() => {
     const ids = new Set<string>()

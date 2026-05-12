@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from 'express'
 import { verifyAdminToken } from '../services/authService.js'
 import { getDb } from '../db/database.js'
+import { buildAccessContext } from '../services/stationAccessService.js'
 
 /**
  * Schützt alle /api/* Routen außer Health, Login, Mitarbeiter-Zugang und Terminal.
@@ -32,6 +33,7 @@ export function adminApiGate(req: Request, res: Response, next: NextFunction) {
     res.status(401).json({ ok: false, error: 'Benutzer ungültig' })
     return
   }
+  req.accessContext = buildAccessContext(getDb(), payload.sub)
   req.adminUser = payload
   next()
 }

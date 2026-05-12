@@ -1,0 +1,167 @@
+import type { Database } from 'better-sqlite3'
+import { randomUUID } from 'node:crypto'
+import { KNOWN_STATIONS } from '../constants/stationIds.js'
+import { TEAMLEAD_PERMISSIONS } from '../constants/permissions.js'
+
+export type UserStationAccessRow = {
+  id: string
+  user_id: string
+  station_id: string
+  role: string
+  permissions_json: string
+  active: number
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type AccessContext = {
+  userId: string
+  globalAdmin: boolean
+  /** Erlaubte Station-IDs (immer aktiv laut DB). */
+  stationIds: string[]
+  /** stationId → geparste Berechtigungen */
+  permissionsByStation: Map<string, Record<string, boolean>>
+  /** stationId → Rolle laut user_station_access */
+  roleByStation: Map<string, string>
+}
+
+function parsePermissionsJson(raw: string | null | undefined): Record<string, boolean> {
+  try {
+    const o = JSON.parse(String(raw ?? '{}')) as Record<string, unknown>
+    const out: Record<string, boolean> = {}
+    for (const [k, v] of Object.entries(o)) {
+      out[k] = Boolean(v)
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+export function buildAccessContext(db: Database, userId: string): AccessContext {
+  const u = db
+    .prepare(`SELECT id, COALESCE(global_admin, 0) as ga FROM users WHERE id = ?`)
+    .get(userId) as { id: string; ga: number } | undefined
+  const globalAdmin = (u?.ga ?? 0) === 1
+
+  if (globalAdmin) {
+    const all = db
+      .prepare(`SELECT id FROM stations WHERE active IS NULL OR active = 1 ORDER BY name`)
+      .all() as { id: string }[]
+    const stationIds = all.map((r) => r.id)
+    return {
+      userId,
+      globalAdmin: true,
+      stationIds,
+      permissionsByStation: new Map(),
+      roleByStation: new Map(),
+    }
+  }
+
+  const rows = db
+    .prepare(
+      `SELECT * FROM user_station_access WHERE user_id = ? AND (active IS NULL OR active = 1)`,
+    )
+    .all(userId) as UserStationAccessRow[]
+
+  const stationIds: string[] = []
+  const permissionsByStation = new Map<string, Record<string, boolean>>()
+  const roleByStation = new Map<string, string>()
+  for (const r of rows) {
+    if (!r.station_id) continue
+    stationIds.push(r.station_id)
+    permissionsByStation.set(r.station_id, parsePermissionsJson(r.permissions_json))
+    roleByStation.set(r.station_id, r.role ?? 'teamleiter')
+  }
+  return { userId, globalAdmin: false, stationIds, permissionsByStation, roleByStation }
+}
+
+export function canAccessStation(ctx: AccessContext, stationId: string): boolean {
+  if (!stationId) return false
+  if (ctx.globalAdmin) return true
+  return ctx.stationIds.includes(stationId)
+}
+
+export function hasPermission(ctx: AccessContext, stationId: string, key: string): boolean {
+  if (ctx.globalAdmin) return true
+  if (!canAccessStation(ctx, stationId)) return false
+  const p = ctx.permissionsByStation.get(stationId)
+  if (!p) return false
+  return p[key] === true
+}
+
+export function listAccessibleStationRows(db: Database, ctx: AccessContext) {
+  if (ctx.stationIds.length === 0) return [] as Record<string, unknown>[]
+  const placeholders = ctx.stationIds.map(() => '?').join(',')
+  return db.prepare(`SELECT * FROM stations WHERE id IN (${placeholders}) ORDER BY name`).all(...ctx.stationIds) as Record<
+    string,
+    unknown
+  >[]
+}
+
+export function listAllActiveStationRows(db: Database) {
+  return db
+    .prepare(`SELECT * FROM stations WHERE active IS NULL OR active = 1 ORDER BY name`)
+    .all() as Record<string, unknown>[]
+}
+
+/** Bootstrap: fehlende Stationen + Arbeitsbereiche (IDs stationKey_templateId). */
+export function ensureKnownStationsAndWorkAreas(db: Database, nowIsoStr: string) {
+  const insSt = db.prepare(
+    `INSERT OR IGNORE INTO stations (id, name, address, city, postal_code, phone, email, federal_state, brand, active, created_at, updated_at)
+     VALUES (?, ?, '', ?, '', '', '', ?, ?, 1, ?, ?)`,
+  )
+  for (const s of KNOWN_STATIONS) {
+    if (s.id === 'aral-bodelshausen') continue
+    insSt.run(s.id, s.name, s.city, s.federalState, s.brand, nowIsoStr, nowIsoStr)
+  }
+
+  const tpl = db
+    .prepare(`SELECT id, name, short_code, color, description FROM work_areas WHERE station_id = ?`)
+    .all('aral-bodelshausen') as {
+    id: string
+    name: string
+    short_code: string
+    color: string
+    description: string
+  }[]
+
+  if (tpl.length === 0) return
+
+  const insWa = db.prepare(
+    `INSERT OR IGNORE INTO work_areas (id, station_id, name, short_code, color, description, active, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+  )
+
+  for (const s of KNOWN_STATIONS) {
+    if (s.id === 'aral-bodelshausen') continue
+    const c = db.prepare(`SELECT COUNT(*) as c FROM work_areas WHERE station_id = ?`).get(s.id) as { c: number }
+    if ((c?.c ?? 0) > 0) continue
+    for (const w of tpl) {
+      const wid = `${s.id}_${w.id}`
+      insWa.run(wid, s.id, w.name, w.short_code, w.color, w.description ?? '', nowIsoStr, nowIsoStr)
+    }
+  }
+}
+
+export function ensureDefaultUserStationAccess(db: Database, nowIsoStr: string) {
+  const ins = db.prepare(
+    `INSERT INTO user_station_access (id, user_id, station_id, role, permissions_json, active, created_by, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, 1, NULL, ?, ?)`,
+  )
+  const exists = db.prepare(`SELECT 1 FROM user_station_access WHERE user_id = ? AND station_id = ?`)
+
+  const maxId = 'user-max-vins'
+  const matId = 'user-mathias-raselowski'
+
+  /** Globaler Admin braucht keine user_station_access-Zeilen. */
+  db.prepare(`DELETE FROM user_station_access WHERE user_id = ?`).run(maxId)
+
+  if (!exists.get(matId, 'aral-bodelshausen')) {
+    ins.run(randomUUID(), matId, 'aral-bodelshausen', 'teamleiter', JSON.stringify(TEAMLEAD_PERMISSIONS), nowIsoStr, nowIsoStr)
+  }
+
+  db.prepare(`UPDATE users SET global_admin = 1, updated_at = ? WHERE id = ?`).run(nowIsoStr, maxId)
+  db.prepare(`UPDATE users SET global_admin = 0, updated_at = ? WHERE id = ?`).run(nowIsoStr, matId)
+}

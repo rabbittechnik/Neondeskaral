@@ -1,5 +1,4 @@
 import {
-  Bell,
   ChevronDown,
   LogOut,
   MapPin,
@@ -10,23 +9,19 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMatches, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/auth-context'
+import { useStation } from '../../context/station-context'
 import { useSidebar } from '../../store/sidebar-context'
 import { Avatar } from '../ui/Avatar'
-
-const MOCK_STATIONS = [
-  'Aral Bodelshausen',
-  'Shell Reutlingen',
-  'Esso Metzingen',
-]
+import { NotificationBell } from './NotificationBell'
 
 export function Topbar() {
   const { collapsed, toggleCollapsed, toggleMobile } = useSidebar()
   const { user, logout } = useAuth()
+  const { selectedStation, availableStations, canSwitchStation, setSelectedStationId } = useStation()
   const matches = useMatches()
   const navigate = useNavigate()
   const [stationOpen, setStationOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
-  const [station, setStation] = useState(MOCK_STATIONS[0])
   const stationRef = useRef<HTMLDivElement>(null)
   const profileRef = useRef<HTMLDivElement>(null)
 
@@ -52,6 +47,8 @@ export function Topbar() {
     document.addEventListener('mousedown', onDoc)
     return () => document.removeEventListener('mousedown', onDoc)
   }, [stationOpen, profileOpen])
+
+  const stationLabel = selectedStation?.name ?? '—'
 
   return (
     <header className="sticky top-0 z-30 flex h-[64px] shrink-0 items-center gap-3 border-b border-[var(--border-subtle)] bg-[var(--bg-main)]/85 px-3 backdrop-blur-md md:gap-4 md:px-5">
@@ -81,42 +78,51 @@ export function Topbar() {
       </div>
 
       <div className="relative" ref={stationRef}>
-        <button
-          type="button"
-          onClick={() => setStationOpen((o) => !o)}
-          className="flex max-w-[200px] items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--bg-card)] px-3 py-2 text-left text-sm text-[var(--text-main)] hover:border-cyan-400/35 md:max-w-[260px]"
-          aria-expanded={stationOpen}
-          aria-haspopup="listbox"
-        >
-          <MapPin className="h-4 w-4 shrink-0 text-cyan-300" aria-hidden />
-          <span className="min-w-0 flex-1 truncate font-medium">{station}</span>
-          <ChevronDown className="h-4 w-4 shrink-0 opacity-60" aria-hidden />
-        </button>
-        {stationOpen ? (
-          <ul
-            className="absolute left-0 top-full z-50 mt-1 w-64 overflow-hidden rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-card)] py-1 shadow-[var(--shadow-card)]"
-            role="listbox"
-          >
-            {MOCK_STATIONS.map((s) => (
-              <li key={s}>
-                <button
-                  type="button"
-                  className={`flex w-full px-3 py-2 text-left text-sm hover:bg-white/5 ${
-                    s === station
-                      ? 'text-cyan-200'
-                      : 'text-[var(--text-muted)]'
-                  }`}
-                  onClick={() => {
-                    setStation(s)
-                    setStationOpen(false)
-                  }}
-                >
-                  {s}
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : null}
+        {canSwitchStation ? (
+          <>
+            <button
+              type="button"
+              onClick={() => setStationOpen((o) => !o)}
+              className="flex max-w-[200px] items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--bg-card)] px-3 py-2 text-left text-sm text-[var(--text-main)] hover:border-cyan-400/35 md:max-w-[260px]"
+              aria-expanded={stationOpen}
+              aria-haspopup="listbox"
+            >
+              <MapPin className="h-4 w-4 shrink-0 text-cyan-300" aria-hidden />
+              <span className="min-w-0 flex-1 truncate font-medium">{stationLabel}</span>
+              <ChevronDown className="h-4 w-4 shrink-0 opacity-60" aria-hidden />
+            </button>
+            {stationOpen ? (
+              <ul
+                className="absolute left-0 top-full z-50 mt-1 w-64 overflow-hidden rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-card)] py-1 shadow-[var(--shadow-card)]"
+                role="listbox"
+              >
+                {availableStations.map((s) => (
+                  <li key={s.id}>
+                    <button
+                      type="button"
+                      className={`flex w-full px-3 py-2 text-left text-sm hover:bg-white/5 ${
+                        s.id === selectedStation?.id
+                          ? 'text-cyan-200'
+                          : 'text-[var(--text-muted)]'
+                      }`}
+                      onClick={() => {
+                        setSelectedStationId(s.id)
+                        setStationOpen(false)
+                      }}
+                    >
+                      {s.name}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </>
+        ) : (
+          <div className="flex max-w-[220px] items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border-subtle)]/60 bg-[var(--bg-card)]/50 px-3 py-2 text-sm text-[var(--text-muted)] md:max-w-[280px]">
+            <MapPin className="h-4 w-4 shrink-0 text-cyan-300/80" aria-hidden />
+            <span className="min-w-0 truncate font-medium text-[var(--text-main)]">{stationLabel}</span>
+          </div>
+        )}
       </div>
 
       <div className="mx-auto hidden min-w-0 flex-1 md:block">
@@ -132,16 +138,7 @@ export function Topbar() {
       </div>
 
       <div className="ml-auto flex items-center gap-1 md:gap-2">
-        <button
-          type="button"
-          className="relative flex h-10 w-10 items-center justify-center rounded-[var(--radius-sm)] text-[var(--text-muted)] hover:bg-white/5 hover:text-[var(--text-main)]"
-          aria-label="Benachrichtigungen"
-        >
-          <Bell className="h-5 w-5" />
-          <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
-            9+
-          </span>
-        </button>
+        <NotificationBell />
 
         <div className="relative" ref={profileRef}>
           <button
@@ -156,7 +153,13 @@ export function Topbar() {
               <p className="text-sm font-medium leading-tight text-[var(--text-main)]">
                 {user?.displayName ?? '—'}
               </p>
-              <p className="text-xs text-[var(--text-muted)]">Administrator</p>
+              <p className="text-xs text-[var(--text-muted)]">
+                {user?.roleLabel?.trim()
+                  ? user.roleLabel
+                  : user?.globalAdmin
+                    ? 'Global Admin'
+                    : '—'}
+              </p>
             </div>
             <ChevronDown className="hidden h-4 w-4 text-[var(--text-faint)] lg:block" />
           </button>

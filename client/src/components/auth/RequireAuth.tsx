@@ -1,6 +1,8 @@
 import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/auth-context'
 
+import { StationProvider } from '../../context/station-context'
+
 export function RequireAuth({ children }: { children: React.ReactNode }) {
   const { token, loading } = useAuth()
   const loc = useLocation()
@@ -17,5 +19,5 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
     return <Navigate to="/login" replace state={{ from: loc.pathname }} />
   }
 
-  return <>{children}</>
+  return <StationProvider>{children}</StationProvider>
 }

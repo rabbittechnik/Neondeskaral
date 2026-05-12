@@ -7,6 +7,7 @@ declare global {
         displayName: string
         roleId: string
       }
+      accessContext?: import('../services/stationAccessService.js').AccessContext
     }
   }
 }

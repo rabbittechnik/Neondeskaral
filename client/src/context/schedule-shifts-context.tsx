@@ -11,7 +11,7 @@ import type { ScheduleShift } from '../data/mockSchedule'
 import { toISODate } from '../data/mockSchedule'
 import { addDays, startOfWeekMonday } from '../components/schedule/scheduleWeekUtils'
 import { apiGet, apiSend } from '../services/api'
-import { STATION } from '../data/station'
+import { useStation } from './station-context'
 
 type ScheduleShiftsContextValue = {
   shifts: ScheduleShift[]
@@ -33,27 +33,37 @@ function mergeById(prev: ScheduleShift[], incoming: ScheduleShift[]): ScheduleSh
 }
 
 export function ScheduleShiftsProvider({ children }: { children: ReactNode }) {
+  const { stationId } = useStation()
   const [shifts, setShifts] = useState<ScheduleShift[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const refetchRange = useCallback(async (fromIso: string, toIso: string) => {
-    setError(null)
-    const res = await apiGet<ScheduleShift[]>('/shifts', {
-      stationId: STATION.id,
-      from: fromIso,
-      to: toIso,
-    })
-    if (!res.ok || !Array.isArray(res.data)) {
-      setError(res.ok === false ? res.error : 'Schichten konnten nicht geladen werden.')
-      return
-    }
-    setShifts((prev) => mergeById(prev, res.data as ScheduleShift[]))
-  }, [])
+  const refetchRange = useCallback(
+    async (fromIso: string, toIso: string) => {
+      if (!stationId) return
+      setError(null)
+      const res = await apiGet<ScheduleShift[]>('/shifts', {
+        stationId,
+        from: fromIso,
+        to: toIso,
+      })
+      if (!res.ok || !Array.isArray(res.data)) {
+        setError(res.ok === false ? res.error : 'Schichten konnten nicht geladen werden.')
+        return
+      }
+      setShifts((prev) => mergeById(prev, res.data as ScheduleShift[]))
+    },
+    [stationId],
+  )
 
   useEffect(() => {
     const boot = async () => {
       setLoading(true)
+      if (!stationId) {
+        setShifts([])
+        setLoading(false)
+        return
+      }
       const base = startOfWeekMonday(new Date())
       const from = toISODate(addDays(base, -14))
       const to = toISODate(addDays(base, 56))
@@ -61,7 +71,7 @@ export function ScheduleShiftsProvider({ children }: { children: ReactNode }) {
       setLoading(false)
     }
     void boot()
-  }, [refetchRange])
+  }, [refetchRange, stationId])
 
   const ensureWeekSeeded = useCallback(
     (weekMonday: Date) => {
@@ -97,13 +107,16 @@ export function useScheduleShifts(): ScheduleShiftsContextValue {
   return ctx
 }
 
-export async function persistShiftUpsert(shift: ScheduleShift): Promise<ScheduleShift | undefined> {
+export async function persistShiftUpsert(
+  shift: ScheduleShift,
+  stationId: string,
+): Promise<ScheduleShift | undefined> {
   const exists = await apiGet<ScheduleShift>(`/shifts/${encodeURIComponent(shift.id)}`)
   if (exists.ok && exists.data) {
     const res = await apiSend<ScheduleShift>('PUT', `/shifts/${encodeURIComponent(shift.id)}`, shift)
     return res.ok && res.data ? (res.data as ScheduleShift) : undefined
   }
-  const res = await apiSend<ScheduleShift>('POST', '/shifts', shift, { stationId: STATION.id })
+  const res = await apiSend<ScheduleShift>('POST', '/shifts', shift, { stationId })
   return res.ok && res.data ? (res.data as ScheduleShift) : undefined
 }
 

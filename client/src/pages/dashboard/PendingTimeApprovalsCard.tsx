@@ -3,19 +3,20 @@ import { Link } from 'react-router-dom'
 import { Timer } from 'lucide-react'
 import { useAuth } from '../../context/auth-context'
 import { apiGet } from '../../services/api'
-import { STATION } from '../../data/station'
+import { useStation } from '../../context/station-context'
 import { canApproveTimeEntries } from '../../utils/timeApproval'
 import { Card } from '../../components/ui/Card'
 
 export function PendingTimeApprovalsCard() {
   const { user } = useAuth()
-  const allowed = canApproveTimeEntries(user?.id)
+  const { stationId } = useStation()
+  const allowed = canApproveTimeEntries(user)
   const [count, setCount] = useState<number | null>(null)
   const [err, setErr] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    if (!allowed) return
-    const res = await apiGet<{ count: number }>('/time-entries/pending-approval', { stationId: STATION.id })
+    if (!allowed || !stationId) return
+    const res = await apiGet<{ count: number }>('/time-entries/pending-approval', { stationId })
     if (!res.ok) {
       setErr(res.error)
       setCount(null)
@@ -23,7 +24,7 @@ export function PendingTimeApprovalsCard() {
     }
     setErr(null)
     setCount(res.data.count ?? 0)
-  }, [allowed])
+  }, [allowed, stationId])
 
   useEffect(() => {
     void load()

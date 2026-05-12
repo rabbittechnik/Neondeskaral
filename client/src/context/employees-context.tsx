@@ -8,9 +8,10 @@ import {
   type ReactNode,
 } from 'react'
 import type { Employee } from '../types/employee'
-import { createEmployeeId } from '../data/mockEmployees'
+import { createEmployeeId } from '../lib/createEmployeeId'
 import { apiGet, apiSend } from '../services/api'
-import { STATION } from '../data/station'
+import { useStation } from './station-context'
+import { mergeEmployeeFromApi } from '../components/employees/employeeDefaults'
 
 type EmployeesContextValue = {
   employees: Employee[]
@@ -30,22 +31,28 @@ type EmployeesContextValue = {
 const EmployeesContext = createContext<EmployeesContextValue | null>(null)
 
 export function EmployeesProvider({ children }: { children: ReactNode }) {
+  const { stationId } = useStation()
   const [employees, setEmployees] = useState<Employee[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const refetch = useCallback(async () => {
+    if (!stationId) {
+      setEmployees([])
+      setLoading(false)
+      return
+    }
     setLoading(true)
     setError(null)
-    const res = await apiGet<Employee[]>('/employees', { stationId: STATION.id, includeInactive: 'true' })
+    const res = await apiGet<Employee[]>('/employees', { stationId, includeInactive: 'true' })
     if (res.ok && Array.isArray(res.data)) {
-      setEmployees(res.data)
+      setEmployees(res.data.map((x) => mergeEmployeeFromApi(x as Partial<Employee> & { id: string })))
     } else {
       setError(res.ok === false ? res.error : 'Mitarbeiter konnten nicht geladen werden.')
       setEmployees([])
     }
     setLoading(false)
-  }, [])
+  }, [stationId])
 
   useEffect(() => {
     void refetch()
@@ -56,12 +63,16 @@ export function EmployeesProvider({ children }: { children: ReactNode }) {
     [employees],
   )
 
-  const addEmployee = useCallback(async (e: Employee) => {
-    const id = e.id?.trim() ? e.id : createEmployeeId()
-    const res = await apiSend<Employee>('POST', '/employees', { ...e, id }, { stationId: STATION.id })
-    if (!res.ok) throw new Error(res.error)
-    await refetch()
-  }, [refetch])
+  const addEmployee = useCallback(
+    async (e: Employee) => {
+      if (!stationId) throw new Error('Keine Station gewählt')
+      const id = e.id?.trim() ? e.id : createEmployeeId()
+      const res = await apiSend<Employee>('POST', '/employees', { ...e, id }, { stationId })
+      if (!res.ok) throw new Error(res.error)
+      await refetch()
+    },
+    [refetch, stationId],
+  )
 
   const updateEmployee = useCallback(async (e: Employee) => {
     const res = await apiSend<Employee>('PUT', `/employees/${encodeURIComponent(e.id)}`, e)

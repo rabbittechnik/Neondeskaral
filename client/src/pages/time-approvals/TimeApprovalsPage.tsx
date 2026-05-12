@@ -3,11 +3,12 @@ import { Link } from 'react-router-dom'
 import { ArrowLeft, ClipboardCheck } from 'lucide-react'
 import { useAuth } from '../../context/auth-context'
 import { apiGet, apiSend } from '../../services/api'
-import { STATION } from '../../data/station'
+import { useStation } from '../../context/station-context'
 import { canApproveTimeEntries } from '../../utils/timeApproval'
 import { Button } from '../../components/ui/Button'
 import type { TimeEntry } from '../../types/timeTracking'
 import { calculateWorkedMinutes, formatWorkedDuration } from '../../utils/timeTrackingUtils'
+import { dispatchNotificationsRefresh } from '../../utils/notificationsRefresh'
 
 type PendingRow = TimeEntry & { employeeDisplayName: string }
 
@@ -34,7 +35,8 @@ function approvalBadge(s: string | undefined) {
 
 export function TimeApprovalsPage() {
   const { user } = useAuth()
-  const allowed = canApproveTimeEntries(user?.id)
+  const { stationId } = useStation()
+  const allowed = canApproveTimeEntries(user)
   const [items, setItems] = useState<PendingRow[]>([])
   const [count, setCount] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -48,11 +50,11 @@ export function TimeApprovalsPage() {
   const [confirmApprove, setConfirmApprove] = useState(false)
 
   const load = useCallback(async () => {
-    if (!allowed) return
+    if (!allowed || !stationId) return
     setLoading(true)
     setErr(null)
     const res = await apiGet<{ items: PendingRow[]; count: number }>('/time-entries/pending-approval', {
-      stationId: STATION.id,
+      stationId: stationId!,
     })
     if (!res.ok) {
       setErr(res.error)
@@ -63,7 +65,7 @@ export function TimeApprovalsPage() {
       setCount(res.data.count ?? 0)
     }
     setLoading(false)
-  }, [allowed])
+  }, [allowed, stationId])
 
   useEffect(() => {
     void load()
@@ -92,6 +94,7 @@ export function TimeApprovalsPage() {
     }
     setDetail(null)
     await load()
+    dispatchNotificationsRefresh()
   }
 
   const reject = async () => {
@@ -109,6 +112,7 @@ export function TimeApprovalsPage() {
     setRejectReason('')
     setDetail(null)
     await load()
+    dispatchNotificationsRefresh()
   }
 
   const requestCorr = async () => {
@@ -128,6 +132,7 @@ export function TimeApprovalsPage() {
     setCorrNote('')
     setDetail(null)
     await load()
+    dispatchNotificationsRefresh()
   }
 
   if (!allowed) {

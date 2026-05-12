@@ -6,6 +6,7 @@ export const EMPLOYMENT_LABELS: Record<EmploymentType, string> = {
   minijob: 'Minijob',
   aushilfe: 'Aushilfe',
   schueler: 'Schüler',
+  werkstudent: 'Werkstudent',
   sonstige: 'Sonstige',
 }
 
@@ -14,4 +15,5 @@ export const STATUS_LABELS: Record<EmployeeHRStatus, string> = {
   inaktiv: 'Inaktiv',
   urlaub: 'Urlaub',
   krank: 'Krank',
+  gesperrt: 'Gesperrt',
 }

@@ -1,13 +1,13 @@
 import type { Database } from 'better-sqlite3'
 import { randomBytes } from 'node:crypto'
-import { DEFAULT_STATION_ID } from '../constants.js'
 import { nowIso } from '../utils/timestamps.js'
 import type { EmployeeRow } from './employeeService.js'
 import { listShifts } from './shiftService.js'
-import { listAbsences } from './absenceService.js'
+import { listAbsences, createAbsence } from './absenceService.js'
 import { listTasks } from './taskService.js'
 import { listTimeEntries } from './timeTrackingService.js'
 import { getStation } from './stationService.js'
+import { listWorkAreas } from './workAreaService.js'
 import {
   clockCheckInByEmployeeId,
   clockCheckOutComplete,
@@ -22,10 +22,8 @@ export function getEmployeeRowByAccessToken(db: Database, token: string): Employ
   const t = String(token ?? '').trim()
   if (!t) return undefined
   return db
-    .prepare(
-      `SELECT * FROM employees WHERE employee_access_token = ? AND station_id = ? AND (active IS NULL OR active = 1)`,
-    )
-    .get(t, DEFAULT_STATION_ID) as EmployeeRow | undefined
+    .prepare(`SELECT * FROM employees WHERE employee_access_token = ? AND (active IS NULL OR active = 1)`)
+    .get(t) as EmployeeRow | undefined
 }
 
 function assertAccessAllowed(row: EmployeeRow) {
@@ -89,16 +87,18 @@ export function buildEmployeeAccessPayload(db: Database, token: string) {
   const absencesRaw = listAbsences(db, {
     stationId,
     employeeId: empId,
-    from: fromIso,
-    to: toIso,
   })
   const absences = absencesRaw.map((a) => ({
     id: a.id,
     type: a.type,
     startDate: a.startDate,
     endDate: a.endDate,
+    halfDay: a.halfDay,
     status: a.status,
     comment: a.comment,
+    requestedAt: a.requestedAt,
+    approvedAt: a.approvedAt,
+    rejectedReason: a.rejectedReason,
   }))
 
   const tasksAll = listTasks(db, stationId)
@@ -137,6 +137,131 @@ export function buildEmployeeAccessPayload(db: Database, token: string) {
     absences,
     timeEntries,
     runningTimeEntry: running,
+  }
+}
+
+/**
+ * Wenn true, liefert der Mitarbeiter-Wochenplan nur veröffentlichte Schichten.
+ * Vorerst false: alle Schichten sichtbar, Logik bleibt vorbereitet.
+ */
+export const EMPLOYEE_APP_WEEK_SCHEDULE_PUBLISHED_ONLY = false
+
+function ymdFromDate(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function addDaysToYmd(ymd: string, n: number): string {
+  const [y, mo, da] = ymd.split('-').map(Number)
+  const d = new Date(y, mo - 1, da + n)
+  return ymdFromDate(d)
+}
+
+function serverLocalMondayToday(): string {
+  const d = new Date()
+  const dow = d.getDay()
+  const off = dow === 0 ? -6 : 1 - dow
+  d.setDate(d.getDate() + off)
+  return ymdFromDate(d)
+}
+
+function normalizeWeekMonday(weekStart?: string): string {
+  const s = String(weekStart ?? '').trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return serverLocalMondayToday()
+  return s
+}
+
+function isoCalendarWeekFromMondayYmd(mondayYmd: string): { week: number; weekYear: number } {
+  const [y, m, d] = mondayYmd.split('-').map(Number)
+  const mon = new Date(y, m - 1, d)
+  mon.setHours(12, 0, 0, 0)
+  const thu = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 3)
+  thu.setHours(12, 0, 0, 0)
+  const year = thu.getFullYear()
+  const firstThursday = new Date(year, 0, 4)
+  const offset = (firstThursday.getDay() + 6) % 7
+  firstThursday.setDate(4 - offset)
+  const diffDays = Math.round((thu.getTime() - firstThursday.getTime()) / 86400000)
+  const week = 1 + Math.floor(diffDays / 7)
+  return { week, weekYear: year }
+}
+
+type PublicScheduleEmployee = {
+  id: string
+  displayName: string
+  shortName: string
+  color: string
+  role: string
+}
+
+function loadPublicEmployeesForIds(db: Database, ids: string[]): Map<string, PublicScheduleEmployee> {
+  const map = new Map<string, PublicScheduleEmployee>()
+  if (!ids.length) return map
+  const uniq = [...new Set(ids)]
+  const placeholders = uniq.map(() => '?').join(',')
+  const rows = db
+    .prepare(
+      `SELECT id, display_name, short_name, color, role FROM employees WHERE id IN (${placeholders})`,
+    )
+    .all(...uniq) as { id: string; display_name: string | null; short_name: string | null; color: string | null; role: string | null }[]
+  for (const r of rows) {
+    map.set(r.id, {
+      id: r.id,
+      displayName: String(r.display_name ?? '').trim() || 'Mitarbeiter',
+      shortName: String(r.short_name ?? '').trim(),
+      color: String(r.color ?? '#94a3b8'),
+      role: String(r.role ?? ''),
+    })
+  }
+  return map
+}
+
+export function buildEmployeeWeekSchedule(db: Database, token: string, weekStart?: string) {
+  const row = getEmployeeRowByAccessToken(db, token)
+  if (!row || !assertAccessAllowed(row)) {
+    return { ok: false as const, error: 'invalid_token' as const }
+  }
+  const weekMonday = normalizeWeekMonday(weekStart)
+  const weekSunday = addDaysToYmd(weekMonday, 6)
+  const { week: calendarWeek, weekYear: calendarWeekYear } = isoCalendarWeekFromMondayYmd(weekMonday)
+
+  let shifts = listShifts(db, {
+    stationId: row.station_id,
+    from: weekMonday,
+    to: weekSunday,
+  })
+  if (EMPLOYEE_APP_WEEK_SCHEDULE_PUBLISHED_ONLY) {
+    shifts = shifts.filter((s) => s.status === 'Veröffentlicht')
+  }
+
+  const empIds = shifts.map((s) => s.employeeId).filter((x): x is string => Boolean(x))
+  const empMap = loadPublicEmployeesForIds(db, empIds)
+  const workAreas = listWorkAreas(db, row.station_id)
+
+  return {
+    ok: true as const,
+    weekStart: weekMonday,
+    weekEnd: weekSunday,
+    calendarWeek,
+    calendarWeekYear,
+    stationId: row.station_id,
+    stationName: publicStation(db, row.station_id).name,
+    shifts: shifts.map((s) => ({
+      id: s.id,
+      date: s.date,
+      startTime: s.startTime,
+      endTime: s.endTime,
+      workAreaId: s.workAreaId,
+      shiftType: s.shiftType,
+      employeeId: s.employeeId ?? null,
+      employee: s.employeeId ? empMap.get(s.employeeId) ?? null : null,
+      publicationStatus: s.status === 'Veröffentlicht' ? ('published' as const) : ('draft' as const),
+    })),
+    workAreas,
+    /** Platzhalter für spätere Feiertags-Anzeige */
+    holidays: [] as { date: string; name: string }[],
   }
 }
 
@@ -199,4 +324,34 @@ export function employeeAccessCheckOutComplete(
     checklist: body.checklist,
     endedBy: row.display_name ?? 'Mitarbeiter-App',
   })
+}
+
+export function employeeAccessListAbsences(db: Database, token: string) {
+  const row = getEmployeeRowByAccessToken(db, token)
+  if (!row || !assertAccessAllowed(row)) {
+    return { ok: false as const, error: 'invalid_token' as const }
+  }
+  touchEmployeeAccessUsed(db, row.id)
+  const data = listAbsences(db, { stationId: row.station_id, employeeId: row.id })
+  return { ok: true as const, data }
+}
+
+export function employeeAccessCreateAbsence(db: Database, token: string, body: Record<string, unknown>) {
+  const row = getEmployeeRowByAccessToken(db, token)
+  if (!row || !assertAccessAllowed(row)) {
+    return { ok: false as const, error: 'invalid_token' as const }
+  }
+  touchEmployeeAccessUsed(db, row.id)
+  const safe: Record<string, unknown> = { ...(body ?? {}) }
+  delete safe.employeeId
+  const data = createAbsence(
+    db,
+    {
+      ...safe,
+      employeeId: row.id,
+      status: 'beantragt',
+    },
+    row.station_id,
+  )
+  return { ok: true as const, data }
 }

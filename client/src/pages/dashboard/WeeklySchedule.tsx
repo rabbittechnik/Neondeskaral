@@ -5,14 +5,14 @@ import { WeeklyScheduleTimeline } from '../../components/schedule/WeeklySchedule
 import { startOfWeekMonday } from '../../components/schedule/scheduleWeekUtils'
 import {
   resolveShiftsForWeekGrid,
-  STATION_NAME,
   toScheduleEmployeeRow,
 } from '../../data/mockSchedule'
-import { STATION_FEDERAL_STATE } from '../../data/station'
+import { useStation } from '../../context/station-context'
 import { useEmployees } from '../../context/employees-context'
 import { useScheduleShifts } from '../../context/schedule-shifts-context'
 
 export function WeeklySchedule() {
+  const { selectedStation, federalState } = useStation()
   const { employees } = useEmployees()
   const { shifts, ensureWeekSeeded } = useScheduleShifts()
 
@@ -48,7 +48,7 @@ export function WeeklySchedule() {
             Schichtplan – Diese Woche
           </h3>
           <p className="text-sm text-[var(--text-muted)]">
-            Aktuelle Wochenplanung für {STATION_NAME}
+            Aktuelle Wochenplanung für {selectedStation?.name ?? '—'}
           </p>
         </div>
         <Link
@@ -64,7 +64,7 @@ export function WeeklySchedule() {
         employees={scheduleRows}
         blocks={gridBlocks}
         variant="compact"
-        stationFederalState={STATION_FEDERAL_STATE}
+        stationFederalState={federalState}
         showTitle={false}
         showLegend={false}
         showFooterLink

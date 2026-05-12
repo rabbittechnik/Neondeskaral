@@ -16,11 +16,12 @@ export function createStation(db: Database, body: Record<string, unknown>) {
   if (!name) throw new Error('name erforderlich')
   const ts = nowIso()
   db.prepare(
-    `INSERT INTO stations (id, name, address, city, postal_code, phone, email, federal_state, active, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+    `INSERT INTO stations (id, name, brand, address, city, postal_code, phone, email, federal_state, active, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
   ).run(
     id,
     name,
+    body.brand != null ? String(body.brand) : null,
     body.address != null ? String(body.address) : null,
     body.city != null ? String(body.city) : null,
     body.postalCode != null ? String(body.postalCode) : null,
@@ -39,6 +40,7 @@ export function updateStation(db: Database, id: string, body: Record<string, unk
     .prepare(
       `UPDATE stations SET
         name = COALESCE(?, name),
+        brand = COALESCE(?, brand),
         address = ?,
         city = ?,
         postal_code = ?,
@@ -50,6 +52,7 @@ export function updateStation(db: Database, id: string, body: Record<string, unk
     )
     .run(
       body.name != null ? String(body.name) : null,
+      body.brand !== undefined ? (body.brand == null ? null : String(body.brand)) : null,
       body.address !== undefined ? (body.address == null ? null : String(body.address)) : null,
       body.city !== undefined ? (body.city == null ? null : String(body.city)) : null,
       body.postalCode !== undefined ? (body.postalCode == null ? null : String(body.postalCode)) : null,

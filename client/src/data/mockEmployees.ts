@@ -1,4 +1,5 @@
 import type { Employee, WorkAreaDefinition } from '../types/employee'
+import { mergeEmployeeFromApi } from '../components/employees/employeeDefaults'
 
 /** Einheitliche Arbeitsbereiche (Schichtplan + Verwaltung) */
 export const WORK_AREA_DEFINITIONS: WorkAreaDefinition[] = [
@@ -37,16 +38,14 @@ const CARD_NUMBERS: Record<string, string> = {
   e9: '1009',
 }
 
-const base = (
-  partial: Omit<Employee, 'id' | 'cashRegisterCardNumber' | 'terminalEnabled' | 'timeTrackingEnabled'> & {
-    id: string
-  },
-): Employee => ({
-  ...partial,
-  cashRegisterCardNumber: CARD_NUMBERS[partial.id] ?? '',
-  terminalEnabled: true,
-  timeTrackingEnabled: true,
-})
+const base = (partial: Partial<Employee> & { id: string }): Employee =>
+  mergeEmployeeFromApi({
+    ...partial,
+    id: partial.id,
+    cashRegisterCardNumber: CARD_NUMBERS[partial.id] ?? partial.cashRegisterCardNumber ?? '',
+    terminalEnabled: partial.terminalEnabled ?? true,
+    timeTrackingEnabled: partial.timeTrackingEnabled ?? true,
+  })
 
 export const SEED_EMPLOYEES: Employee[] = [
   base({
@@ -255,11 +254,4 @@ export const SEED_EMPLOYEES: Employee[] = [
 
 export function cloneSeedEmployees(): Employee[] {
   return structuredClone(SEED_EMPLOYEES)
-}
-
-export function createEmployeeId(): string {
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-    return `emp-${crypto.randomUUID()}`
-  }
-  return `emp-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
 }

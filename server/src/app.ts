@@ -13,6 +13,9 @@ import { devRouter } from './routes/dev.routes.js'
 import { authRouter } from './routes/auth.routes.js'
 import { employeeAccessRouter } from './routes/employeeAccess.routes.js'
 import { scheduleAssistantRouter } from './routes/scheduleAssistant.routes.js'
+import { accessRouter } from './routes/access.routes.js'
+import { tuvReportsRouter } from './routes/tuvReports.routes.js'
+import { notificationsRouter } from './routes/notifications.routes.js'
 
 function parseCorsOrigins(): boolean | string[] {
   const raw = process.env.CLIENT_ORIGIN?.trim()
@@ -41,6 +44,9 @@ export function createApp() {
   app.use('/api/terminal', terminalRouter)
 
   app.use('/api/schedule-assistant', scheduleAssistantRouter)
+  app.use('/api/tuv-reports', tuvReportsRouter)
+  app.use('/api/notifications', notificationsRouter)
+  app.use('/api/access', accessRouter)
   app.use('/api/stations', stationsRouter)
   app.use('/api/employees', employeesRouter)
   app.use('/api/work-areas', workAreasRouter)

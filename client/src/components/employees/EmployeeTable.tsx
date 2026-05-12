@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { Pencil, User, UserCheck, UserX } from 'lucide-react'
 import type { Employee } from '../../types/employee'
+import { useStation } from '../../context/station-context'
 import { Avatar } from '../ui/Avatar'
 import { EmployeeStatusBadge } from './EmployeeStatusBadge'
 import { EmploymentTypeBadge } from './EmploymentTypeBadge'
@@ -16,6 +17,12 @@ type Props = {
 }
 
 export function EmployeeTable({ employees, onEdit, onDeactivate, onReactivate }: Props) {
+  const { hasPermission } = useStation()
+  const canSensitive =
+    hasPermission('employees.viewSensitive') ||
+    hasPermission('payroll.view') ||
+    hasPermission('employees.manageSensitive')
+
   return (
     <div className="overflow-x-auto rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-card)] shadow-[var(--shadow-card)]">
       <table className="w-full min-w-[1080px] border-collapse text-left text-sm">
@@ -76,7 +83,9 @@ export function EmployeeTable({ employees, onEdit, onDeactivate, onReactivate }:
                 <td className="px-3 py-2.5 tabular-nums text-[var(--text-main)]">
                   {formatHoursDe(e.monthlyHours)}
                 </td>
-                <td className="px-3 py-2.5 tabular-nums">{formatEuroDe(e.hourlyWage)}</td>
+                <td className="px-3 py-2.5 tabular-nums">
+                  {canSensitive && e.hourlyWage != null ? formatEuroDe(e.hourlyWage) : '—'}
+                </td>
                 <td className="px-3 py-2.5 tabular-nums">{e.remainingVacationDays} T</td>
                 <td className="max-w-[200px] px-3 py-2.5 align-top text-[10px] leading-snug text-[var(--text-muted)]">
                   {!(e.preferredShiftTypes?.length || e.preferredWorkDays?.length) ? (

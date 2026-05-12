@@ -1,13 +1,28 @@
 import { Router } from 'express'
 import { getDb } from '../db/database.js'
 import { jsonErr, jsonOk } from '../utils/http.js'
+import { requirePermission, getAccess } from '../middleware/stationAuth.js'
+import { hasPermission } from '../services/stationAccessService.js'
 import * as employeeService from '../services/employeeService.js'
 
 export const employeesRouter = Router()
 
+function canViewEmployeeSensitive(req: import('express').Request, stationId: string): boolean {
+  const ctx = getAccess(req)
+  if (!ctx?.userId) return false
+  if (ctx.globalAdmin) return true
+  return (
+    hasPermission(ctx, stationId, 'employees.viewSensitive') ||
+    hasPermission(ctx, stationId, 'payroll.view') ||
+    hasPermission(ctx, stationId, 'employees.manageSensitive')
+  )
+}
+
 employeesRouter.get('/by-card/:cardNumber', (req, res) => {
   try {
-    const emp = employeeService.getEmployeeByCard(getDb(), req.params.cardNumber)
+    const stationId = typeof req.query.stationId === 'string' ? req.query.stationId : undefined
+    if (!requirePermission(req, res, stationId, 'employees.view')) return
+    const emp = employeeService.getEmployeeByCard(getDb(), req.params.cardNumber, stationId!)
     if (!emp) return jsonErr(res, 'Mitarbeiter nicht gefunden', 404)
     jsonOk(res, emp)
   } catch (e) {
@@ -18,8 +33,10 @@ employeesRouter.get('/by-card/:cardNumber', (req, res) => {
 employeesRouter.get('/', (req, res) => {
   try {
     const stationId = typeof req.query.stationId === 'string' ? req.query.stationId : undefined
+    if (!requirePermission(req, res, stationId, 'employees.view')) return
     const includeInactive = req.query.includeInactive === '1' || req.query.includeInactive === 'true'
-    jsonOk(res, employeeService.listEmployees(getDb(), stationId, { includeInactive }))
+    const sens = canViewEmployeeSensitive(req, stationId!)
+    jsonOk(res, employeeService.listEmployees(getDb(), stationId!, { includeInactive, includeSensitive: sens }))
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
   }
@@ -28,7 +45,9 @@ employeesRouter.get('/', (req, res) => {
 employeesRouter.post('/', (req, res) => {
   try {
     const stationId = typeof req.query.stationId === 'string' ? req.query.stationId : undefined
-    jsonOk(res, employeeService.createEmployee(getDb(), req.body ?? {}, stationId), 201)
+    if (!requirePermission(req, res, stationId, 'employees.create')) return
+    const sens = canViewEmployeeSensitive(req, stationId!)
+    jsonOk(res, employeeService.createEmployee(getDb(), req.body ?? {}, stationId!, { allowSensitive: sens }), 201)
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
   }
@@ -36,6 +55,9 @@ employeesRouter.post('/', (req, res) => {
 
 employeesRouter.post('/:id/regenerate-access-token', (req, res) => {
   try {
+    const row = employeeService.getEmployeeRowInternal(getDb(), req.params.id)
+    if (!row) return jsonErr(res, 'Mitarbeiter nicht gefunden', 404)
+    if (!requirePermission(req, res, row.station_id, 'employees.qr')) return
     jsonOk(res, employeeService.regenerateEmployeeAccessToken(getDb(), req.params.id))
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
@@ -44,6 +66,9 @@ employeesRouter.post('/:id/regenerate-access-token', (req, res) => {
 
 employeesRouter.post('/:id/disable-access', (req, res) => {
   try {
+    const row = employeeService.getEmployeeRowInternal(getDb(), req.params.id)
+    if (!row) return jsonErr(res, 'Mitarbeiter nicht gefunden', 404)
+    if (!requirePermission(req, res, row.station_id, 'employees.qr')) return
     jsonOk(res, employeeService.setEmployeeAccessEnabled(getDb(), req.params.id, false))
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
@@ -52,6 +77,9 @@ employeesRouter.post('/:id/disable-access', (req, res) => {
 
 employeesRouter.post('/:id/enable-access', (req, res) => {
   try {
+    const row = employeeService.getEmployeeRowInternal(getDb(), req.params.id)
+    if (!row) return jsonErr(res, 'Mitarbeiter nicht gefunden', 404)
+    if (!requirePermission(req, res, row.station_id, 'employees.qr')) return
     jsonOk(res, employeeService.setEmployeeAccessEnabled(getDb(), req.params.id, true))
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
@@ -60,9 +88,11 @@ employeesRouter.post('/:id/enable-access', (req, res) => {
 
 employeesRouter.get('/:id', (req, res) => {
   try {
-    const emp = employeeService.getEmployee(getDb(), req.params.id)
-    if (!emp) return jsonErr(res, 'Mitarbeiter nicht gefunden', 404)
-    jsonOk(res, emp)
+    const row = employeeService.getEmployeeRowInternal(getDb(), req.params.id)
+    if (!row) return jsonErr(res, 'Mitarbeiter nicht gefunden', 404)
+    if (!requirePermission(req, res, row.station_id, 'employees.view')) return
+    const sens = canViewEmployeeSensitive(req, row.station_id)
+    jsonOk(res, employeeService.getEmployee(getDb(), req.params.id, { includeSensitive: sens }))
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
   }
@@ -70,7 +100,11 @@ employeesRouter.get('/:id', (req, res) => {
 
 employeesRouter.put('/:id', (req, res) => {
   try {
-    jsonOk(res, employeeService.updateEmployee(getDb(), req.params.id, req.body ?? {}))
+    const row = employeeService.getEmployeeRowInternal(getDb(), req.params.id)
+    if (!row) return jsonErr(res, 'Mitarbeiter nicht gefunden', 404)
+    if (!requirePermission(req, res, row.station_id, 'employees.edit')) return
+    const sens = canViewEmployeeSensitive(req, row.station_id)
+    jsonOk(res, employeeService.updateEmployee(getDb(), req.params.id, req.body ?? {}, { allowSensitive: sens }))
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
   }
@@ -78,6 +112,9 @@ employeesRouter.put('/:id', (req, res) => {
 
 employeesRouter.delete('/:id', (req, res) => {
   try {
+    const row = employeeService.getEmployeeRowInternal(getDb(), req.params.id)
+    if (!row) return jsonErr(res, 'Mitarbeiter nicht gefunden', 404)
+    if (!requirePermission(req, res, row.station_id, 'employees.deactivate')) return
     employeeService.softDeleteEmployee(getDb(), req.params.id)
     jsonOk(res, { deleted: true })
   } catch (e) {

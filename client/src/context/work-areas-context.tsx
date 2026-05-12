@@ -10,7 +10,7 @@ import {
 import type { WorkArea } from '../data/mockSchedule'
 import type { WorkAreaDefinition } from '../types/employee'
 import { apiGet } from '../services/api'
-import { STATION } from '../data/station'
+import { useStation } from './station-context'
 import { workAreasScheduleCompat } from '../data/mockEmployees'
 
 type WorkAreasContextValue = {
@@ -29,6 +29,7 @@ function toCompat(defs: WorkAreaDefinition[]): WorkArea[] {
 }
 
 export function WorkAreasProvider({ children }: { children: ReactNode }) {
+  const { stationId } = useStation()
   const [definitions, setDefinitions] = useState<WorkAreaDefinition[]>(() =>
     workAreasScheduleCompat.map((w) => ({
       id: w.id,
@@ -41,16 +42,20 @@ export function WorkAreasProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null)
 
   const refetch = useCallback(async () => {
+    if (!stationId) {
+      setLoading(false)
+      return
+    }
     setLoading(true)
     setError(null)
-    const res = await apiGet<WorkAreaDefinition[]>('/work-areas', { stationId: STATION.id })
+    const res = await apiGet<WorkAreaDefinition[]>('/work-areas', { stationId })
     if (res.ok && Array.isArray(res.data) && res.data.length > 0) {
       setDefinitions(res.data)
     } else if (!res.ok) {
       setError(res.error || 'Arbeitsbereiche konnten nicht geladen werden.')
     }
     setLoading(false)
-  }, [])
+  }, [stationId])
 
   useEffect(() => {
     void refetch()

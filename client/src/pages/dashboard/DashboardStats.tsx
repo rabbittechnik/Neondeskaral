@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { CalendarClock, ClipboardList, Plane, UserX } from 'lucide-react'
+import { AlertTriangle, CalendarClock, ClipboardList, Plane, UserRound } from 'lucide-react'
 import { StatCard } from '../../components/ui/StatCard'
 import { useTasks } from '../../context/tasks-context'
 import { countOpenTasks, countOverdueTasks, getTaskStatusForDate, toISODateLocal } from '../../utils/taskUtils'
@@ -30,28 +30,34 @@ function OpenTasksStat() {
     <StatCard
       title="Offene Aufgaben"
       value={String(open)}
+      density="feature"
+      className="h-full w-full"
       hint={
-        <div className="space-y-2">
-          {overdue > 0 ? <p className="text-red-300">{overdue} überfällig</p> : <p>Keine Überfälligen</p>}
-          <ul className="max-h-24 space-y-1 overflow-hidden text-[11px] text-[var(--text-muted)]">
+        <div className="flex min-h-0 flex-1 flex-col gap-2">
+          <p className={`shrink-0 text-sm ${overdue > 0 ? 'text-red-300' : 'text-emerald-200/90'}`}>
+            {overdue > 0 ? `${overdue} überfällig` : 'Keine Überfälligen'}
+          </p>
+          <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto text-[11px] leading-snug text-[var(--text-muted)]">
             {top.map((t) => (
-              <li key={t.id} className="truncate">
+              <li key={t.id} className="truncate border-b border-white/[0.04] pb-1 last:border-0">
                 · {t.title}
               </li>
             ))}
           </ul>
+          <div className="mt-auto flex shrink-0 flex-wrap gap-2 pt-1">
             <Link
               to="/tasks"
-              className="inline-flex items-center rounded-md border border-cyan-400/35 px-2 py-1 text-[11px] font-medium text-cyan-200 hover:bg-cyan-500/10"
+              className="inline-flex items-center justify-center rounded-md border border-cyan-400/40 bg-cyan-500/10 px-3 py-1.5 text-xs font-medium text-cyan-100 hover:bg-cyan-500/20"
             >
               Aufgaben öffnen
             </Link>
             <Link
               to="/tasks"
-              className="inline-flex items-center rounded-md border border-white/10 px-2 py-1 text-[11px] text-[var(--text-muted)] hover:bg-white/5"
+              className="inline-flex items-center justify-center rounded-md border border-white/12 px-3 py-1.5 text-xs text-[var(--text-muted)] hover:bg-white/5"
             >
               Neue Aufgabe
             </Link>
+          </div>
         </div>
       }
       icon={<ClipboardList className="h-5 w-5 text-lime-200" />}
@@ -60,28 +66,44 @@ function OpenTasksStat() {
   )
 }
 
+function OffeneSchichtenIcon() {
+  return (
+    <div className="relative flex h-9 w-9 items-center justify-center">
+      <UserRound className="h-5 w-5 text-amber-200" aria-hidden />
+      <AlertTriangle className="absolute -right-0.5 -top-0.5 h-3.5 w-3.5 text-amber-400 drop-shadow-[0_0_6px_rgba(251,191,36,0.5)]" aria-hidden />
+    </div>
+  )
+}
+
 export function DashboardStats() {
   return (
-    <div className="grid h-full grid-cols-2 gap-3">
-      <StatCard
-        title="Heute im Dienst"
-        value="7 von 11 geplant"
-        icon={<CalendarClock className="h-5 w-5 text-cyan-200" />}
-        accentClass="neon-border-cyan"
-      />
-      <OpenTasksStat />
-      <StatCard
-        title="Abwesenheiten"
-        value="3 heute"
-        icon={<Plane className="h-5 w-5 text-pink-200" />}
-        accentClass="neon-border-pink"
-      />
-      <StatCard
-        title="Offene Schichten"
-        value="2 diese Woche"
-        icon={<UserX className="h-5 w-5 text-amber-200" />}
-        accentClass="neon-border-amber"
-      />
+    <div className="grid grid-cols-1 gap-3 md:min-h-[288px] md:grid-cols-[minmax(260px,360px)_1fr] md:items-stretch md:gap-3">
+      <div className="flex flex-col gap-3 md:min-h-[288px]">
+        <StatCard
+          density="compact"
+          title="Heute im Dienst"
+          value="7 von 11 geplant"
+          icon={<CalendarClock className="h-[18px] w-[18px] text-cyan-200" />}
+          accentClass="neon-border-cyan"
+        />
+        <StatCard
+          density="compact"
+          title="Abwesenheiten"
+          value="3 heute"
+          icon={<Plane className="h-[18px] w-[18px] text-pink-200" />}
+          accentClass="neon-border-pink"
+        />
+        <StatCard
+          density="compact"
+          title="Offene Schichten"
+          value="2 diese Woche"
+          icon={<OffeneSchichtenIcon />}
+          accentClass="neon-border-amber"
+        />
+      </div>
+      <div className="flex h-full min-h-[260px] flex-col md:min-h-[288px]">
+        <OpenTasksStat />
+      </div>
     </div>
   )
 }

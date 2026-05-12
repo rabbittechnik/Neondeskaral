@@ -352,7 +352,7 @@ export function generateScheduleSuggestions(db: Database, body: GenerateBody) {
   const requirements =
     body.requirements && body.requirements.length > 0 ? body.requirements : buildDefaultWeekRequirements(weekStart)
 
-  const employees = employeeService.listEmployees(db, stationId).filter((e) => e.status === 'aktiv')
+  const employees = employeeService.listEmployees(db, stationId).filter((e) => e.status === 'aktiv' && e.visibleInTeamSchedule !== false)
   const absenceRows = listApprovedAbsenceRows(db, stationId, weekStart, weekEnd)
   const shiftRows = listShiftRowsForStationDateRange(db, stationId, weekStart, weekEnd)
 

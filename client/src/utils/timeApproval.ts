@@ -1,7 +1,8 @@
-/** Demo: gleiche IDs wie im Server-Seed (Max Vins, Mathias Raselowski). */
-const APPROVER_IDS = new Set(['user-max-vins', 'user-mathias-raselowski'])
+import type { AuthUser } from '../context/auth-context'
 
-export function canApproveTimeEntries(userId: string | undefined | null): boolean {
-  if (!userId) return false
-  return APPROVER_IDS.has(userId)
+/** Zeitfreigaben-Navigation: irgendeine Station mit time.approve oder Global Admin. */
+export function canApproveTimeEntries(user: AuthUser | null | undefined): boolean {
+  if (!user) return false
+  if (user.globalAdmin) return true
+  return Boolean(user.stationAccess?.some((a) => a.permissions['time.approve'] === true))
 }

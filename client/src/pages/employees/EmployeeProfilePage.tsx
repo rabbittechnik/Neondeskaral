@@ -6,6 +6,7 @@ import { Card } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
 import { Avatar } from '../../components/ui/Avatar'
 import { useEmployees } from '../../context/employees-context'
+import { useStation } from '../../context/station-context'
 import { WORK_AREA_DEFINITIONS } from '../../data/mockEmployees'
 import { EmployeeStatusBadge } from '../../components/employees/EmployeeStatusBadge'
 import { EmploymentTypeBadge } from '../../components/employees/EmploymentTypeBadge'
@@ -71,6 +72,11 @@ export function EmployeeProfilePage() {
   const { employeeId } = useParams()
   const location = useLocation()
   const { employees } = useEmployees()
+  const { hasPermission } = useStation()
+  const canSensitive =
+    hasPermission('employees.viewSensitive') ||
+    hasPermission('payroll.view') ||
+    hasPermission('employees.manageSensitive')
   const [tab, setTab] = useState<TabId>('overview')
 
   useEffect(() => {
@@ -232,9 +238,11 @@ export function EmployeeProfilePage() {
               </div>
               <div className="flex justify-between gap-2">
                 <dt className="text-[var(--text-faint)]">Stundenlohn</dt>
-                <dd className="tabular-nums">{formatEuroDe(employee.hourlyWage)}</dd>
+                <dd className="tabular-nums">
+                  {canSensitive && employee.hourlyWage != null ? formatEuroDe(employee.hourlyWage) : '—'}
+                </dd>
               </div>
-              {employee.monthlySalary != null ? (
+              {canSensitive && employee.monthlySalary != null ? (
                 <div className="flex justify-between gap-2">
                   <dt className="text-[var(--text-faint)]">Monatsgehalt</dt>
                   <dd className="tabular-nums">{formatEuroDe(employee.monthlySalary)}</dd>

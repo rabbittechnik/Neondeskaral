@@ -4,7 +4,7 @@ import { useSearchParams } from 'react-router-dom'
 import type { Absence, VacationBlock } from '../../types/absence'
 import { useAbsences } from '../../context/absences-context'
 import { useEmployees } from '../../context/employees-context'
-import { STATION_FEDERAL_STATE } from '../../data/station'
+import { useStation } from '../../context/station-context'
 import { ABSENCE_STATUS_LABELS, ABSENCE_TYPE_LABELS } from '../../components/absences/absenceLabels'
 import { AbsenceCalendarView } from '../../components/absences/AbsenceCalendarView'
 import { AbsenceListView } from '../../components/absences/AbsenceListView'
@@ -19,7 +19,8 @@ import { Button } from '../../components/ui/Button'
 
 const VIEW_VALUES: AbsencesViewMode[] = ['calendar', 'list', 'requests', 'vacation-blocks']
 
-function parseView(raw: string | null): AbsencesViewMode {
+function parseView(raw: string | null, tabRaw: string | null): AbsencesViewMode {
+  if (tabRaw === 'antraege') return 'requests'
   if (raw && VIEW_VALUES.includes(raw as AbsencesViewMode)) return raw as AbsencesViewMode
   return 'calendar'
 }
@@ -30,15 +31,24 @@ function csvEscape(s: string): string {
 }
 
 export function AbsencesPage() {
+  const { federalState } = useStation()
   const [searchParams, setSearchParams] = useSearchParams()
-  const view = useMemo(() => parseView(searchParams.get('view')), [searchParams])
+  const view = useMemo(() => parseView(searchParams.get('view'), searchParams.get('tab')), [searchParams])
   const setView = useCallback(
     (v: AbsencesViewMode) => {
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev)
-          if (v === 'calendar') next.delete('view')
-          else next.set('view', v)
+          if (v === 'calendar') {
+            next.delete('view')
+            next.delete('tab')
+          } else if (v === 'requests') {
+            next.delete('view')
+            next.set('tab', 'antraege')
+          } else {
+            next.delete('tab')
+            next.set('view', v)
+          }
           return next
         },
         { replace: true },
@@ -148,7 +158,7 @@ export function AbsencesPage() {
       <AbsenceViewTabs active={view} onChange={setView} />
 
       {view === 'calendar' ? (
-        <AbsenceCalendarView absences={absences} employees={employees} federalState={STATION_FEDERAL_STATE} />
+        <AbsenceCalendarView absences={absences} employees={employees} federalState={federalState} />
       ) : null}
       {view === 'list' ? (
         <AbsenceListView employees={employees} onEdit={openEditAbsence} onView={openEditAbsence} />
@@ -156,7 +166,7 @@ export function AbsencesPage() {
       {view === 'requests' ? (
         <AbsenceRequestsView
           employees={employees}
-          federalState={STATION_FEDERAL_STATE}
+          federalState={federalState}
           onDetails={openEditAbsence}
         />
       ) : null}

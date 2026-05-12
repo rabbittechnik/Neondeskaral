@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3'
 import { randomUUID } from 'node:crypto'
 import bcrypt from 'bcryptjs'
+import { FULL_STATION_PERMISSIONS, TEAMLEAD_PERMISSIONS } from '../constants/permissions.js'
 import { nowIso } from '../utils/timestamps.js'
 const STATION_ID = 'aral-bodelshausen'
 
@@ -267,11 +268,12 @@ export function seedIfEmpty(db: Database.Database) {
   const ts = nowIso()
   const tx = db.transaction(() => {
     db.prepare(
-      `INSERT INTO stations (id, name, address, city, postal_code, phone, email, federal_state, active, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+      `INSERT OR IGNORE INTO stations (id, name, brand, address, city, postal_code, phone, email, federal_state, active, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
     ).run(
       STATION_ID,
       'Aral Bodelshausen',
+      'Aral',
       'Bahnhofstraße 1',
       'Bodelshausen',
       '72411',
@@ -291,33 +293,54 @@ export function seedIfEmpty(db: Database.Database) {
     }
 
     db.prepare(
-      `INSERT INTO roles (id, name, description, permissions_json) VALUES (?, ?, ?, ?)`,
-    ).run('role-admin', 'admin', 'Administrator / Stationsleitung', '{}')
+      `INSERT INTO roles (id, name, description, permissions_json, role_key, role_label) VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(
+      'role-admin',
+      'Chef',
+      'Chef / Administrator',
+      JSON.stringify(FULL_STATION_PERMISSIONS),
+      'chief_admin',
+      'Chef / Administrator',
+    )
+    db.prepare(
+      `INSERT INTO roles (id, name, description, permissions_json, role_key, role_label) VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(
+      'role-station-team-lead',
+      'Stationsleitung',
+      'Stationsleitung / Teamleitung',
+      JSON.stringify(TEAMLEAD_PERMISSIONS),
+      'station_team_lead',
+      'Stationsleitung / Teamleitung',
+    )
 
-    const hashMax = bcrypt.hashSync('00066777', 10)
-    const hashMathias = bcrypt.hashSync('200520', 10)
+    const hashMax = bcrypt.hashSync(process.env.ADMIN_MAX_PASSWORD ?? '00066777', 10)
+    const hashMathias = bcrypt.hashSync(process.env.ADMIN_MATTHIAS_PASSWORD ?? '200520', 10)
+    const maxUsername = String(process.env.ADMIN_MAX_USERNAME ?? 'max').trim().toLowerCase()
+    const matUsername = String(process.env.ADMIN_MATTHIAS_USERNAME ?? 'matthias').trim().toLowerCase()
 
     const insUser = db.prepare(
-      `INSERT INTO users (id, username, email, password_hash, display_name, role_id, active, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+      `INSERT INTO users (id, username, email, password_hash, display_name, role_id, global_admin, active, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
     )
     insUser.run(
       'user-max-vins',
-      'maxvins',
+      maxUsername,
       'max.vins@station.demo',
       hashMax,
       'Max Vins',
       'role-admin',
+      1,
       ts,
       ts,
     )
     insUser.run(
       'user-mathias-raselowski',
-      'mathiasraselowski',
+      matUsername,
       'mathias.raselowski@station.demo',
       hashMathias,
       'Mathias Raselowski',
-      'role-admin',
+      'role-station-team-lead',
+      0,
       ts,
       ts,
     )
@@ -497,8 +520,8 @@ export function seedIfEmpty(db: Database.Database) {
     }
 
     const insAbs = db.prepare(
-      `INSERT INTO absences (id, station_id, employee_id, type, start_date, end_date, half_day, status, comment, requested_at, approved_by, approved_at, rejected_reason, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+      `INSERT INTO absences (id, station_id, employee_id, type, start_date, end_date, half_day, status, comment, requested_at, approved_by, approved_at, rejected_by, rejected_at, rejected_reason, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?)`,
     )
     insAbs.run(
       'abs-1',

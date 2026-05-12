@@ -5,6 +5,37 @@ import * as access from '../services/employeeAccessService.js'
 
 export const employeeAccessRouter = Router()
 
+employeeAccessRouter.get('/:token/week-schedule', (req, res) => {
+  try {
+    const weekStart = typeof req.query.weekStart === 'string' ? req.query.weekStart : undefined
+    const out = access.buildEmployeeWeekSchedule(getDb(), req.params.token, weekStart)
+    if (!out.ok) return jsonErr(res, 'Zugang ungültig oder deaktiviert.', 403)
+    jsonOk(res, out)
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
+  }
+})
+
+employeeAccessRouter.get('/:token/absences', (req, res) => {
+  try {
+    const out = access.employeeAccessListAbsences(getDb(), req.params.token)
+    if (!out.ok) return jsonErr(res, 'Zugang ungültig oder deaktiviert.', 403)
+    jsonOk(res, out.data)
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
+  }
+})
+
+employeeAccessRouter.post('/:token/absences', (req, res) => {
+  try {
+    const out = access.employeeAccessCreateAbsence(getDb(), req.params.token, req.body ?? {})
+    if (!out.ok) return jsonErr(res, 'Zugang ungültig oder deaktiviert.', 403)
+    jsonOk(res, out.data, 201)
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
+  }
+})
+
 employeeAccessRouter.get('/:token', (req, res) => {
   try {
     const out = access.buildEmployeeAccessPayload(getDb(), req.params.token)

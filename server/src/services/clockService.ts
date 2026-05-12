@@ -85,7 +85,7 @@ export function clockCheckInByEmployeeId(
 ) {
   const { employeeId, stationId, force, source, startedBy } = p
   const card = (p.cardNumberForLog ?? '').trim()
-  const emp = getEmployee(db, employeeId, false)
+  const emp = getEmployee(db, employeeId, { includeAccessToken: false, includeSensitive: false })
   if (!emp) {
     if (card)
       logCardEvent(db, {
@@ -225,7 +225,7 @@ export function clockCheckOutStartByEmployeeId(
 ) {
   const { employeeId, stationId } = p
   const card = (p.cardNumberForLog ?? '').trim()
-  const emp = getEmployee(db, employeeId, false)
+  const emp = getEmployee(db, employeeId, { includeAccessToken: false, includeSensitive: false })
   if (!emp) {
     if (card)
       logCardEvent(db, {

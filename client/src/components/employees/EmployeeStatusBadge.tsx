@@ -10,6 +10,8 @@ const hrStyles: Record<EmployeeHRStatus, string> = {
     'border-cyan-400/45 bg-cyan-500/15 text-cyan-100 shadow-[0_0_12px_rgba(34,211,238,0.18)]',
   krank:
     'border-rose-400/45 bg-rose-500/15 text-rose-100 shadow-[0_0_12px_rgba(251,113,133,0.2)]',
+  gesperrt:
+    'border-red-500/50 bg-red-500/15 text-red-100 shadow-[0_0_12px_rgba(248,113,113,0.2)]',
 }
 
 const presenceStyles: Record<ScheduleEmployeeRow['schedulePresence'], string> = {
@@ -17,6 +19,7 @@ const presenceStyles: Record<ScheduleEmployeeRow['schedulePresence'], string> = 
   inaktiv: hrStyles.inaktiv,
   urlaub: hrStyles.urlaub,
   krank: hrStyles.krank,
+  gesperrt: hrStyles.gesperrt,
   frei: 'border-violet-400/45 bg-violet-500/15 text-violet-100 shadow-[0_0_12px_rgba(167,139,250,0.2)]',
   ueberstunden:
     'border-amber-400/50 bg-amber-500/15 text-amber-100 shadow-[0_0_12px_rgba(251,191,36,0.22)]',
@@ -27,6 +30,7 @@ const presenceLabels: Record<ScheduleEmployeeRow['schedulePresence'], string> = 
   inaktiv: 'Inaktiv',
   urlaub: 'Urlaub',
   krank: 'Krank',
+  gesperrt: 'Gesperrt',
   frei: 'Frei',
   ueberstunden: 'Überstunden',
 }

@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
-import { STATION_NAME, STATION } from '../../data/station'
+import { useStation } from '../../context/station-context'
 import { useEmployees } from '../../context/employees-context'
 import { useScheduleShifts } from '../../context/schedule-shifts-context'
 import { useTimeTracking } from '../../context/time-tracking-context'
@@ -19,6 +19,7 @@ import { Button } from '../../components/ui/Button'
 type ModalMode = null | 'check-in' | 'check-out'
 
 export function StaffTerminalPage() {
+  const { stationId, selectedStation } = useStation()
   const { employees } = useEmployees()
   const { shifts } = useScheduleShifts()
   const { timeEntries, startShiftForEmployee, completeShiftWithChecklist, logCardEvent } = useTimeTracking()
@@ -43,7 +44,7 @@ export function StaffTerminalPage() {
 
   const log = useCallback(
     (partial: Omit<CashRegisterCardEvent, 'id' | 'scannedAt' | 'stationId'>) => {
-      logCardEvent({ ...partial, stationId: STATION.id })
+      logCardEvent({ ...partial, stationId: stationId ?? '' })
     },
     [logCardEvent],
   )
@@ -284,7 +285,7 @@ export function StaffTerminalPage() {
     <div className="flex min-h-dvh flex-col items-center px-4 py-8 sm:py-12">
       <p className="text-sm font-medium uppercase tracking-[0.2em] text-cyan-400/80">Neondesk</p>
       <h1 className="mt-2 text-3xl font-bold text-[var(--text-main)] sm:text-4xl md:text-5xl">Mitarbeiter-Terminal</h1>
-      <p className="mt-2 text-xl text-cyan-200/90 sm:text-2xl">{STATION_NAME}</p>
+      <p className="mt-2 text-xl text-cyan-200/90 sm:text-2xl">{selectedStation?.name ?? 'Station'}</p>
       <p className="mt-1 text-sm text-[var(--text-faint)]">Mitarbeiter-Terminal</p>
 
       <div className="mt-8 w-full max-w-4xl">

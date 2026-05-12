@@ -8,9 +8,10 @@ import {
   type ReactNode,
 } from 'react'
 import type { CashRegisterCardEvent, ShiftCloseChecklist, TimeEntry } from '../types/timeTracking'
-import { STATION } from '../data/station'
+import { DEFAULT_TABLET_STATION_ID } from '../data/station'
 import { createCardEventId } from '../data/mockTimeTracking'
 import { API_BASE, apiGet, apiSend } from '../services/api'
+import { useStation } from './station-context'
 
 type TimeTrackingContextValue = {
   timeEntries: TimeEntry[]
@@ -30,16 +31,22 @@ type TimeTrackingContextValue = {
 const TimeTrackingContext = createContext<TimeTrackingContextValue | null>(null)
 
 export function TimeTrackingProvider({ children }: { children: ReactNode }) {
+  const { stationId } = useStation()
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [cardEvents, setCardEvents] = useState<CashRegisterCardEvent[]>([])
 
   const refetch = useCallback(async () => {
+    if (!stationId) {
+      setTimeEntries([])
+      setLoading(false)
+      return
+    }
     setLoading(true)
     setError(null)
     const res = await apiGet<TimeEntry[]>('/time-entries', {
-      stationId: STATION.id,
+      stationId,
       from: '2025-01-01T00:00:00.000Z',
       to: '2028-12-31T23:59:59.999Z',
     })
@@ -49,7 +56,7 @@ export function TimeTrackingProvider({ children }: { children: ReactNode }) {
       if (!res.ok) setError(res.error)
     }
     setLoading(false)
-  }, [])
+  }, [stationId])
 
   useEffect(() => {
     void refetch()
@@ -68,12 +75,13 @@ export function TimeTrackingProvider({ children }: { children: ReactNode }) {
     async (cardNumber: string, options?: { force?: boolean; startNote?: string }) => {
       const card = cardNumber.trim()
       if (!card) throw new Error('Kartennummer fehlt')
+      const sid = stationId ?? DEFAULT_TABLET_STATION_ID
       const res = await fetch(`${API_BASE}/terminal/check-in`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           cardNumber: card,
-          stationId: STATION.id,
+          stationId: sid,
           force: Boolean(options?.force),
         }),
       })
@@ -91,7 +99,7 @@ export function TimeTrackingProvider({ children }: { children: ReactNode }) {
       await refetch()
       return entry
     },
-    [refetch],
+    [refetch, stationId],
   )
 
   const completeShiftWithChecklist = useCallback(

@@ -36,9 +36,10 @@ function authHeaders(): HeadersInit {
 
 function onUnauthorized(): void {
   clearAdminToken()
-  if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
-    window.location.assign('/login')
-  }
+  if (typeof window === 'undefined') return
+  const p = window.location.pathname
+  if (p.startsWith('/employee-app') || p.startsWith('/employee-access')) return
+  if (!p.startsWith('/login')) window.location.assign('/login')
 }
 
 function buildQuery(params?: Record<string, string | undefined>): string {
@@ -110,6 +111,21 @@ export async function employeeAccessGet<T>(token: string): Promise<ApiEnvelope<T
   return json as ApiEnvelope<T>
 }
 
+export async function employeeAccessGetWeekSchedule<T>(
+  token: string,
+  weekStart?: string,
+): Promise<ApiEnvelope<T>> {
+  const q = weekStart ? `?weekStart=${encodeURIComponent(weekStart)}` : ''
+  const url = `${API_BASE}/employee-access/${encodeURIComponent(token)}/week-schedule${q}`
+  const res = await fetch(url)
+  const json = (await res.json()) as ApiEnvelope<T>
+  if (!res.ok && json && typeof json === 'object' && 'ok' in json && json.ok === false) {
+    return json as ApiEnvelope<T>
+  }
+  if (!res.ok) return { ok: false, error: `HTTP ${res.status}` }
+  return json as ApiEnvelope<T>
+}
+
 /** Öffentliche Mitarbeiter-Zugangs-POST (Antwort kann ok:false bei HTTP 200 enthalten). */
 export async function employeeAccessPost(
   token: string,
@@ -127,4 +143,26 @@ export async function employeeAccessPost(
     return { ok: false, error: `HTTP ${res.status}` }
   }
   return json
+}
+
+/** Öffentliche Mitarbeiter-Zugangs-POST mit typisierter ApiEnvelope-Antwort. */
+export async function employeeAccessPostJson<T>(
+  token: string,
+  subPath: string,
+  body?: unknown,
+): Promise<ApiEnvelope<T>> {
+  const url = `${API_BASE}/employee-access/${encodeURIComponent(token)}/${subPath.replace(/^\//, '')}`
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body ?? {}),
+  })
+  const json = (await res.json()) as ApiEnvelope<T>
+  if (!res.ok && json && typeof json === 'object' && 'ok' in json && json.ok === false) {
+    return json as ApiEnvelope<T>
+  }
+  if (!res.ok) {
+    return { ok: false, error: `HTTP ${res.status}` }
+  }
+  return json as ApiEnvelope<T>
 }

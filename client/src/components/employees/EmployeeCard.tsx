@@ -7,6 +7,7 @@ import { EmployeeStatusBadge } from './EmployeeStatusBadge'
 import { EmploymentTypeBadge } from './EmploymentTypeBadge'
 import { WorkAreaBadges } from './WorkAreaBadges'
 import { formatEuroDe, formatHoursDe } from './employeeFormat'
+import { useStation } from '../../context/station-context'
 
 import { formatShiftPrefList, formatWeekdayPrefList } from './planning/planningPreferenceLabels'
 
@@ -59,6 +60,11 @@ type Props = {
 
 export function EmployeeCard({ employee, onEdit, onDeactivate, onReactivate }: Props) {
   const inactive = employee.status === 'inaktiv'
+  const { hasPermission } = useStation()
+  const canSensitive =
+    hasPermission('employees.viewSensitive') ||
+    hasPermission('payroll.view') ||
+    hasPermission('employees.manageSensitive')
 
   return (
     <div
@@ -94,7 +100,7 @@ export function EmployeeCard({ employee, onEdit, onDeactivate, onReactivate }: P
             <h3 className="truncate font-semibold text-[var(--text-main)]">
               {employee.displayName}
             </h3>
-            <p className="truncate text-sm text-[var(--text-muted)]">{employee.role}</p>
+            <p className="truncate text-sm text-[var(--text-muted)]">{employee.employmentRole || employee.role}</p>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <EmploymentTypeBadge type={employee.employmentType} />
               <EmployeeStatusBadge variant="hr" status={employee.status} />
@@ -116,8 +122,12 @@ export function EmployeeCard({ employee, onEdit, onDeactivate, onReactivate }: P
           <dd className="text-right font-medium tabular-nums text-[var(--text-main)]">
             {formatHoursDe(employee.monthlyHours)}
           </dd>
-          <dt className="text-[var(--text-faint)]">Stundenlohn</dt>
-          <dd className="text-right font-medium tabular-nums">{formatEuroDe(employee.hourlyWage)}</dd>
+          {canSensitive && employee.hourlyWage != null ? (
+            <>
+              <dt className="text-[var(--text-faint)]">Stundenlohn</dt>
+              <dd className="text-right font-medium tabular-nums">{formatEuroDe(employee.hourlyWage)}</dd>
+            </>
+          ) : null}
           <dt className="text-[var(--text-faint)]">Resturlaub</dt>
           <dd className="text-right font-medium tabular-nums">
             {employee.remainingVacationDays} Tage

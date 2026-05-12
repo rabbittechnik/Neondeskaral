@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { getDb } from '../db/database.js'
 import { jsonErr, jsonOk } from '../utils/http.js'
-import { loginAdminUser } from '../services/authService.js'
+import { loginAdminUser, buildAuthMeUser } from '../services/authService.js'
 
 export const authRouter = Router()
 
@@ -24,10 +24,10 @@ authRouter.get('/me', (req, res) => {
     jsonErr(res, 'Nicht angemeldet', 401)
     return
   }
-  jsonOk(res, {
-    id: req.adminUser.sub,
-    username: req.adminUser.username,
-    displayName: req.adminUser.displayName,
-    roleId: req.adminUser.roleId,
-  })
+  const me = buildAuthMeUser(getDb(), req.adminUser.sub)
+  if (!me) {
+    jsonErr(res, 'Benutzer nicht gefunden', 404)
+    return
+  }
+  jsonOk(res, me)
 })

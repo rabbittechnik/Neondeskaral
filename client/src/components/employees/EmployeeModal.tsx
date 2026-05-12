@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 import type { Employee } from '../../types/employee'
-import { createEmployeeId } from '../../data/mockEmployees'
+import { createEmployeeId } from '../../lib/createEmployeeId'
 import { Button } from '../ui/Button'
 import { EmployeeForm } from './EmployeeForm'
 import { emptyEmployee } from './employeeDefaults'
@@ -21,8 +21,13 @@ function validate(e: Employee): string[] {
   const err: string[] = []
   if (!e.firstName.trim()) err.push('Vorname fehlt.')
   if (!e.lastName.trim()) err.push('Nachname fehlt.')
-  if (!e.displayName.trim()) err.push('Anzeigename fehlt.')
-  if (!e.email.trim()) err.push('E-Mail fehlt.')
+  if (!e.salutation) err.push('Anrede fehlt.')
+  if (!e.color?.trim()) err.push('Farbe fehlt.')
+  if (!e.employmentType) err.push('Beschäftigungsart fehlt.')
+  if (!e.startDate?.trim()) err.push('Eintrittsdatum fehlt.')
+  if (!e.timeTrackingMode?.trim()) err.push('Zeiterfassung fehlt.')
+  if (!e.breakMode?.trim()) err.push('Pausen-Modus fehlt.')
+  if (!e.mobilePunchMode?.trim()) err.push('Mobiles Stempeln fehlt.')
   if (e.workAreaIds.length === 0) err.push('Mindestens ein Arbeitsbereich.')
   return err
 }
@@ -93,7 +98,7 @@ export function EmployeeModal({
         role="dialog"
         aria-modal
         aria-labelledby="employee-modal-title"
-        className="relative z-10 flex max-h-[min(92vh,880px)] w-full max-w-3xl flex-col overflow-hidden rounded-[var(--radius-md)] border border-cyan-400/25 bg-[var(--bg-card)] shadow-[0_0_48px_rgba(34,211,238,0.1),var(--shadow-card)]"
+        className="relative z-10 flex max-h-[min(92vh,900px)] w-full max-w-5xl flex-col overflow-hidden rounded-[var(--radius-md)] border border-cyan-400/25 bg-[var(--bg-card)] shadow-[0_0_48px_rgba(34,211,238,0.1),var(--shadow-card)]"
       >
         <div className="flex items-start justify-between gap-3 border-b border-[var(--border-subtle)] px-5 py-4">
           <div>
@@ -104,7 +109,7 @@ export function EmployeeModal({
               {mode === 'create' ? 'Neuer Mitarbeiter' : 'Mitarbeiter bearbeiten'}
             </h2>
             <p className="mt-1 text-xs text-[var(--text-muted)]">
-              Lokale Verwaltung · ohne Server
+              Stammdaten, Entgelt, Zeiterfassung und Schichtwünsche · NeonShift
             </p>
           </div>
           <button
@@ -127,7 +132,7 @@ export function EmployeeModal({
               </ul>
             </div>
           ) : null}
-          <EmployeeForm value={form} onChange={setForm} />
+          <EmployeeForm value={form} onChange={setForm} mode={mode} />
         </div>
 
         <div className="flex flex-wrap justify-end gap-2 border-t border-[var(--border-subtle)] bg-[var(--bg-elevated)]/30 px-5 py-4">

@@ -9,11 +9,35 @@ import {
 } from 'react'
 import { apiGet, clearAdminToken, getAdminToken, setAdminToken, API_BASE, type ApiEnvelope } from '../services/api'
 
+export type StationInfo = {
+  id: string
+  name: string
+  brand?: string
+  city?: string
+  federalState: string
+  active?: number
+}
+
+export type StationAccessInfo = {
+  stationId: string
+  role: string
+  permissions: Record<string, boolean>
+  active: boolean
+}
+
 export type AuthUser = {
   id: string
   username: string
   displayName: string
   roleId: string
+  /** z. B. chief_admin, station_team_lead */
+  roleKey?: string
+  /** Anzeige z. B. „Chef / Administrator“ */
+  roleLabel?: string
+  globalAdmin?: boolean
+  stations?: StationInfo[]
+  stationAccess?: StationAccessInfo[]
+  canSwitchStation?: boolean
 }
 
 type AuthContextValue = {
