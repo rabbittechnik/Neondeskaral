@@ -24,6 +24,8 @@ export function initDatabase(): Database.Database {
   const dbPath = getDbPath()
   const dir = path.dirname(dbPath)
   fs.mkdirSync(dir, { recursive: true })
+  // Keine Secrets — nur der aufgelöste Pfad (Railway: DATABASE_PATH=/data/neonshift.sqlite)
+  console.log(`Using database path: ${dbPath}`)
 
   const db = new Database(dbPath)
   db.pragma('journal_mode = WAL')

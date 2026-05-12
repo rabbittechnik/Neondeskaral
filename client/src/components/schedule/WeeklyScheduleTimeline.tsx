@@ -13,6 +13,7 @@ import {
 import type { GermanState } from '../../data/germanHolidays'
 import { STATION_FEDERAL_STATE } from '../../data/station'
 import type { ScheduleTimelineVariant } from './timelineLayout'
+import type { WeekTimelineEditBridge } from './scheduleTimelineEditTypes'
 
 type Props = {
   weekMonday: Date
@@ -29,6 +30,8 @@ type Props = {
   showLegend?: boolean
   /** Kompakt: Link zur Schichtplan-Seite */
   showFooterLink?: boolean
+  /** Drag & Drop / Resize (nur Schichtplan-Seite) */
+  shiftEdit?: WeekTimelineEditBridge
 }
 
 function startOfLocalDay(d: Date): Date {
@@ -67,6 +70,7 @@ export function WeeklyScheduleTimeline({
   showLegend,
   showFooterLink,
   stationFederalState = STATION_FEDERAL_STATE,
+  shiftEdit,
 }: Props) {
   const days = weekDayDates(weekMonday)
   const employeeById = useMemo(() => new Map(employees.map((e) => [e.id, e])), [employees])
@@ -100,6 +104,7 @@ export function WeeklyScheduleTimeline({
             variant={variant}
             stationFederalState={stationFederalState}
             onShiftSelect={onShiftSelect}
+            shiftEdit={shiftEdit}
           />
         ))}
       </div>

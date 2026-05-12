@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import { CalendarRange, UserX } from 'lucide-react'
 import type { ResolvedShiftBlock } from '../../data/mockSchedule'
 import { toISODate } from '../../data/mockSchedule'
@@ -23,6 +23,8 @@ import { useEmployees } from '../../context/employees-context'
 import { getAbsencesForDate } from '../../utils/absenceQueries'
 import { ABSENCE_TYPE_LABELS } from '../absences/absenceLabels'
 
+import type { WeekTimelineEditBridge } from './scheduleTimelineEditTypes'
+
 type Props = {
   dayDate: Date
   dayIndex: number
@@ -36,6 +38,7 @@ type Props = {
   /** Bundesland der Station (z. B. BW) für Feiertagslogik */
   stationFederalState: GermanState
   onShiftSelect?: (block: ResolvedShiftBlock) => void
+  shiftEdit?: WeekTimelineEditBridge
 }
 
 export function DayTimelineRow({
@@ -50,7 +53,9 @@ export function DayTimelineRow({
   variant = 'full',
   stationFederalState,
   onShiftSelect,
+  shiftEdit,
 }: Props) {
+  const trackRef = useRef<HTMLDivElement>(null)
   const layout = getTimelineLayout(variant)
   const weekday = WEEKDAY_LABELS_LONG[dayIndex] ?? ''
   const dateIso = useMemo(() => toISODate(dayDate), [dayDate])
@@ -89,9 +94,19 @@ export function DayTimelineRow({
   const de = timeToMinutes(dayEnd)
   const span = Math.max(1, de - ds)
 
+  const blocksForLayout = useMemo(() => {
+    const m = shiftEdit?.previewByShiftId
+    if (!m || m.size === 0) return blocks
+    return blocks.map((b) => {
+      const p = m.get(b.id)
+      if (!p) return b
+      return { ...b, start: p.start, end: p.end }
+    })
+  }, [blocks, shiftEdit?.previewByShiftId])
+
   const rowItems = useMemo(
-    () => groupShiftsIntoRows(blocks, dayStart, dayEnd),
-    [blocks, dayStart, dayEnd],
+    () => groupShiftsIntoRows(blocksForLayout, dayStart, dayEnd),
+    [blocksForLayout, dayStart, dayEnd],
   )
 
   const maxRowIndex = layout.maxVisibleShiftRowIndex
@@ -123,7 +138,7 @@ export function DayTimelineRow({
   const moreRowHeight = hiddenShiftCount > 0 ? 22 : 0
   const trackHeightPx = trackBodyHeightPx + moreRowHeight
 
-  const summaryHours = sumShiftHoursForDay(blocks)
+  const summaryHours = sumShiftHoursForDay(blocksForLayout)
   const summaryStr = summaryHours.toFixed(2).replace('.', ',')
 
   const hStrong = holidayBadge.severity === 'strong'
@@ -211,6 +226,7 @@ export function DayTimelineRow({
           <div className={`relative w-full ${layout.scrollMinWidthClass}`}>
             <TimelineHeader variant={variant} dayStart={dayStart} dayEnd={dayEnd} />
             <div
+              ref={trackRef}
               className={`relative rounded-b-lg border border-t-0 border-white/10 bg-black/25 ${trackHoliday}`}
               style={{ minHeight: trackHeightPx }}
             >
@@ -245,6 +261,7 @@ export function DayTimelineRow({
                       headerOffsetPx={headerOffsetPx}
                       layout={layout}
                       onSelect={onShiftSelect}
+                      shiftEdit={shiftEdit}
                     />
                   ) : (
                     <TimelineShiftBlock
@@ -268,6 +285,10 @@ export function DayTimelineRow({
                         )
                       })()}
                       onSelect={onShiftSelect}
+                      dayStart={dayStart}
+                      dayEnd={dayEnd}
+                      trackRef={trackRef}
+                      shiftEdit={shiftEdit}
                     />
                   ),
                 )

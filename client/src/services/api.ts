@@ -126,6 +126,17 @@ export async function employeeAccessGetWeekSchedule<T>(
   return json as ApiEnvelope<T>
 }
 
+export async function employeeAccessGetTasks<T>(token: string): Promise<ApiEnvelope<T>> {
+  const url = `${API_BASE}/employee-access/${encodeURIComponent(token)}/tasks`
+  const res = await fetch(url)
+  const json = (await res.json()) as ApiEnvelope<T>
+  if (!res.ok && json && typeof json === 'object' && 'ok' in json && json.ok === false) {
+    return json as ApiEnvelope<T>
+  }
+  if (!res.ok) return { ok: false, error: `HTTP ${res.status}` }
+  return json as ApiEnvelope<T>
+}
+
 /** Öffentliche Mitarbeiter-Zugangs-POST (Antwort kann ok:false bei HTTP 200 enthalten). */
 export async function employeeAccessPost(
   token: string,

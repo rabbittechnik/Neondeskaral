@@ -390,6 +390,8 @@ export function seedIfEmpty(db: Database.Database) {
       }
     }
 
+    db.prepare(`UPDATE employees SET employment_role = ? WHERE id = 'e1'`).run('Teamleiter / Stationsleitung')
+
     const updPlanning = db.prepare(
       `UPDATE employees SET
         preferred_shift_types_json = ?,

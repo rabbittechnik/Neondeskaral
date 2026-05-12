@@ -7,13 +7,12 @@ import {
   addDaysYmd,
   formatDateDE,
   formatShiftTimeRangeDE,
-  formatWeekRangeKwDE,
-  formatWeekdayDateDE,
-  formatWeekdayShortDateDE,
+  formatWeekdayLongDE,
+  getIsoCalendarWeekForMonday,
   getMondayOfWeekContaining,
 } from '../../utils/dateFormat'
 
-type Props = { accessToken: string }
+type Props = { accessToken: string; viewerEmployeeId?: string }
 
 function employeeLabel(emp: EmployeeWeekScheduleShift['employee']): string {
   if (!emp) return 'Offene Schicht'
@@ -22,7 +21,7 @@ function employeeLabel(emp: EmployeeWeekScheduleShift['employee']): string {
   return emp.displayName || 'Mitarbeiter'
 }
 
-export function EmployeeWeekPlanTab({ accessToken }: Props) {
+export function EmployeeWeekPlanTab({ accessToken, viewerEmployeeId }: Props) {
   const [weekMonday, setWeekMonday] = useState(() => getMondayOfWeekContaining())
   const weekSunday = useMemo(() => addDaysYmd(weekMonday, 6), [weekMonday])
   const [state, setState] = useState<'loading' | 'ok' | 'err'>('loading')
@@ -66,6 +65,11 @@ export function EmployeeWeekPlanTab({ accessToken }: Props) {
 
   const waName = (id: string) => data?.workAreas.find((w) => w.id === id)?.name ?? id
 
+  const { week: kw } = getIsoCalendarWeekForMonday(weekMonday)
+
+  const isViewerShift = (s: EmployeeWeekScheduleShift) =>
+    Boolean(viewerEmployeeId) && (s.employeeId === viewerEmployeeId || s.employee?.id === viewerEmployeeId)
+
   if (state === 'err') {
     return (
       <p className="rounded-xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">
@@ -84,8 +88,8 @@ export function EmployeeWeekPlanTab({ accessToken }: Props) {
             className="shrink-0 border-white/15 px-3 py-2"
             onClick={() => setWeekMonday((w) => addDaysYmd(w, -7))}
           >
-            <ChevronLeft className="h-4 w-4" aria-hidden />
-            <span className="sr-only sm:not-sr-only sm:ml-1">Vorherige Woche</span>
+            <ChevronLeft className="h-4 w-4 sm:mr-1" aria-hidden />
+            <span className="hidden text-xs sm:inline">Vorherige Woche</span>
           </Button>
           <Button type="button" variant="outline" className="border-white/15 px-3 py-2" onClick={() => setWeekMonday(getMondayOfWeekContaining())}>
             Heute
@@ -96,11 +100,16 @@ export function EmployeeWeekPlanTab({ accessToken }: Props) {
             className="shrink-0 border-white/15 px-3 py-2"
             onClick={() => setWeekMonday((w) => addDaysYmd(w, 7))}
           >
-            <span className="sr-only sm:not-sr-only sm:mr-1">Nächste Woche</span>
-            <ChevronRight className="h-4 w-4" aria-hidden />
+            <span className="hidden text-xs sm:inline">Nächste Woche</span>
+            <ChevronRight className="h-4 w-4 sm:ml-1" aria-hidden />
           </Button>
         </div>
-        <p className="text-center text-sm font-medium text-cyan-100/95 sm:text-right">{formatWeekRangeKwDE(weekMonday, weekSunday)}</p>
+        <div className="min-w-0 flex-1 text-center sm:text-right">
+          <p className="text-sm font-semibold text-cyan-100">KW {kw}</p>
+          <p className="mt-0.5 text-xs text-slate-400">
+            {formatDateDE(weekMonday)} – {formatDateDE(weekSunday)}
+          </p>
+        </div>
       </div>
 
       {state === 'loading' ? <p className="text-slate-400">Wochenplan wird geladen…</p> : null}
@@ -110,28 +119,39 @@ export function EmployeeWeekPlanTab({ accessToken }: Props) {
         {dayKeys.map((date) => {
           const list = byDate.get(date) ?? []
           return (
-            <section key={date} className="rounded-2xl border border-white/10 bg-slate-900/50 p-4">
-              <h3 className="text-sm font-semibold text-cyan-200">{formatWeekdayDateDE(date)}</h3>
+            <section key={date} className="rounded-2xl border border-white/10 bg-slate-900/55 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+              <h3 className="text-xl font-bold tracking-tight text-white">{formatWeekdayLongDE(date)}</h3>
+              <p className="mt-0.5 text-sm text-slate-400">{formatDateDE(date)}</p>
               {list.length === 0 ? (
-                <p className="mt-2 text-sm text-slate-500">Keine Schichten.</p>
+                <p className="mt-3 text-sm text-slate-500">Keine Schichten.</p>
               ) : (
-                <ul className="mt-3 space-y-2">
+                <ul className="mt-4 space-y-2.5">
                   {list.map((s) => {
                     const col = s.employee?.color ?? '#64748b'
                     const label = employeeLabel(s.employee)
+                    const mine = isViewerShift(s)
                     return (
                       <li
                         key={s.id}
-                        className="rounded-xl border px-3 py-2.5 text-sm"
+                        className={`rounded-xl border px-3 py-3 text-sm ${mine ? 'ring-2 ring-cyan-400/50' : ''}`}
                         style={{
-                          borderColor: `${col}66`,
-                          background: `linear-gradient(135deg, ${col}18, rgba(15,23,42,0.9))`,
-                          boxShadow: `0 0 16px ${col}22`,
+                          borderColor: mine ? `${col}99` : `${col}66`,
+                          background: mine
+                            ? `linear-gradient(135deg, ${col}28, rgba(15,23,42,0.92))`
+                            : `linear-gradient(135deg, ${col}18, rgba(15,23,42,0.9))`,
+                          boxShadow: mine ? `0 0 28px ${col}55, 0 0 12px rgba(34,211,238,0.25)` : `0 0 16px ${col}22`,
                         }}
                       >
-                        <p className="font-medium text-white">{label}</p>
-                        <p className="mt-0.5 text-slate-200">{formatShiftTimeRangeDE(s.startTime, s.endTime)}</p>
-                        <p className="mt-0.5 text-xs text-slate-400">{waName(s.workAreaId)}</p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-semibold text-white">{label}</p>
+                          {mine ? (
+                            <span className="rounded-full border border-cyan-400/50 bg-cyan-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-cyan-100">
+                              Deine Schicht
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="mt-1 text-slate-100">{formatShiftTimeRangeDE(s.startTime, s.endTime)}</p>
+                        <p className="mt-0.5 text-xs text-slate-400">Arbeitsbereich: {waName(s.workAreaId)}</p>
                         {s.publicationStatus === 'draft' ? (
                           <span className="mt-1 inline-block rounded border border-amber-400/40 px-1.5 py-0.5 text-[10px] text-amber-100">
                             Entwurf
@@ -154,24 +174,31 @@ export function EmployeeWeekPlanTab({ accessToken }: Props) {
             const list = byDate.get(date) ?? []
             return (
               <div key={date} className="flex flex-col rounded-xl border border-white/10 bg-slate-900/40 p-2">
-                <p className="border-b border-white/10 pb-2 text-center text-[10px] font-semibold leading-tight text-cyan-200">
-                  <span className="block text-slate-300">{formatWeekdayShortDateDE(date)}</span>
+                <p className="border-b border-white/10 pb-2 text-center leading-tight">
+                  <span className="block text-[10px] font-bold text-white">{formatWeekdayLongDE(date)}</span>
                   <span className="mt-0.5 block text-[10px] font-normal text-slate-500">{formatDateDE(date)}</span>
                 </p>
                 <ul className="mt-2 flex flex-1 flex-col gap-2">
                   {list.length === 0 ? <li className="text-center text-[10px] text-slate-500">—</li> : null}
                   {list.map((s) => {
                     const col = s.employee?.color ?? '#64748b'
+                    const mine = isViewerShift(s)
                     return (
                       <li
                         key={s.id}
-                        className="rounded-lg border px-2 py-1.5 text-[11px] leading-snug"
+                        className={`rounded-lg border px-2 py-1.5 text-[11px] leading-snug ${mine ? 'ring-1 ring-cyan-400/45' : ''}`}
                         style={{
-                          borderColor: `${col}55`,
-                          background: `${col}14`,
+                          borderColor: mine ? `${col}88` : `${col}55`,
+                          background: mine ? `${col}22` : `${col}14`,
+                          boxShadow: mine ? `0 0 14px ${col}44` : undefined,
                         }}
                       >
-                        <p className="font-medium text-white">{employeeLabel(s.employee)}</p>
+                        <div className="flex flex-wrap items-center gap-1">
+                          <p className="font-medium text-white">{employeeLabel(s.employee)}</p>
+                          {mine ? (
+                            <span className="rounded bg-cyan-500/20 px-1 py-0 text-[9px] font-semibold text-cyan-100">Du</span>
+                          ) : null}
+                        </div>
                         <p className="text-slate-200">{formatShiftTimeRangeDE(s.startTime, s.endTime)}</p>
                         <p className="text-slate-500">{waName(s.workAreaId)}</p>
                       </li>

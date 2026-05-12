@@ -33,9 +33,16 @@ import { useEmployees } from '../../context/employees-context'
 import { persistShiftDelete, persistShiftUpsert, useScheduleShifts } from '../../context/schedule-shifts-context'
 import { useStation } from '../../context/station-context'
 import { ScheduleAssistantModal } from '../../components/schedule/assistant/ScheduleAssistantModal'
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
+import { useScheduleShiftInteractions } from '../../components/schedule/useScheduleShiftInteractions'
+import { useAbsences } from '../../context/absences-context'
+import { useAuth } from '../../context/auth-context'
+import { formatShiftTimeRangeDE } from '../../utils/dateFormat'
 
 export function SchedulePage() {
-  const { federalState, stationId } = useStation()
+  const { federalState, stationId, hasPermission } = useStation()
+  const { user } = useAuth()
+  const { absences } = useAbsences()
   const { employees } = useEmployees()
   const { shifts, setShifts, ensureWeekSeeded, loading: shiftsLoading, error: shiftsError, refetchRange } =
     useScheduleShifts()
@@ -178,6 +185,20 @@ export function SchedulePage() {
     setEmployeeFilter((prev) => (prev === id ? 'all' : id))
   }
 
+  const canEditPlan = hasPermission('schedule.edit')
+  const currentUserId = user?.id ?? ''
+
+  const shiftInteractions = useScheduleShiftInteractions({
+    canEdit: canEditPlan,
+    shifts,
+    setShifts,
+    allBlocks,
+    employees,
+    absences,
+    stationId,
+    currentUserId,
+  })
+
   return (
     <div className="space-y-5 pb-8">
       <header className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -250,6 +271,75 @@ export function SchedulePage() {
         employeeSelectOptions={shiftEmployeeOptions}
       />
 
+      <ConfirmDialog
+        open={Boolean(shiftInteractions.pendingAssign)}
+        title="Schicht neu zuweisen?"
+        message={
+          shiftInteractions.pendingAssign ? shiftInteractions.buildAssignMessage(shiftInteractions.pendingAssign) : ''
+        }
+        confirmLabel="Schicht übertragen"
+        onCancel={() => shiftInteractions.setPendingAssign(null)}
+        onConfirm={() => {
+          const p = shiftInteractions.pendingAssign
+          if (p) void shiftInteractions.confirmAssign(p)
+          shiftInteractions.setPendingAssign(null)
+        }}
+      />
+
+      <ConfirmDialog
+        open={Boolean(shiftInteractions.pendingAssignConflict)}
+        title="Achtung: Konflikt erkannt"
+        variant="danger"
+        message={
+          shiftInteractions.pendingAssignConflict
+            ? shiftInteractions.buildConflictMessage(shiftInteractions.pendingAssignConflict)
+            : ''
+        }
+        confirmLabel="Trotzdem übertragen"
+        cancelLabel="Abbrechen"
+        onCancel={() => shiftInteractions.setPendingAssignConflict(null)}
+        onConfirm={() => {
+          const p = shiftInteractions.pendingAssignConflict
+          if (p) void shiftInteractions.confirmAssign(p)
+          shiftInteractions.setPendingAssignConflict(null)
+        }}
+      />
+
+      <ConfirmDialog
+        open={Boolean(shiftInteractions.pendingTime)}
+        title="Schichtzeit ändern?"
+        message={
+          shiftInteractions.pendingTime
+            ? [
+                `Alt: ${formatShiftTimeRangeDE(shiftInteractions.pendingTime.oldStart, shiftInteractions.pendingTime.oldEnd)}`,
+                `Neu: ${formatShiftTimeRangeDE(shiftInteractions.pendingTime.newStart, shiftInteractions.pendingTime.newEnd)}`,
+              ].join('\n')
+            : ''
+        }
+        confirmLabel="Speichern"
+        onCancel={() => shiftInteractions.setPendingTime(null)}
+        onConfirm={() => {
+          const p = shiftInteractions.pendingTime
+          if (p) void shiftInteractions.confirmTime(p)
+          shiftInteractions.setPendingTime(null)
+        }}
+      />
+
+      {shiftInteractions.ghost ? (
+        <div
+          className="pointer-events-none fixed z-[200] max-w-[220px] rounded-xl border border-cyan-400/50 bg-slate-950/95 px-3 py-2 text-sm font-semibold text-white shadow-[0_0_32px_rgba(34,211,238,0.45)]"
+          style={{
+            left: shiftInteractions.ghost.x,
+            top: shiftInteractions.ghost.y,
+            transform: 'translate(-50%, -120%)',
+            borderColor: `${shiftInteractions.ghost.color}99`,
+            boxShadow: `0 0 36px ${shiftInteractions.ghost.color}66`,
+          }}
+        >
+          {shiftInteractions.ghost.name}
+        </div>
+      ) : null}
+
       {view === 'calendar' ? (
         <>
           <ScheduleEmployeeSummaryBar
@@ -257,6 +347,8 @@ export function SchedulePage() {
             weeklyHoursById={hoursByEmployee}
             selectedId={employeeFilter === 'all' ? null : employeeFilter}
             onToggleEmployee={toggleEmployeeFilter}
+            assignDragEnabled={canEditPlan}
+            onEmployeePointerDownCapture={shiftInteractions.onEmployeePointerDownCapture}
           />
           <div className="grid gap-6 xl:grid-cols-12">
             <div className="space-y-4 xl:col-span-9">
@@ -267,6 +359,7 @@ export function SchedulePage() {
                 employees={scheduleRows}
                 blocks={gridBlocks}
                 onShiftSelect={openEdit}
+                shiftEdit={shiftInteractions.shiftEdit}
               />
             </div>
             <div className="space-y-4 xl:col-span-3">

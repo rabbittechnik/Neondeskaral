@@ -1,3 +1,4 @@
+import type { PointerEvent as ReactPointerEvent } from 'react'
 import type { ScheduleEmployeeRow } from '../../types/employee'
 import { EmployeeStatusBadge } from '../employees/EmployeeStatusBadge'
 import { Avatar } from '../ui/Avatar'
@@ -11,6 +12,9 @@ type Props = {
   weeklyHours: number
   selected: boolean
   onClick: () => void
+  /** Schmalere Karte (z. B. Dashboard) */
+  compact?: boolean
+  onPointerDownCapture?: (e: ReactPointerEvent<HTMLButtonElement>) => void
 }
 
 export function EmployeeSummaryCard({
@@ -18,12 +22,16 @@ export function EmployeeSummaryCard({
   weeklyHours,
   selected,
   onClick,
+  compact,
+  onPointerDownCapture,
 }: Props) {
+  const wClass = compact ? 'w-[min(160px,calc(100vw-3rem))]' : 'w-[200px]'
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`group relative flex w-[200px] shrink-0 snap-start flex-col overflow-hidden rounded-[var(--radius-sm)] border text-left transition
+      onPointerDownCapture={onPointerDownCapture}
+      className={`group relative flex ${wClass} shrink-0 snap-start flex-col overflow-hidden rounded-[var(--radius-sm)] border text-left transition
         ${
           selected
             ? 'border-cyan-400/55 bg-[var(--bg-elevated)] shadow-[0_0_28px_rgba(34,211,238,0.22),0_0_1px_rgba(34,211,238,0.5)]'

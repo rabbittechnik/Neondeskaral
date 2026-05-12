@@ -11,6 +11,7 @@ import {
   Timer,
 } from 'lucide-react'
 import { employeeAccessGet, employeeAccessPost } from '../../services/api'
+import type { Task, TaskLog } from '../../types/task'
 import type { ShiftCloseChecklist, TimeEntry } from '../../types/timeTracking'
 import { ShiftCloseChecklistModal } from '../../components/terminal/ShiftCloseChecklistModal'
 import { ShiftCloseSuccessCard } from '../../components/terminal/ShiftCloseSuccessCard'
@@ -22,44 +23,43 @@ import {
   formatShiftTimeRangeDE,
   formatTimeDE,
   formatWeekdayDateDE,
+  formatWeekdayLongDE,
   getMondayOfWeekContaining,
   localTodayYmd,
 } from '../../utils/dateFormat'
+import { getTaskStatusForDate, isTaskDueOnDate } from '../../utils/taskUtils'
 import { setStoredEmployeeAccessSession } from './employeeAppStorage'
 import { EmployeeWeekPlanTab } from './EmployeeWeekPlanTab'
+import type { EmployeeAbsenceRow } from './EmployeeUrlaubTab'
 import { EmployeeUrlaubTab } from './EmployeeUrlaubTab'
+import { EmployeeTasksTab } from './EmployeeTasksTab'
+import {
+  computeTodayEmployeeStatus,
+  findNextFutureShift,
+  findNextFutureShifts,
+  type PubShiftLite,
+} from './employeeAppShiftUtils'
 
 type PubEmp = {
   id: string
   displayName: string
   role?: string
+  roleLabel?: string
+  color?: string
 }
 
 type PubStation = { id: string; name: string }
 
-type PubShift = { id: string; date: string; startTime: string; endTime: string }
-
-type PubTask = { id: string; title: string; active?: boolean }
-
-type PubAbsence = {
-  id: string
-  type: string
-  startDate: string
-  endDate: string
-  halfDay?: boolean
-  status: string
-  comment?: string
-  requestedAt?: string
-  approvedAt?: string
-  rejectedReason?: string
-}
+type PubShift = PubShiftLite & { workAreaId?: string; shiftType?: string; status?: string }
 
 type Payload = {
   employee: PubEmp
   station: PubStation
+  workAreas: { id: string; name: string }[]
   shifts: PubShift[]
-  tasks: PubTask[]
-  absences: PubAbsence[]
+  tasks: Task[]
+  taskLogs: TaskLog[]
+  absences: EmployeeAbsenceRow[]
   timeEntries: TimeEntry[]
   runningTimeEntry?: TimeEntry
 }
@@ -169,12 +169,56 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
     onSessionStored?.()
   }, [loadState, payload, persistSession, t, onSessionStored])
 
-  const today = useMemo(() => localTodayYmd(), [])
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    const id = window.setInterval(() => setTick((x) => x + 1), 30_000)
+    return () => window.clearInterval(id)
+  }, [])
 
-  const planned = useMemo(() => {
+  const todayStr = localTodayYmd()
+
+  const shiftStatus = useMemo(() => {
+    if (!payload) return { variant: 'no_shift' as const }
+    void tick
+    const now = new Date()
+    return computeTodayEmployeeStatus(
+      payload.shifts,
+      todayStr,
+      now,
+      payload.runningTimeEntry,
+      payload.timeEntries,
+      payload.employee.id,
+    )
+  }, [payload, todayStr, tick])
+
+  const nextShift = useMemo(() => {
     if (!payload) return undefined
-    return plannedToday(payload.shifts, today)
-  }, [payload, today])
+    void tick
+    return findNextFutureShift(payload.shifts, new Date())
+  }, [payload, tick])
+
+  const nextThreeShifts = useMemo(() => {
+    if (!payload) return [] as PubShiftLite[]
+    void tick
+    return findNextFutureShifts(payload.shifts, new Date(), 3)
+  }, [payload, tick])
+
+  const openTasksPreview = useMemo(() => {
+    if (!payload) return [] as Task[]
+    void tick
+    const now = new Date()
+    const out: Task[] = []
+    for (const task of payload.tasks) {
+      if (!task.active) continue
+      if (!isTaskDueOnDate(task, todayStr)) continue
+      const st = getTaskStatusForDate(task, payload.taskLogs, todayStr, now)
+      if (st === 'offen' || st === 'überfällig' || st === 'in_kontrolle') {
+        out.push(task)
+        if (out.length >= 3) break
+      }
+    }
+    return out
+  }, [payload, todayStr, tick])
 
   const recentTimeEntries = useMemo(() => {
     if (!payload) return []
@@ -190,7 +234,7 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
     return payload.shifts
       .filter((s) => s.date >= mon && s.date <= sun)
       .sort((x, y) => x.date.localeCompare(y.date) || x.startTime.localeCompare(y.startTime))
-  }, [payload])
+  }, [payload, todayStr])
 
   const tryCheckIn = async (force: boolean) => {
     setCheckInConfirmOpen(false)
@@ -321,15 +365,27 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
     )
   }
 
-  const { employee, station, tasks, absences } = payload
+  const { employee, station, tasks, absences, workAreas, taskLogs } = payload
   const running = payload.runningTimeEntry
-  const openTasks = tasks.filter((x) => x.active !== false).slice(0, 16)
+  const accent = employee.color ?? '#22d3ee'
+  const roleBadge = (employee.roleLabel ?? employee.role ?? '').trim()
 
-  const statusLine = running
-    ? `Schicht läuft · Anwesend seit ${formatTimeDE(running.startAt)} · ${runningDuration(running.startAt)}`
-    : planned
-      ? `Heute geplant: ${formatShiftTimeRangeDE(planned.startTime, planned.endTime)} · Noch nicht gestartet`
-      : 'Heute ist keine Schicht geplant'
+  const workAreaName = (id: string) => workAreas.find((w) => w.id === id)?.name ?? '–'
+
+  const shiftForCheckInDialog =
+    shiftStatus.variant === 'upcoming' || shiftStatus.variant === 'during_no_clock'
+      ? shiftStatus.shift
+      : plannedToday(payload.shifts, todayStr)
+
+  const canStartShift = shiftStatus.variant === 'upcoming' || shiftStatus.variant === 'during_no_clock'
+  const startShiftDisabledReason =
+    shiftStatus.variant === 'running'
+      ? 'Schicht läuft bereits.'
+      : shiftStatus.variant === 'no_shift'
+        ? 'Heute ist keine Schicht geplant.'
+        : shiftStatus.variant === 'past_completed' || shiftStatus.variant === 'past_no_time'
+          ? 'Die heutige Schichtzeit ist vorbei.'
+          : null
 
   const navItems = [
     { id: 'heute' as const, label: 'Heute', Icon: Home },
@@ -342,15 +398,41 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
   ]
 
   return (
-    <div className="mx-auto flex min-h-dvh max-w-lg flex-col px-3 pb-32 pt-4 md:max-w-4xl">
-      <header className="rounded-2xl border border-cyan-500/25 bg-gradient-to-br from-slate-900/90 to-slate-950/95 p-4 shadow-[0_0_40px_rgba(34,211,238,0.12)]">
-        <p className="text-xs font-medium uppercase tracking-wider text-cyan-300/80">Mitarbeiter-App</p>
-        <h1 className="mt-1 text-2xl font-bold text-white">Hallo, {employee.displayName}</h1>
-        <p className="mt-1 text-sm text-slate-400">Deine persönliche Übersicht für {station.name}</p>
-        {employee.role ? (
-          <p className="mt-2 inline-block rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300">
-            {employee.role}
-          </p>
+    <div className="mx-auto flex min-h-dvh max-w-lg flex-col px-3 pb-32 pt-0 md:max-w-4xl">
+      <div
+        className="-mx-3 mb-3 flex items-center justify-center border-b border-cyan-500/35 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 px-4 py-2.5 text-center shadow-[0_0_24px_rgba(34,211,238,0.15)]"
+        style={{ boxShadow: `0 0 28px ${accent}33, inset 0 -1px 0 rgba(34,211,238,0.2)` }}
+      >
+        <p className="text-sm font-semibold tracking-wide text-cyan-100">{station.name}</p>
+      </div>
+
+      <header
+        className="relative overflow-hidden rounded-2xl border border-cyan-500/30 p-4 shadow-[0_0_40px_rgba(34,211,238,0.14)]"
+        style={{
+          background: `linear-gradient(135deg, rgba(15,23,42,0.95) 0%, rgba(2,6,23,0.98) 60%, ${accent}12 100%)`,
+          boxShadow: `0 0 36px ${accent}28`,
+        }}
+      >
+        <div
+          className="pointer-events-none absolute -right-8 -top-8 h-32 w-32 rounded-full blur-3xl"
+          style={{ background: accent, opacity: 0.22 }}
+        />
+        <p className="relative text-[11px] font-semibold uppercase tracking-[0.2em] text-cyan-300/90">Mitarbeiter-App</p>
+        <h1 className="relative mt-1 text-2xl font-bold text-white">Hallo, {employee.displayName}</h1>
+        <p className="relative mt-1 text-sm text-slate-300">
+          Deine persönliche Schichtübersicht für <span className="font-medium text-cyan-100/95">{station.name}</span>
+        </p>
+        {roleBadge ? (
+          <span
+            className="relative mt-3 inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium text-slate-100"
+            style={{
+              borderColor: `${accent}66`,
+              background: `${accent}18`,
+              boxShadow: `0 0 18px ${accent}35`,
+            }}
+          >
+            {roleBadge}
+          </span>
         ) : null}
       </header>
 
@@ -371,15 +453,97 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
 
       {tab === 'heute' ? (
         <section className="mt-5 space-y-4">
-          <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Heute · {formatWeekdayDateDE(today)}</p>
-            <p className="mt-2 text-base text-slate-100">{statusLine}</p>
+          <div
+            className="rounded-2xl border border-white/12 bg-slate-900/70 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
+            style={{ boxShadow: `inset 0 1px 0 rgba(255,255,255,0.06), 0 0 28px ${accent}14` }}
+          >
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Heute · {formatWeekdayDateDE(todayStr)}
+            </p>
+
+            {shiftStatus.variant === 'no_shift' ? (
+              <>
+                <p className="mt-3 text-base font-medium text-slate-100">Heute keine weitere Schicht geplant.</p>
+                <p className="mt-1 text-sm text-slate-400">Status: Keine Schicht im Plan</p>
+              </>
+            ) : null}
+
+            {shiftStatus.variant === 'upcoming' ? (
+              <>
+                <p className="mt-3 text-base text-slate-100">
+                  Heute geplant:{' '}
+                  <span className="font-semibold text-white">
+                    {formatShiftTimeRangeDE(shiftStatus.shift.startTime, shiftStatus.shift.endTime)}
+                  </span>
+                </p>
+                <p className="mt-2 text-sm text-cyan-200/95">Status: Noch nicht gestartet</p>
+              </>
+            ) : null}
+
+            {shiftStatus.variant === 'during_no_clock' ? (
+              <>
+                <p className="mt-3 text-base text-slate-100">
+                  Heute geplant:{' '}
+                  <span className="font-semibold text-white">
+                    {formatShiftTimeRangeDE(shiftStatus.shift.startTime, shiftStatus.shift.endTime)}
+                  </span>
+                </p>
+                <p className="mt-2 text-sm text-amber-100/95">Status: Schichtzeit aktiv – noch nicht eingestempelt</p>
+              </>
+            ) : null}
+
+            {shiftStatus.variant === 'running' ? (
+              <>
+                <p className="mt-3 text-base text-slate-100">
+                  Heute geplant:{' '}
+                  <span className="font-semibold text-white">
+                    {formatShiftTimeRangeDE(shiftStatus.shift.startTime, shiftStatus.shift.endTime)}
+                  </span>
+                </p>
+                <p className="mt-2 text-sm text-emerald-100/95">Status: Schicht läuft</p>
+                <p className="mt-1 text-sm text-slate-300">
+                  Anwesend seit: <span className="text-white">{formatTimeDE(shiftStatus.running.startAt)}</span>
+                </p>
+                <p className="mt-1 text-sm text-slate-300">
+                  Laufende Zeit:{' '}
+                  <span className="font-medium text-cyan-100">{runningDuration(shiftStatus.running.startAt)}</span>
+                </p>
+              </>
+            ) : null}
+
+            {shiftStatus.variant === 'past_no_time' ? (
+              <>
+                <p className="mt-3 text-base text-slate-100">
+                  Heutige Schicht:{' '}
+                  <span className="font-semibold text-white">
+                    {formatShiftTimeRangeDE(shiftStatus.shift.startTime, shiftStatus.shift.endTime)}
+                  </span>
+                </p>
+                <p className="mt-2 text-sm text-slate-300">Status: Schichtzeit bereits vorbei</p>
+                <p className="mt-2 rounded-lg border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-sm text-amber-50/95">
+                  Für diese Schicht wurde keine Arbeitszeit gestartet.
+                </p>
+              </>
+            ) : null}
+
+            {shiftStatus.variant === 'past_completed' ? (
+              <>
+                <p className="mt-3 text-base font-semibold text-white">Heutige Schicht beendet</p>
+                <p className="mt-1 text-sm text-slate-200">
+                  Gestempelt: {formatTimeDE(shiftStatus.entry.startAt)} –{' '}
+                  {shiftStatus.entry.endAt ? formatTimeDE(shiftStatus.entry.endAt) : '—'}
+                </p>
+                <p className="mt-2 text-sm text-slate-300">{timeEntryApprovalHint(shiftStatus.entry)}</p>
+              </>
+            ) : null}
+
             <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Button
                 type="button"
                 variant="primary"
-                className="min-h-[52px] py-3 text-base font-semibold"
-                disabled={busy || Boolean(running)}
+                title={!canStartShift && startShiftDisabledReason ? startShiftDisabledReason : undefined}
+                className="min-h-[52px] border border-emerald-400/45 bg-gradient-to-r from-emerald-600/90 to-cyan-600/85 py-3 text-base font-semibold text-white shadow-[0_0_20px_rgba(16,185,129,0.35)] hover:from-emerald-500 hover:to-cyan-500 disabled:cursor-not-allowed disabled:opacity-45"
+                disabled={busy || Boolean(running) || !canStartShift}
                 onClick={() => setCheckInConfirmOpen(true)}
               >
                 Schicht starten
@@ -387,23 +551,90 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
               <Button
                 type="button"
                 variant="outline"
-                className="min-h-[52px] border-orange-400/40 py-3 text-base font-semibold text-orange-100 hover:bg-orange-500/10"
+                title={!running ? 'Nur während einer laufenden Schicht möglich.' : undefined}
+                className="min-h-[52px] border-orange-400/50 bg-orange-500/10 py-3 text-base font-semibold text-orange-50 shadow-[0_0_16px_rgba(249,115,22,0.2)] hover:bg-orange-500/20 disabled:cursor-not-allowed disabled:opacity-45"
                 disabled={busy || !running}
                 onClick={() => setCheckoutConfirmOpen(true)}
               >
                 Schicht beenden
               </Button>
             </div>
+            {!canStartShift && startShiftDisabledReason ? (
+              <p className="mt-2 text-center text-xs text-slate-500">{startShiftDisabledReason}</p>
+            ) : null}
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-slate-900/40 p-4">
+          <div
+            className="rounded-2xl border border-cyan-500/20 bg-slate-900/50 p-4"
+            style={{ boxShadow: `0 0 20px ${accent}12` }}
+          >
             <h2 className="text-sm font-semibold text-cyan-200">Nächste Schicht</h2>
-            {planned ? (
-              <p className="mt-2 text-lg text-white">
-                {formatWeekdayDateDE(planned.date)} · {formatShiftTimeRangeDE(planned.startTime, planned.endTime)}
-              </p>
+            {nextShift ? (
+              <div className="mt-2">
+                <p className="text-lg font-medium text-white">{formatWeekdayDateDE(nextShift.date)}</p>
+                <p className="mt-1 text-base text-slate-200">{formatShiftTimeRangeDE(nextShift.startTime, nextShift.endTime)}</p>
+                <p className="mt-1 text-xs text-slate-500">Arbeitsbereich: {workAreaName(nextShift.workAreaId ?? '')}</p>
+              </div>
             ) : (
-              <p className="mt-2 text-slate-400">Keine geplant.</p>
+              <p className="mt-2 text-slate-400">Keine weitere Schicht im aktuellen Plan.</p>
+            )}
+          </div>
+
+          <div className="rounded-2xl border border-white/10 bg-slate-900/45 p-4">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold text-cyan-200">Heute fällige Aufgaben</h2>
+              <button
+                type="button"
+                className="text-xs font-medium text-cyan-300 underline-offset-2 hover:underline"
+                onClick={() => setTab('aufgaben')}
+              >
+                Aufgaben öffnen
+              </button>
+            </div>
+            {openTasksPreview.length === 0 ? (
+              <p className="mt-2 text-sm text-slate-500">Keine offenen Aufgaben für heute.</p>
+            ) : (
+              <ul className="mt-3 space-y-2">
+                {openTasksPreview.map((task) => (
+                  <li
+                    key={task.id}
+                    className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-sm text-slate-200"
+                  >
+                    <span className="font-medium text-white">{task.title}</span>
+                    <span className="block text-xs text-slate-400">
+                      {formatShiftTimeRangeDE(task.startTime, task.endTime)} · {workAreaName(task.workAreaId)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="rounded-2xl border border-white/10 bg-slate-900/45 p-4">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold text-cyan-200">Wochenvorschau</h2>
+              <button
+                type="button"
+                className="text-xs font-medium text-cyan-300 underline-offset-2 hover:underline"
+                onClick={() => setTab('wochenplan')}
+              >
+                Wochenplan öffnen
+              </button>
+            </div>
+            {nextThreeShifts.length === 0 ? (
+              <p className="mt-2 text-sm text-slate-500">Keine kommenden Schichten im Plan.</p>
+            ) : (
+              <ul className="mt-3 space-y-2">
+                {nextThreeShifts.map((s) => (
+                  <li
+                    key={s.id}
+                    className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-sm text-slate-200"
+                  >
+                    <span className="font-medium text-white">{formatWeekdayDateDE(s.date)}</span>
+                    <span className="block text-xs text-slate-400">{formatShiftTimeRangeDE(s.startTime, s.endTime)}</span>
+                  </li>
+                ))}
+              </ul>
             )}
           </div>
         </section>
@@ -418,12 +649,17 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
           {weekShiftsMine.length === 0 ? (
             <p className="text-slate-400">Keine Schichten in dieser Woche.</p>
           ) : (
-            <ul className="space-y-2">
+            <ul className="space-y-3">
               {weekShiftsMine.map((s) => (
-                <li key={s.id} className="rounded-xl border border-white/10 bg-slate-900/50 px-3 py-3 text-sm text-slate-100">
-                  <span className="font-medium text-white">{formatWeekdayDateDE(s.date)}</span>
-                  <span className="text-slate-400"> · </span>
-                  {formatShiftTimeRangeDE(s.startTime, s.endTime)}
+                <li
+                  key={s.id}
+                  className="rounded-xl border border-white/10 bg-slate-900/50 px-4 py-3 text-sm text-slate-100"
+                  style={{ boxShadow: `0 0 16px ${accent}10` }}
+                >
+                  <p className="text-base font-semibold text-white">{formatWeekdayLongDE(s.date)}</p>
+                  <p className="text-xs text-slate-400">{formatDateDE(s.date)}</p>
+                  <p className="mt-2 font-medium text-cyan-100/90">{formatShiftTimeRangeDE(s.startTime, s.endTime)}</p>
+                  <p className="text-xs text-slate-500">Arbeitsbereich: {workAreaName(s.workAreaId ?? '')}</p>
                 </li>
               ))}
             </ul>
@@ -434,23 +670,18 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
       {tab === 'wochenplan' ? (
         <section className="mt-5">
           <h2 className="mb-3 text-sm font-semibold text-cyan-200">Kompletter Wochenplan</h2>
-          <EmployeeWeekPlanTab accessToken={t} />
+          <EmployeeWeekPlanTab accessToken={t} viewerEmployeeId={employee.id} />
         </section>
       ) : null}
 
       {tab === 'aufgaben' ? (
-        <section className="mt-5 space-y-2">
-          <h2 className="text-sm font-semibold text-cyan-200">Meine Aufgaben</h2>
-          {openTasks.length === 0 ? (
-            <p className="text-slate-400">Keine offenen Aufgaben.</p>
-          ) : (
-            openTasks.map((task) => (
-              <div key={task.id} className="rounded-xl border border-white/10 bg-slate-900/50 px-3 py-3 text-sm">
-                {task.title}
-              </div>
-            ))
-          )}
-        </section>
+        <EmployeeTasksTab
+          accessToken={t}
+          tasks={tasks}
+          taskLogs={taskLogs}
+          workAreaName={workAreaName}
+          onReload={load}
+        />
       ) : null}
 
       {tab === 'urlaub' ? (
@@ -466,9 +697,9 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
             <ul className="space-y-3">
               {recentTimeEntries.map((e) => (
                 <li key={e.id} className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-sm">
-                  <p className="font-medium text-white">
-                    {formatDateDE((e.startAt ?? '').slice(0, 10))} · {formatTimeDE(e.startAt)} –{' '}
-                    {e.endAt ? formatTimeDE(e.endAt) : '—'}
+                  <p className="font-medium text-white">{formatWeekdayDateDE((e.startAt ?? '').slice(0, 10))}</p>
+                  <p className="text-slate-300">
+                    {formatTimeDE(e.startAt)} – {e.endAt ? formatTimeDE(e.endAt) : '—'}
                   </p>
                   <p className="mt-1 text-xs text-slate-400">{timeEntryApprovalHint(e)}</p>
                 </li>
@@ -544,7 +775,9 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
               </p>
               <p>
                 <span className="text-slate-500">Geplante Schicht:</span>{' '}
-                {planned ? formatShiftTimeRangeDE(planned.startTime, planned.endTime) : '—'}
+                {shiftForCheckInDialog
+                  ? formatShiftTimeRangeDE(shiftForCheckInDialog.startTime, shiftForCheckInDialog.endTime)
+                  : '—'}
               </p>
               <p>
                 <span className="text-slate-500">Aktuelle Uhrzeit:</span> {formatTimeDE(new Date())}

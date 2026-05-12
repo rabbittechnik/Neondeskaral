@@ -1,9 +1,11 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Card } from '../../components/ui/Card'
 import { WeeklyScheduleTimeline } from '../../components/schedule/WeeklyScheduleTimeline'
+import { ScheduleEmployeeSummaryBar } from '../../components/schedule/ScheduleEmployeeSummaryBar'
 import { startOfWeekMonday } from '../../components/schedule/scheduleWeekUtils'
 import {
+  computeWeeklyHoursByEmployee,
   resolveShiftsForWeekGrid,
   toScheduleEmployeeRow,
 } from '../../data/mockSchedule'
@@ -15,6 +17,7 @@ export function WeeklySchedule() {
   const { selectedStation, federalState } = useStation()
   const { employees } = useEmployees()
   const { shifts, ensureWeekSeeded } = useScheduleShifts()
+  const [employeeFilter, setEmployeeFilter] = useState<string>('all')
 
   const weekMonday = useMemo(() => startOfWeekMonday(new Date()), [])
 
@@ -32,10 +35,19 @@ export function WeeklySchedule() {
     [shifts, weekMonday],
   )
 
-  const gridBlocks = useMemo(
-    () => allBlocks.filter((b) => b.type !== 'frei' && (b.open || Boolean(b.employeeId))),
-    [allBlocks],
-  )
+  const hoursByEmployee = useMemo(() => computeWeeklyHoursByEmployee(allBlocks), [allBlocks])
+
+  const gridBlocks = useMemo(() => {
+    let list = allBlocks.filter((b) => b.type !== 'frei' && (b.open || Boolean(b.employeeId)))
+    if (employeeFilter !== 'all') {
+      list = list.filter((b) => b.open || b.employeeId === employeeFilter)
+    }
+    return list
+  }, [allBlocks, employeeFilter])
+
+  const toggleEmployeeFilter = (id: string) => {
+    setEmployeeFilter((prev) => (prev === id ? 'all' : id))
+  }
 
   return (
     <Card
@@ -55,9 +67,21 @@ export function WeeklySchedule() {
           to="/schedule"
           className="shrink-0 rounded-[var(--radius-sm)] border border-cyan-400/40 bg-cyan-500/10 px-3 py-2 text-center text-sm font-medium text-cyan-200 transition hover:border-cyan-300/60 hover:bg-cyan-500/15"
         >
-          Vollständiger Plan
+          Schichtplan bearbeiten
         </Link>
       </div>
+
+      <p className="mb-2 text-[11px] text-[var(--text-faint)]">
+        Hinweis: Auf dem Dashboard ist der Plan nur zur Ansicht. Zum Zuweisen und Verschieben von Schichten bitte den Schichtplan öffnen.
+      </p>
+
+      <ScheduleEmployeeSummaryBar
+        employees={scheduleRows}
+        weeklyHoursById={hoursByEmployee}
+        selectedId={employeeFilter === 'all' ? null : employeeFilter}
+        onToggleEmployee={toggleEmployeeFilter}
+        dashboardCompact
+      />
 
       <WeeklyScheduleTimeline
         weekMonday={weekMonday}

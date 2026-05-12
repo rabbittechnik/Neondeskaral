@@ -68,12 +68,24 @@ export function formatDateTimeDE(date: string | Date): string {
   return `${formatDateDE(d)}, ${formatTimeDE(d)}`
 }
 
-/** Dienstag, 12.05.2026 */
+/** Nur Wochentag, z. B. „Montag“ */
+export function formatWeekdayLongDE(date: string | Date): string {
+  const d = parseAnyDate(date)
+  if (!d) return typeof date === 'string' && date ? date : '—'
+  return WEEKDAY_LONG[d.getDay()]
+}
+
+/** z. B. „Montag, 12.05.2026“ */
 export function formatWeekdayDateDE(date: string | Date): string {
   const d = parseAnyDate(date)
   if (!d) return typeof date === 'string' && date ? date : '—'
   const long = WEEKDAY_LONG[d.getDay()]
   return `${long}, ${formatDateDE(d)}`
+}
+
+/** Lang: Wochentag + Datum (aktuell identisch zu formatWeekdayDateDE) */
+export function formatWeekdayLongDateDE(date: string | Date): string {
+  return formatWeekdayDateDE(date)
 }
 
 /** Di., 12.05. */

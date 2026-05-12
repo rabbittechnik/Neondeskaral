@@ -4,7 +4,7 @@ import { nowIso } from '../utils/timestamps.js'
 import type { EmployeeRow } from './employeeService.js'
 import { listShifts } from './shiftService.js'
 import { listAbsences, createAbsence } from './absenceService.js'
-import { listTasks } from './taskService.js'
+import { confirmTaskFromEmployeeApp, listTaskLogsByTaskIds, listTasks, rowToTaskApi } from './taskService.js'
 import { listTimeEntries } from './timeTrackingService.js'
 import { getStation } from './stationService.js'
 import { listWorkAreas } from './workAreaService.js'
@@ -33,6 +33,29 @@ function assertAccessAllowed(row: EmployeeRow) {
   return true
 }
 
+function employmentRoleFromRow(row: EmployeeRow): string {
+  const raw = (row as Record<string, unknown>).employment_role
+  return typeof raw === 'string' ? raw.trim() : ''
+}
+
+function roleLabelForEmployeeApp(row: EmployeeRow): string {
+  const job = employmentRoleFromRow(row)
+  if (job) return job
+  const empRole = String(row.role ?? '').trim().toLowerCase()
+  const map: Record<string, string> = {
+    schichtleiter: 'Schichtleiter',
+    teamleiter: 'Teamleiter / Stationsleitung',
+    stationsleitung: 'Teamleiter / Stationsleitung',
+    verkäufer: 'Verkäufer',
+    verkaufer: 'Verkäufer',
+    aushilfe: 'Aushilfe',
+    aushilfen: 'Aushilfe',
+  }
+  if (empRole && map[empRole]) return map[empRole]!
+  if (empRole) return empRole.charAt(0).toUpperCase() + empRole.slice(1)
+  return ''
+}
+
 function publicEmployee(row: EmployeeRow) {
   return {
     id: row.id,
@@ -40,11 +63,55 @@ function publicEmployee(row: EmployeeRow) {
     lastName: row.last_name,
     displayName: row.display_name,
     role: row.role ?? '',
+    roleLabel: roleLabelForEmployeeApp(row) || undefined,
     stationId: row.station_id,
     color: row.color ?? '#94a3b8',
     terminalEnabled: (row.terminal_enabled ?? 1) === 1,
     timeTrackingEnabled: (row.time_tracking_enabled ?? 1) === 1,
   }
+}
+
+function employeeWorkAreaIds(db: Database, employeeId: string): string[] {
+  const rows = db
+    .prepare(`SELECT work_area_id FROM employee_work_areas WHERE employee_id = ?`)
+    .all(employeeId) as { work_area_id: string }[]
+  return [...new Set(rows.map((r) => String(r.work_area_id ?? '')).filter(Boolean))]
+}
+
+function normalizeRoleToken(s: string): string {
+  return s.trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+function taskRelevantForEmployee(
+  t: ReturnType<typeof rowToTaskApi>,
+  empId: string,
+  empRole: string,
+  empJobTitle: string,
+  workAreaIds: string[],
+  todayShiftWorkAreaIds: Set<string>,
+): boolean {
+  if (!t.active) return false
+  const type = String(t.assignedType ?? 'all')
+  if (type === 'all') return true
+  if (type === 'employee') return t.assignedEmployeeId === empId
+  if (type === 'role') {
+    const ar = normalizeRoleToken(String(t.assignedRole ?? ''))
+    if (!ar) return false
+    const pool = normalizeRoleToken(`${empRole} ${empJobTitle}`)
+    if (pool.includes(ar)) return true
+    for (const part of ar.split('/')) {
+      const p = part.trim().toLowerCase()
+      if (p && pool.includes(p)) return true
+    }
+    return false
+  }
+  if (type === 'workArea') {
+    const wid = String(t.workAreaId ?? '')
+    if (wid && workAreaIds.includes(wid)) return true
+    if (wid && todayShiftWorkAreaIds.has(wid)) return true
+    return false
+  }
+  return false
 }
 
 function publicStation(db: Database, stationId: string) {
@@ -62,6 +129,16 @@ export function buildEmployeeAccessPayload(db: Database, token: string) {
   }
   const stationId = row.station_id
   const empId = row.id
+  const empRole = String(row.role ?? '').trim()
+  const empJobTitle = employmentRoleFromRow(row)
+  const todayYmd = ymdFromDate(new Date())
+  const todayShiftAreas = new Set(
+    listShifts(db, { stationId, employeeId: empId, from: todayYmd, to: todayYmd })
+      .map((s) => s.workAreaId)
+      .filter(Boolean),
+  )
+  const ewaIds = employeeWorkAreaIds(db, empId)
+
   const from = new Date()
   from.setDate(from.getDate() - 7)
   const to = new Date()
@@ -102,22 +179,22 @@ export function buildEmployeeAccessPayload(db: Database, token: string) {
   }))
 
   const tasksAll = listTasks(db, stationId)
-  const tasks = tasksAll
-    .filter((t) => t.assignedType === 'all' || t.assignedEmployeeId === empId)
-    .map((t) => ({
-      id: t.id,
-      title: t.title,
-      description: t.description,
-      workAreaId: t.workAreaId,
-      recurrenceType: t.recurrenceType,
-      startDate: t.startDate,
-      endDate: t.endDate,
-      weekdays: t.weekdays,
-      startTime: t.startTime,
-      endTime: t.endTime,
-      priority: t.priority,
-      active: t.active,
-    }))
+  const tasks = tasksAll.filter((t) =>
+    taskRelevantForEmployee(t, empId, empRole, empJobTitle, ewaIds, todayShiftAreas),
+  )
+  const logFrom = addDaysToYmd(todayYmd, -7)
+  const logTo = addDaysToYmd(todayYmd, 21)
+  const taskLogs = listTaskLogsByTaskIds(
+    db,
+    tasks.map((x) => x.id),
+    logFrom,
+    logTo,
+  )
+
+  const workAreas = listWorkAreas(db, stationId).map((w) => ({
+    id: w.id,
+    name: w.name ?? w.id,
+  }))
 
   const timeEntries = listTimeEntries(db, {
     stationId,
@@ -132,8 +209,10 @@ export function buildEmployeeAccessPayload(db: Database, token: string) {
     ok: true as const,
     employee: publicEmployee(row),
     station: publicStation(db, stationId),
+    workAreas,
     shifts,
     tasks,
+    taskLogs,
     absences,
     timeEntries,
     runningTimeEntry: running,
@@ -354,4 +433,50 @@ export function employeeAccessCreateAbsence(db: Database, token: string, body: R
     row.station_id,
   )
   return { ok: true as const, data }
+}
+
+export function employeeAccessGetTasks(db: Database, token: string) {
+  const full = buildEmployeeAccessPayload(db, token)
+  if (!full.ok) return { ok: false as const, error: 'invalid_token' as const }
+  return {
+    ok: true as const,
+    data: { tasks: full.tasks, taskLogs: full.taskLogs, workAreas: full.workAreas },
+  }
+}
+
+export function employeeAccessConfirmTask(
+  db: Database,
+  token: string,
+  taskId: string,
+  body: { comment?: string },
+) {
+  const row = getEmployeeRowByAccessToken(db, token)
+  if (!row || !assertAccessAllowed(row)) {
+    return { ok: false as const, error: 'invalid_token' as const }
+  }
+  touchEmployeeAccessUsed(db, row.id)
+  const stationId = row.station_id
+  const empId = row.id
+  const empRole = String(row.role ?? '').trim()
+  const empJobTitle = employmentRoleFromRow(row)
+  const todayYmd = ymdFromDate(new Date())
+  const todayShiftAreas = new Set(
+    listShifts(db, { stationId, employeeId: empId, from: todayYmd, to: todayYmd })
+      .map((s) => s.workAreaId)
+      .filter(Boolean),
+  )
+  const ewaIds = employeeWorkAreaIds(db, empId)
+  const tasksAll = listTasks(db, stationId)
+  const t = tasksAll.find((x) => x.id === taskId)
+  if (!t || !taskRelevantForEmployee(t, empId, empRole, empJobTitle, ewaIds, todayShiftAreas)) {
+    return { ok: false as const, error: 'not_allowed' as const }
+  }
+  const label = String(row.display_name ?? `${row.first_name} ${row.last_name}`).trim() || 'Mitarbeiter'
+  confirmTaskFromEmployeeApp(db, taskId, {
+    date: todayYmd,
+    employeeId: empId,
+    confirmedBy: label,
+    comment: body.comment,
+  })
+  return { ok: true as const, data: { saved: true } }
 }

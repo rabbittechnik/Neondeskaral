@@ -20,6 +20,8 @@ export type ShiftRow = {
   published: number | null
   conflict: number | null
   import_source?: string | null
+  created_by?: string | null
+  updated_by?: string | null
 }
 
 export function rowToScheduleShift(r: ShiftRow) {
@@ -175,6 +177,11 @@ export function updateShift(db: Database, id: string, body: Record<string, unkno
         : String(body.importSource)
       : existing.import_source ?? null
 
+  const updatedBy =
+    body.updatedBy !== undefined && body.updatedBy !== null && String(body.updatedBy).trim()
+      ? String(body.updatedBy).trim()
+      : existing.updated_by ?? null
+
   db.prepare(
     `UPDATE shifts SET
       employee_id = ?,
@@ -190,6 +197,7 @@ export function updateShift(db: Database, id: string, body: Record<string, unkno
       published = ?,
       conflict = COALESCE(?, conflict),
       import_source = ?,
+      updated_by = ?,
       updated_at = ?
     WHERE id = ?`,
   ).run(
@@ -206,6 +214,7 @@ export function updateShift(db: Database, id: string, body: Record<string, unkno
     published,
     body.conflict != null ? (body.conflict ? 1 : 0) : null,
     importSource,
+    updatedBy,
     ts,
     id,
   )

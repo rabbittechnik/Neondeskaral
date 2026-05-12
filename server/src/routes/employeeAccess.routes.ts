@@ -36,6 +36,32 @@ employeeAccessRouter.post('/:token/absences', (req, res) => {
   }
 })
 
+employeeAccessRouter.get('/:token/tasks', (req, res) => {
+  try {
+    const out = access.employeeAccessGetTasks(getDb(), req.params.token)
+    if (!out.ok) return jsonErr(res, 'Zugang ungültig oder deaktiviert.', 403)
+    jsonOk(res, out.data)
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
+  }
+})
+
+employeeAccessRouter.post('/:token/tasks/:taskId/confirm', (req, res) => {
+  try {
+    const body = (req.body ?? {}) as { comment?: string }
+    const out = access.employeeAccessConfirmTask(getDb(), req.params.token, req.params.taskId, {
+      comment: typeof body.comment === 'string' ? body.comment : undefined,
+    })
+    if (!out.ok) {
+      const code = out.error === 'not_allowed' ? 403 : 403
+      return jsonErr(res, out.error === 'not_allowed' ? 'Aufgabe nicht erlaubt.' : 'Zugang ungültig oder deaktiviert.', code)
+    }
+    jsonOk(res, out.data)
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
+  }
+})
+
 employeeAccessRouter.get('/:token', (req, res) => {
   try {
     const out = access.buildEmployeeAccessPayload(getDb(), req.params.token)
@@ -43,8 +69,10 @@ employeeAccessRouter.get('/:token', (req, res) => {
     jsonOk(res, {
       employee: out.employee,
       station: out.station,
+      workAreas: out.workAreas,
       shifts: out.shifts,
       tasks: out.tasks,
+      taskLogs: out.taskLogs,
       absences: out.absences,
       timeEntries: out.timeEntries,
       runningTimeEntry: out.runningTimeEntry,

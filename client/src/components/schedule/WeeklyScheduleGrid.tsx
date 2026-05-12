@@ -4,6 +4,8 @@ import type { ScheduleEmployeeRow } from '../../types/employee'
 import type { ScheduleTimelineVariant } from './timelineLayout'
 import { WeeklyScheduleTimeline } from './WeeklyScheduleTimeline'
 
+import type { WeekTimelineEditBridge } from './scheduleTimelineEditTypes'
+
 type Props = {
   weekMonday: Date
   employees: ScheduleEmployeeRow[]
@@ -16,6 +18,7 @@ type Props = {
   timelineDayStart?: string
   timelineDayEnd?: string
   stationFederalState?: GermanState
+  shiftEdit?: WeekTimelineEditBridge
 }
 
 export function WeeklyScheduleGrid(props: Props) {

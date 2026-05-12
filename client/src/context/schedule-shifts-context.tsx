@@ -120,6 +120,18 @@ export async function persistShiftUpsert(
   return res.ok && res.data ? (res.data as ScheduleShift) : undefined
 }
 
+/** Teilupdate: aktuelle Schicht laden, mit Patch mergen, PUT. */
+export async function persistShiftPatch(
+  id: string,
+  patch: Partial<ScheduleShift> & { updatedBy?: string },
+): Promise<ScheduleShift | undefined> {
+  const exists = await apiGet<ScheduleShift>(`/shifts/${encodeURIComponent(id)}`)
+  if (!exists.ok || !exists.data) return undefined
+  const merged = { ...exists.data, ...patch }
+  const res = await apiSend<ScheduleShift>('PUT', `/shifts/${encodeURIComponent(id)}`, merged)
+  return res.ok && res.data ? (res.data as ScheduleShift) : undefined
+}
+
 export async function persistShiftDelete(id: string): Promise<boolean> {
   const res = await apiSend('DELETE', `/shifts/${encodeURIComponent(id)}`)
   return res.ok

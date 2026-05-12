@@ -61,6 +61,12 @@ export type TaskRow = {
   updated_at: string | null
 }
 
+function normalizeAssignedTypeDb(raw: string | null | undefined): string {
+  const s = String(raw ?? 'all').trim()
+  if (s === 'work_area') return 'workArea'
+  return s || 'all'
+}
+
 export function rowToTaskApi(r: TaskRow) {
   let weekdays: number[] | undefined
   try {
@@ -74,7 +80,7 @@ export function rowToTaskApi(r: TaskRow) {
     title: r.title,
     description: r.description ?? '',
     workAreaId: r.work_area_id ?? 'kasse',
-    assignedType: (r.assigned_type ?? 'all') as string,
+    assignedType: normalizeAssignedTypeDb(r.assigned_type) as string,
     assignedEmployeeId: r.assigned_employee_id ?? undefined,
     assignedRole: r.assigned_role ?? undefined,
     recurrenceType: (r.recurrence_type ?? 'once') as string,
@@ -280,6 +286,24 @@ export function listTaskLogs(db: Database, q: { taskId?: string; from?: string; 
   return rows.map(rowToTaskLogApi)
 }
 
+export function listTaskLogsByTaskIds(db: Database, taskIds: string[], from?: string, to?: string) {
+  if (!taskIds.length) return []
+  const ph = taskIds.map(() => '?').join(',')
+  let sql = `SELECT * FROM task_logs WHERE task_id IN (${ph})`
+  const params: string[] = [...taskIds]
+  if (from) {
+    sql += ` AND date >= ?`
+    params.push(from)
+  }
+  if (to) {
+    sql += ` AND date <= ?`
+    params.push(to)
+  }
+  sql += ` ORDER BY date DESC, updated_at DESC`
+  const rows = db.prepare(sql).all(...params) as TaskLogRow[]
+  return rows.map(rowToTaskLogApi)
+}
+
 export function confirmTask(
   db: Database,
   taskId: string,
@@ -302,6 +326,38 @@ export function confirmTask(
       `INSERT INTO task_logs (id, task_id, employee_id, date, status, confirmed_at, confirmed_by, comment, created_at, updated_at)
        VALUES (?, ?, ?, ?, 'done', ?, ?, ?, ?, ?)`,
     ).run(id, taskId, body.employeeId ?? null, date, ts, by, body.comment ?? '', ts, ts)
+  }
+  return listTaskLogs(db, { taskId })
+}
+
+/** Mitarbeiter-App: nach Erledigung ggf. „in_control“ wenn Kontrolle vorgesehen. */
+export function confirmTaskFromEmployeeApp(
+  db: Database,
+  taskId: string,
+  opts: { date: string; employeeId: string; confirmedBy: string; comment?: string },
+) {
+  const date = String(opts.date ?? '').trim()
+  if (!date) throw new Error('date erforderlich')
+  const taskRow = db.prepare(`SELECT * FROM tasks WHERE id = ?`).get(taskId) as TaskRow | undefined
+  if (!taskRow) throw new Error('Aufgabe nicht gefunden')
+  const controlReq = (taskRow.control_required ?? 0) === 1
+  const statusDb = controlReq ? 'in_control' : 'done'
+  const ts = nowIso()
+  const by = `${opts.confirmedBy} (Mitarbeiter-App)`
+  const existing = db
+    .prepare(`SELECT * FROM task_logs WHERE task_id = ? AND date = ?`)
+    .get(taskId, date) as TaskLogRow | undefined
+  const id = existing?.id ?? `tl-${randomUUID()}`
+  const comment = opts.comment != null ? String(opts.comment) : existing?.comment ?? ''
+  if (existing) {
+    db.prepare(
+      `UPDATE task_logs SET status = ?, confirmed_at = ?, confirmed_by = ?, employee_id = COALESCE(employee_id, ?), comment = ?, updated_at = ? WHERE id = ?`,
+    ).run(statusDb, ts, by, opts.employeeId, comment, ts, id)
+  } else {
+    db.prepare(
+      `INSERT INTO task_logs (id, task_id, employee_id, date, status, confirmed_at, confirmed_by, comment, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(id, taskId, opts.employeeId, date, statusDb, ts, by, comment, ts, ts)
   }
   return listTaskLogs(db, { taskId })
 }
