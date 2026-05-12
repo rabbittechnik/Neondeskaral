@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 import type { Task } from '../../types/task'
 import { useEmployees } from '../../context/employees-context'
-import { WORK_AREA_DEFINITIONS } from '../../data/mockEmployees'
+import { useWorkAreas } from '../../context/work-areas-context'
 import { parseTimeToMinutes, toISODateLocal } from '../../utils/taskUtils'
 import { Button } from '../ui/Button'
 import { TaskForm } from './TaskForm'
@@ -12,7 +12,7 @@ type Props = {
   mode: 'create' | 'edit'
   task: Task | null
   onClose: () => void
-  onSave: (t: Task) => void
+  onSave: (t: Task) => void | Promise<void>
 }
 
 function newDraft(): Task {
@@ -40,6 +40,7 @@ function newDraft(): Task {
 
 export function TaskModal({ open, mode, task, onClose, onSave }: Props) {
   const { employees } = useEmployees()
+  const { definitions: workAreas } = useWorkAreas()
   const [draft, setDraft] = useState<Task>(() => newDraft())
   const [errors, setErrors] = useState<string[]>([])
 
@@ -61,7 +62,7 @@ export function TaskModal({ open, mode, task, onClose, onSave }: Props) {
 
   const patch = (p: Partial<Task>) => setDraft((d) => ({ ...d, ...p }))
 
-  const submit = () => {
+  const submit = async () => {
     const err: string[] = []
     if (!draft.title.trim()) err.push('Titel ist Pflicht.')
     if (!draft.workAreaId) err.push('Arbeitsbereich wählen.')
@@ -71,8 +72,12 @@ export function TaskModal({ open, mode, task, onClose, onSave }: Props) {
       err.push('Mindestens einen Wochentag wählen.')
     setErrors(err)
     if (err.length) return
-    onSave(draft)
-    onClose()
+    try {
+      await Promise.resolve(onSave(draft))
+      onClose()
+    } catch (e) {
+      setErrors([e instanceof Error ? e.message : 'Speichern fehlgeschlagen'])
+    }
   }
 
   if (!open) return null
@@ -101,7 +106,7 @@ export function TaskModal({ open, mode, task, onClose, onSave }: Props) {
           </button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-          <TaskForm value={draft} onChange={patch} employees={employees} workAreas={WORK_AREA_DEFINITIONS} />
+          <TaskForm value={draft} onChange={patch} employees={employees} workAreas={workAreas} />
           {errors.length ? (
             <ul className="mt-3 list-inside list-disc text-xs text-red-300">
               {errors.map((e) => (
@@ -114,7 +119,7 @@ export function TaskModal({ open, mode, task, onClose, onSave }: Props) {
           <Button variant="ghost" type="button" onClick={onClose}>
             Abbrechen
           </Button>
-          <Button variant="primary" type="button" onClick={submit}>
+          <Button variant="primary" type="button" onClick={() => void submit()}>
             {mode === 'create' ? 'Aufgabe speichern' : 'Änderungen speichern'}
           </Button>
         </div>

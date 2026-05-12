@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { Pencil, User, UserX, UserCheck } from 'lucide-react'
+import { Pencil, QrCode, User, UserCheck, UserX } from 'lucide-react'
 import type { Employee } from '../../types/employee'
 import { Avatar } from '../ui/Avatar'
 import { Button } from '../ui/Button'
@@ -90,6 +90,15 @@ export function EmployeeCard({ employee, onEdit, onDeactivate, onReactivate }: P
         </div>
 
         <div className="mt-auto flex flex-wrap gap-2 border-t border-[var(--border-subtle)] pt-3">
+          <Link
+            to={`/employees/${employee.id}`}
+            state={{ initialTab: 'employeeApp' }}
+            className="inline-flex min-w-[2.5rem] items-center justify-center rounded-[var(--radius-sm)] border border-[var(--border-strong)] px-2 py-2 text-xs font-medium text-cyan-200 transition hover:border-cyan-400/50"
+            title="QR-Code / Mitarbeiter-App"
+          >
+            <QrCode className="h-4 w-4" aria-hidden />
+            <span className="sr-only">QR-Code</span>
+          </Link>
           <Link
             to={`/employees/${employee.id}`}
             className="inline-flex flex-1 min-w-[5rem] items-center justify-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border-strong)] px-2 py-2 text-xs font-medium text-[var(--text-main)] transition hover:border-[var(--accent-cyan)]/50"

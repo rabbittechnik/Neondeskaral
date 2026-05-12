@@ -1,4 +1,6 @@
-import { WORK_AREA_DEFINITIONS } from '../../data/mockEmployees'
+import { useWorkAreas } from '../../context/work-areas-context'
+
+import type { WorkAreaDefinition } from '../../types/employee'
 
 export function WorkAreaBadges({
   workAreaIds,
@@ -9,9 +11,10 @@ export function WorkAreaBadges({
   max?: number
   className?: string
 }) {
+  const { definitions } = useWorkAreas()
   const list = workAreaIds
-    .map((id) => WORK_AREA_DEFINITIONS.find((w) => w.id === id))
-    .filter(Boolean) as typeof WORK_AREA_DEFINITIONS
+    .map((id) => definitions.find((w) => w.id === id))
+    .filter((w): w is WorkAreaDefinition => Boolean(w))
   const shown = list.slice(0, max)
   const more = list.length - shown.length
 

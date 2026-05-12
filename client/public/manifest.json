@@ -1,0 +1,18 @@
+{
+  "name": "NeonShift Station",
+  "short_name": "NeonShift",
+  "description": "Schichten und Aufgaben für Tankstellen-Teams",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#070b12",
+  "theme_color": "#0a1628",
+  "lang": "de",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -60,6 +60,13 @@ export function DayTimelineRow({
     () => getAbsencesForDate(absences, dateIso, { statuses: ['genehmigt'] }),
     [absences, dateIso],
   )
+  const vacationAbsences = useMemo(
+    () => approvedDayAbsences.filter((a) => a.type === 'urlaub'),
+    [approvedDayAbsences],
+  )
+  const absenceStripH = 17
+  const absenceStripGap = 4
+
   const absenceSummaryLine = useMemo(() => {
     if (approvedDayAbsences.length === 0) return ''
     const parts = approvedDayAbsences.map((a) => {
@@ -101,10 +108,17 @@ export function DayTimelineRow({
 
   const headerOffsetPx = layout.trackPadTop
 
-  const trackBodyHeightPx =
+  const shiftAreaHeight =
     visibleRowItems.length === 0
       ? Math.max(40, layout.blockHeight + 8)
       : headerOffsetPx + (maxVisibleRow + 1) * (layout.blockHeight + layout.rowGap)
+
+  const absenceTracksH =
+    vacationAbsences.length > 0
+      ? vacationAbsences.length * (absenceStripH + absenceStripGap) + 6
+      : 0
+
+  const trackBodyHeightPx = shiftAreaHeight + absenceTracksH
 
   const moreRowHeight = hiddenShiftCount > 0 ? 22 : 0
   const trackHeightPx = trackBodyHeightPx + moreRowHeight
@@ -216,7 +230,7 @@ export function DayTimelineRow({
                 <div
                   className="flex items-center justify-center text-[var(--text-faint)]"
                   style={{
-                    minHeight: trackBodyHeightPx,
+                    minHeight: shiftAreaHeight,
                     fontSize: variant === 'compact' ? '11px' : '12px',
                   }}
                 >
@@ -259,10 +273,27 @@ export function DayTimelineRow({
                 )
               )}
 
+              {vacationAbsences.map((a, i) => {
+                const name =
+                  employees.find((e) => e.id === a.employeeId)?.displayName ?? a.employeeId
+                const top = shiftAreaHeight + 4 + i * (absenceStripH + absenceStripGap)
+                return (
+                  <div
+                    key={`vac-${a.id}`}
+                    className="pointer-events-none absolute left-1 right-1 z-[1] overflow-hidden rounded-md border border-zinc-400/25 bg-zinc-600/40 px-2 py-0.5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
+                    style={{ top, height: absenceStripH }}
+                    title={`Urlaub · ${name}`}
+                  >
+                    <span className="text-[10px] font-semibold text-zinc-100">Urlaub</span>
+                    <span className="text-[10px] text-zinc-200/90"> · {name}</span>
+                  </div>
+                )
+              })}
+
               {hiddenShiftCount > 0 ? (
                 <div
                   className="absolute left-0 right-0 border-t border-white/5 bg-black/20 px-2 py-1 text-center text-[10px] text-[var(--text-faint)]"
-                  style={{ top: trackBodyHeightPx }}
+                  style={{ top: shiftAreaHeight + absenceTracksH }}
                 >
                   + {hiddenShiftCount} weitere
                 </div>

@@ -1,6 +1,11 @@
 export type TimeEntryStatus = 'running' | 'completed' | 'needs_review' | 'corrected' | 'cancelled'
 
-export type TimeEntrySource = 'cash_register_card_terminal' | 'manual' | 'system' | 'tablet'
+export type TimeEntrySource =
+  | 'cash_register_card_terminal'
+  | 'manual'
+  | 'system'
+  | 'tablet'
+  | 'employee_mobile_app'
 
 export type TimeEntry = {
   id: string

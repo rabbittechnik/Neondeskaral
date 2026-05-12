@@ -57,6 +57,12 @@ export type Employee = {
   terminalEnabled: boolean
   /** Zeiterfassung aktiv */
   timeTrackingEnabled: boolean
+  /** Persönlicher Mitarbeiter-App-Token (nur Admin-API, nicht in Mitarbeiter-App) */
+  employeeAccessToken?: string
+  employeeAccessConfigured?: boolean
+  employeeAccessEnabled?: boolean
+  employeeAccessCreatedAt?: string
+  employeeAccessLastUsedAt?: string
 }
 
 /** Für Schichtplan-Komponenten (abgeleitet aus Employee) */

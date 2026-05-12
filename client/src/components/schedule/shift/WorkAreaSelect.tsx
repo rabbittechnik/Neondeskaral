@@ -1,4 +1,4 @@
-import { workAreas } from '../../../data/mockSchedule'
+import { useWorkAreas } from '../../../context/work-areas-context'
 import { labelClass, selectClass } from './fieldStyles'
 
 type Props = {
@@ -10,6 +10,7 @@ type Props = {
 }
 
 export function WorkAreaSelect({ id, value, onChange, disabled, error }: Props) {
+  const { workAreas, loading } = useWorkAreas()
   return (
     <div>
       <label htmlFor={id} className={labelClass}>
@@ -19,10 +20,10 @@ export function WorkAreaSelect({ id, value, onChange, disabled, error }: Props) 
         id={id}
         className={`${selectClass} ${error ? 'border-red-400/50' : ''}`}
         value={value}
-        disabled={disabled}
+        disabled={disabled || loading}
         onChange={(e) => onChange(e.target.value)}
       >
-        <option value="">— Bereich wählen —</option>
+        <option value="">{loading ? 'Lade…' : '— Bereich wählen —'}</option>
         {workAreas.map((w) => (
           <option key={w.id} value={w.id}>
             {w.shortCode} · {w.label}

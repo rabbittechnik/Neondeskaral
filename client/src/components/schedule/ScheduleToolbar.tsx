@@ -7,8 +7,8 @@ import {
   Printer,
   Send,
 } from 'lucide-react'
-import { workAreas } from '../../data/mockSchedule'
 import type { ScheduleEmployeeRow } from '../../types/employee'
+import { useWorkAreas } from '../../context/work-areas-context'
 import { Button } from '../ui/Button'
 
 const selectClass =
@@ -43,6 +43,7 @@ export function ScheduleToolbar({
   onMore,
   scheduleEmployees,
 }: Props) {
+  const { workAreas, loading: areasLoading, error: areasError } = useWorkAreas()
   return (
     <div className="flex flex-col gap-3 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-card)]/60 p-3 backdrop-blur-sm md:flex-row md:flex-wrap md:items-center md:justify-between">
       <div className="flex flex-wrap items-center gap-2">
@@ -59,13 +60,19 @@ export function ScheduleToolbar({
       </div>
 
       <div className="flex flex-wrap items-center gap-2 md:justify-end">
+        {areasError ? (
+          <span className="text-xs text-amber-300/90" title={areasError}>
+            Arbeitsbereiche: Offline
+          </span>
+        ) : null}
         <select
           className={`${selectClass} min-w-[180px]`}
           value={workAreaFilter}
           onChange={(e) => onWorkAreaFilter(e.target.value)}
           aria-label="Arbeitsbereich"
+          disabled={areasLoading}
         >
-          <option value="all">Alle Arbeitsbereiche</option>
+          <option value="all">{areasLoading ? 'Lade Bereiche…' : 'Alle Arbeitsbereiche'}</option>
           {workAreas.map((w) => (
             <option key={w.id} value={w.shortCode}>
               {w.shortCode} · {w.label}

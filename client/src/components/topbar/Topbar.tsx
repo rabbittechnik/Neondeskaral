@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMatches, useNavigate } from 'react-router-dom'
+import { useAuth } from '../../context/auth-context'
 import { useSidebar } from '../../store/sidebar-context'
 import { Avatar } from '../ui/Avatar'
 
@@ -20,6 +21,7 @@ const MOCK_STATIONS = [
 
 export function Topbar() {
   const { collapsed, toggleCollapsed, toggleMobile } = useSidebar()
+  const { user, logout } = useAuth()
   const matches = useMatches()
   const navigate = useNavigate()
   const [stationOpen, setStationOpen] = useState(false)
@@ -149,10 +151,10 @@ export function Topbar() {
             aria-expanded={profileOpen}
             aria-haspopup="menu"
           >
-            <Avatar name="Mathias" size="sm" />
+            <Avatar name={user?.displayName ?? 'Admin'} size="sm" />
             <div className="hidden text-left lg:block">
               <p className="text-sm font-medium leading-tight text-[var(--text-main)]">
-                Mathias
+                {user?.displayName ?? '—'}
               </p>
               <p className="text-xs text-[var(--text-muted)]">Administrator</p>
             </div>
@@ -179,6 +181,7 @@ export function Topbar() {
                 className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-300 hover:bg-red-500/10"
                 onClick={() => {
                   setProfileOpen(false)
+                  logout()
                   navigate('/login')
                 }}
               >

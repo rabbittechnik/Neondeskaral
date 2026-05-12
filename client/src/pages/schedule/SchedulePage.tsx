@@ -29,12 +29,12 @@ import {
   openShiftWarnings,
 } from '../../components/schedule/schedulePanelUtils'
 import { useEmployees } from '../../context/employees-context'
-import { useScheduleShifts } from '../../context/schedule-shifts-context'
+import { persistShiftDelete, persistShiftUpsert, useScheduleShifts } from '../../context/schedule-shifts-context'
 import { STATION_FEDERAL_STATE } from '../../data/station'
 
 export function SchedulePage() {
   const { employees } = useEmployees()
-  const { shifts, setShifts, ensureWeekSeeded } = useScheduleShifts()
+  const { shifts, setShifts, ensureWeekSeeded, loading: shiftsLoading, error: shiftsError } = useScheduleShifts()
 
   const [weekOffset, setWeekOffset] = useState(0)
   const [workAreaFilter, setWorkAreaFilter] = useState('all')
@@ -134,17 +134,27 @@ export function SchedulePage() {
     setModalOpen(true)
   }
 
-  const handleUpsert = (s: ScheduleShift) => {
+  const handleUpsert = async (s: ScheduleShift) => {
+    const saved = await persistShiftUpsert(s)
+    if (!saved) {
+      window.alert('Schicht konnte nicht gespeichert werden. Bitte API/Server prüfen.')
+      return
+    }
     setShifts((prev) => {
-      const i = prev.findIndex((x) => x.id === s.id)
-      if (i === -1) return [...prev, s]
+      const i = prev.findIndex((x) => x.id === saved.id)
+      if (i === -1) return [...prev, saved]
       const next = [...prev]
-      next[i] = s
+      next[i] = saved
       return next
     })
   }
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
+    const ok = await persistShiftDelete(id)
+    if (!ok) {
+      window.alert('Schicht konnte nicht gelöscht werden.')
+      return
+    }
     setShifts((prev) => prev.filter((x) => x.id !== id))
   }
 
@@ -171,6 +181,12 @@ export function SchedulePage() {
               Station:{' '}
               <span className="font-medium text-cyan-200/90">{STATION_NAME}</span>
             </span>
+            {shiftsLoading ? <span>Schichten werden geladen…</span> : null}
+            {shiftsError ? (
+              <span className="text-amber-300/90" title={shiftsError}>
+                Schichten: {shiftsError}
+              </span>
+            ) : null}
             <span>
               Kalenderwoche:{' '}
               <span className="font-medium text-[var(--text-main)]">KW {isoWeek}</span>

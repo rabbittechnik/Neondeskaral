@@ -26,6 +26,8 @@ export function suggestedTimesForType(
       return { start: '', end: '' }
     case 'sonderdienst':
       return { start: '08:00', end: '16:00' }
+    case 'regular':
+      return { start: '08:00', end: '16:00' }
     default:
       return { start: '08:00', end: '16:00' }
   }

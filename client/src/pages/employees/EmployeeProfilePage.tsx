@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { Link, Navigate, useParams } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { Link, Navigate, useLocation, useParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import { Card } from '../../components/ui/Card'
 import { Avatar } from '../../components/ui/Avatar'
@@ -10,8 +10,11 @@ import { EmploymentTypeBadge } from '../../components/employees/EmploymentTypeBa
 import { formatDateDe, formatEuroDe, formatHoursDe } from '../../components/employees/employeeFormat'
 import { EMPLOYMENT_LABELS, STATUS_LABELS } from '../../components/employees/employeeLabels'
 
+import { EmployeeAppQrSection } from '../../components/employees/EmployeeAppQrSection'
+
 const TABS = [
   { id: 'overview', label: 'Übersicht' },
+  { id: 'employeeApp', label: 'Mitarbeiter-App / QR-Code' },
   { id: 'shifts', label: 'Schichten' },
   { id: 'absences', label: 'Abwesenheiten' },
   { id: 'tasks', label: 'Aufgaben' },
@@ -25,8 +28,14 @@ type TabId = (typeof TABS)[number]['id']
 
 export function EmployeeProfilePage() {
   const { employeeId } = useParams()
+  const location = useLocation()
   const { employees } = useEmployees()
   const [tab, setTab] = useState<TabId>('overview')
+
+  useEffect(() => {
+    const st = location.state as { initialTab?: TabId } | null
+    if (st?.initialTab === 'employeeApp') setTab('employeeApp')
+  }, [location.state, employeeId])
 
   const employee = useMemo(
     () => (employeeId ? employees.find((e) => e.id === employeeId) : undefined),
@@ -206,6 +215,8 @@ export function EmployeeProfilePage() {
             </p>
           </Card>
         </div>
+      ) : tab === 'employeeApp' ? (
+        <EmployeeAppQrSection employee={employee} />
       ) : (
         <Card padding="md" className="border-dashed border-[var(--border-strong)] bg-[var(--bg-elevated)]/30">
           <p className="text-sm text-[var(--text-muted)]">

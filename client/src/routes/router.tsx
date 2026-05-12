@@ -16,6 +16,7 @@ import { ContactsPage } from '../pages/contacts/ContactsPage'
 import { CountersPage } from '../pages/counters/CountersPage'
 import { DashboardPage } from '../pages/dashboard/DashboardPage'
 import { DocumentsPage } from '../pages/documents/DocumentsPage'
+import { WorkAreasProvider } from '../context/work-areas-context'
 import { EmployeesProvider } from '../context/employees-context'
 import { ScheduleShiftsProvider } from '../context/schedule-shifts-context'
 import { AbsencesProvider } from '../context/absences-context'
@@ -41,6 +42,9 @@ import { VacationBlocksPage } from '../pages/vacationBlocks/VacationBlocksPage'
 import { WorkAreasPage } from '../pages/workAreas/WorkAreasPage'
 import { StaffTerminalPage } from '../pages/terminal/StaffTerminalPage'
 import { SidebarProvider } from '../store/sidebar-context'
+import { RequireAuth } from '../components/auth/RequireAuth'
+import { EmployeeAppLayout } from '../layouts/EmployeeAppLayout'
+import { EmployeeAccessPage } from '../pages/employee-app/EmployeeAccessPage'
 
 function MitarbeiterToEmployeesProfile() {
   const { employeeId } = useParams()
@@ -54,21 +58,47 @@ export const router = createBrowserRouter([
     children: [{ index: true, element: <LoginPage /> }],
   },
   {
-    path: '/',
+    path: '/employee-access/:token',
+    element: <EmployeeAppLayout />,
+    children: [{ index: true, element: <EmployeeAccessPage /> }],
+  },
+  {
+    path: '/tablet',
     element: (
-      <SidebarProvider>
+      <WorkAreasProvider>
         <EmployeesProvider>
           <ScheduleShiftsProvider>
-            <AbsencesProvider>
-              <TasksProvider>
-                <TimeTrackingProvider>
-                  <Outlet />
-                </TimeTrackingProvider>
-              </TasksProvider>
-            </AbsencesProvider>
+            <TimeTrackingProvider>
+              <TerminalLayout />
+            </TimeTrackingProvider>
           </ScheduleShiftsProvider>
         </EmployeesProvider>
-      </SidebarProvider>
+      </WorkAreasProvider>
+    ),
+    children: [{ index: true, element: <StaffTerminalPage /> }],
+  },
+  { path: '/mitarbeiter-terminal', element: <Navigate to="/tablet" replace /> },
+  { path: '/staff-terminal', element: <Navigate to="/tablet" replace /> },
+  {
+    path: '/',
+    element: (
+      <RequireAuth>
+        <SidebarProvider>
+          <WorkAreasProvider>
+            <EmployeesProvider>
+              <ScheduleShiftsProvider>
+                <AbsencesProvider>
+                  <TasksProvider>
+                    <TimeTrackingProvider>
+                      <Outlet />
+                    </TimeTrackingProvider>
+                  </TasksProvider>
+                </AbsencesProvider>
+              </ScheduleShiftsProvider>
+            </EmployeesProvider>
+          </WorkAreasProvider>
+        </SidebarProvider>
+      </RequireAuth>
     ),
     children: [
       {
@@ -76,8 +106,12 @@ export const router = createBrowserRouter([
         children: [
       {
         index: true,
+        element: <Navigate to="/dashboard" replace />,
+      },
+      {
+        path: 'dashboard',
         element: <DashboardPage />,
-        handle: { title: 'Startseite' },
+        handle: { title: 'Dashboard' },
       },
       {
         path: 'communication/chat-groups',
@@ -252,22 +286,19 @@ export const router = createBrowserRouter([
         element: <ModulesPage />,
         handle: { title: 'Module verwalten' },
       },
+      {
+        path: 'einstellungen',
+        element: <Navigate to="/settings/general" replace />,
+        handle: { title: 'Einstellungen' },
+      },
+      {
+        path: 'zeiterfassung',
+        element: <Navigate to="/reports/payroll-time" replace />,
+        handle: { title: 'Zeiterfassung' },
+      },
         ],
-      },
-      {
-        path: 'tablet',
-        element: <TerminalLayout />,
-        children: [{ index: true, element: <StaffTerminalPage /> }],
-      },
-      {
-        path: 'mitarbeiter-terminal',
-        element: <Navigate to="/tablet" replace />,
-      },
-      {
-        path: 'staff-terminal',
-        element: <Navigate to="/tablet" replace />,
       },
     ],
   },
-  { path: '*', element: <Navigate to="/" replace /> },
+  { path: '*', element: <Navigate to="/dashboard" replace /> },
 ])

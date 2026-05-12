@@ -31,7 +31,7 @@ export type NavSingle = {
 export type NavEntry = NavGroup | NavSingle
 
 export const navEntries: NavEntry[] = [
-  { type: 'single', to: '/', label: 'Startseite', icon: Home },
+  { type: 'single', to: '/dashboard', label: 'Startseite', icon: Home },
   {
     type: 'group',
     id: 'kommunikation',

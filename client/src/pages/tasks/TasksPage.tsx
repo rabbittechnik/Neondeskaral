@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { FileDown, LayoutGrid, Plus, Printer } from 'lucide-react'
 import { useTasks } from '../../context/tasks-context'
 import { useEmployees } from '../../context/employees-context'
-import { WORK_AREA_DEFINITIONS } from '../../data/mockEmployees'
+import { useWorkAreas } from '../../context/work-areas-context'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { Button } from '../../components/ui/Button'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
@@ -24,8 +24,10 @@ function csvEscape(s: string): string {
 }
 
 export function TasksPage() {
-  const { tasks, logs, addTask, updateTask, removeTask, setTaskActive, confirmTask, controlTask } = useTasks()
+  const { tasks, logs, addTask, updateTask, removeTask, setTaskActive, confirmTask, controlTask, loading, error } =
+    useTasks()
   const { employees } = useEmployees()
+  const { definitions: workAreaDefinitions } = useWorkAreas()
   const refDate = useMemo(() => toISODateLocal(new Date()), [])
 
   const [filters, setFilters] = useState<TaskListFilters>({
@@ -104,12 +106,19 @@ export function TasksPage() {
         }
       />
 
+      {loading ? <p className="text-sm text-[var(--text-muted)]">Aufgaben werden geladen…</p> : null}
+      {error ? (
+        <p className="rounded-md border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-200/90">
+          {error}
+        </p>
+      ) : null}
+
       <TasksToolbar
         search={filters.search}
         onSearch={(search) => setFilters((f) => ({ ...f, search }))}
         workAreaId={filters.workAreaId}
         onWorkArea={(workAreaId) => setFilters((f) => ({ ...f, workAreaId }))}
-        workAreas={WORK_AREA_DEFINITIONS}
+        workAreas={workAreaDefinitions}
         status={filters.status}
         onStatus={(status) => setFilters((f) => ({ ...f, status }))}
         recurrence={filters.recurrence}
@@ -138,7 +147,7 @@ export function TasksPage() {
             onEdit={(t) => setModal({ open: true, mode: 'edit', task: t })}
             onToggleActive={(t) => {
               if (t.active) setDeactivateId(t.id)
-              else setTaskActive(t.id, true)
+              else void setTaskActive(t.id, true)
             }}
             onDelete={(t) => setDeleteId(t.id)}
             onConfirm={(t) => setConfirmTaskRef(t)}
@@ -156,8 +165,8 @@ export function TasksPage() {
         task={modal.task}
         onClose={() => setModal((s) => ({ ...s, open: false }))}
         onSave={(t) => {
-          if (modal.mode === 'create') addTask(t)
-          else updateTask(t)
+          if (modal.mode === 'create') void addTask(t)
+          else void updateTask(t)
         }}
       />
 
@@ -174,7 +183,7 @@ export function TasksPage() {
         title="Aufgabe bestätigen"
         onClose={() => setConfirmTaskRef(null)}
         onConfirm={(comment) => {
-          if (confirmTaskRef) confirmTask(confirmTaskRef.id, refDate, comment)
+          if (confirmTaskRef) void confirmTask(confirmTaskRef.id, refDate, comment)
           setConfirmTaskRef(null)
         }}
       />
@@ -183,7 +192,7 @@ export function TasksPage() {
         open={Boolean(controlTaskRef)}
         onClose={() => setControlTaskRef(null)}
         onSubmit={(result, comment) => {
-          if (controlTaskRef) controlTask(controlTaskRef.id, refDate, result, comment)
+          if (controlTaskRef) void controlTask(controlTaskRef.id, refDate, result, comment)
           setControlTaskRef(null)
         }}
       />
@@ -195,7 +204,7 @@ export function TasksPage() {
         confirmLabel="Deaktivieren"
         onCancel={() => setDeactivateId(null)}
         onConfirm={() => {
-          if (deactivateId) setTaskActive(deactivateId, false)
+          if (deactivateId) void setTaskActive(deactivateId, false)
           setDeactivateId(null)
         }}
       />
@@ -208,7 +217,7 @@ export function TasksPage() {
         variant="danger"
         onCancel={() => setDeleteId(null)}
         onConfirm={() => {
-          if (deleteId) removeTask(deleteId)
+          if (deleteId) void removeTask(deleteId)
           setDeleteId(null)
         }}
       />

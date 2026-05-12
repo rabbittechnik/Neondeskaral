@@ -2,105 +2,138 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type ReactNode,
 } from 'react'
 import type { ControlResult, Task, TaskLog } from '../types/task'
-import {
-  cloneSeedTaskLogs,
-  cloneSeedTasks,
-  createTaskId,
-  createTaskLogId,
-} from '../data/mockTasks'
+import { createTaskId } from '../data/mockTasks'
+import { apiGet, apiSend } from '../services/api'
+import { STATION } from '../data/station'
 
 const CURRENT_USER = 'Mathias Raselowski'
 
 type TasksContextValue = {
   tasks: Task[]
   logs: TaskLog[]
-  addTask: (t: Task) => void
-  updateTask: (t: Task) => void
-  removeTask: (id: string) => void
-  setTaskActive: (id: string, active: boolean) => void
-  confirmTask: (taskId: string, date: string, comment?: string) => void
-  controlTask: (taskId: string, date: string, result: ControlResult, comment?: string) => void
+  loading: boolean
+  error: string | null
+  refetch: () => Promise<void>
+  addTask: (t: Task) => Promise<void>
+  updateTask: (t: Task) => Promise<void>
+  removeTask: (id: string) => Promise<void>
+  setTaskActive: (id: string, active: boolean) => Promise<void>
+  confirmTask: (taskId: string, date: string, comment?: string) => Promise<void>
+  controlTask: (taskId: string, date: string, result: ControlResult, comment?: string) => Promise<void>
   logsForTask: (taskId: string) => TaskLog[]
 }
 
 const TasksContext = createContext<TasksContextValue | null>(null)
 
+function mergeLogs(prev: TaskLog[], incoming: TaskLog[]): TaskLog[] {
+  const map = new Map(prev.map((l) => [`${l.taskId}|${l.date}`, l]))
+  for (const l of incoming) {
+    map.set(`${l.taskId}|${l.date}`, l)
+  }
+  return [...map.values()]
+}
+
 export function TasksProvider({ children }: { children: ReactNode }) {
-  const [tasks, setTasks] = useState<Task[]>(() => cloneSeedTasks())
-  const [logs, setLogs] = useState<TaskLog[]>(() => cloneSeedTaskLogs())
+  const [tasks, setTasks] = useState<Task[]>([])
+  const [logs, setLogs] = useState<TaskLog[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const addTask = useCallback((t: Task) => {
-    const id = t.id?.trim() ? t.id : createTaskId()
-    const now = new Date().toISOString()
-    setTasks((prev) => [...prev, { ...t, id, createdAt: t.createdAt || now, updatedAt: now }])
+  const refetch = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    const [tRes, lRes] = await Promise.all([
+      apiGet<Task[]>('/tasks', { stationId: STATION.id }),
+      apiGet<TaskLog[]>('/task-logs'),
+    ])
+    if (tRes.ok && Array.isArray(tRes.data)) setTasks(tRes.data)
+    else {
+      setTasks([])
+      if (!tRes.ok) setError(tRes.error)
+    }
+    if (lRes.ok && Array.isArray(lRes.data)) setLogs(lRes.data)
+    else if (!lRes.ok) setError((p) => (p ? `${p}; ${lRes.error}` : lRes.error))
+    setLoading(false)
   }, [])
 
-  const updateTask = useCallback((t: Task) => {
-    const now = new Date().toISOString()
-    setTasks((prev) => prev.map((x) => (x.id === t.id ? { ...t, updatedAt: now } : x)))
-  }, [])
+  useEffect(() => {
+    void refetch()
+  }, [refetch])
 
-  const removeTask = useCallback((id: string) => {
-    setTasks((prev) => prev.filter((x) => x.id !== id))
-    setLogs((prev) => prev.filter((l) => l.taskId !== id))
-  }, [])
+  const addTask = useCallback(
+    async (t: Task) => {
+      const id = t.id?.trim() ? t.id : createTaskId()
+      const now = new Date().toISOString()
+      const res = await apiSend<Task>(
+        'POST',
+        '/tasks',
+        { ...t, id, createdAt: t.createdAt || now, updatedAt: now },
+        { stationId: STATION.id },
+      )
+      if (!res.ok) throw new Error(res.error)
+      await refetch()
+    },
+    [refetch],
+  )
 
-  const setTaskActive = useCallback((id: string, active: boolean) => {
-    const now = new Date().toISOString()
-    setTasks((prev) => prev.map((x) => (x.id === id ? { ...x, active, updatedAt: now } : x)))
-  }, [])
+  const updateTask = useCallback(
+    async (t: Task) => {
+      const res = await apiSend<Task>('PUT', `/tasks/${encodeURIComponent(t.id)}`, t)
+      if (!res.ok) throw new Error(res.error)
+      await refetch()
+    },
+    [refetch],
+  )
 
-  const confirmTask = useCallback((taskId: string, date: string, comment?: string) => {
-    const now = new Date().toISOString()
-    setLogs((prev) => {
-      const idx = prev.findIndex((l) => l.taskId === taskId && l.date === date)
-      const next: TaskLog = {
-        id: idx >= 0 ? prev[idx]!.id : createTaskLogId(),
-        taskId,
+  const removeTask = useCallback(
+    async (id: string) => {
+      const res = await apiSend('DELETE', `/tasks/${encodeURIComponent(id)}`)
+      if (!res.ok) throw new Error(res.error)
+      await refetch()
+    },
+    [refetch],
+  )
+
+  const setTaskActive = useCallback(
+    async (id: string, active: boolean) => {
+      const cur = tasks.find((x) => x.id === id)
+      if (!cur) return
+      const res = await apiSend<Task>('PUT', `/tasks/${encodeURIComponent(id)}`, { ...cur, active })
+      if (!res.ok) throw new Error(res.error)
+      await refetch()
+    },
+    [tasks, refetch],
+  )
+
+  const confirmTask = useCallback(
+    async (taskId: string, date: string, comment?: string) => {
+      const res = await apiSend<TaskLog[]>('POST', `/tasks/${encodeURIComponent(taskId)}/confirm`, {
         date,
-        status: 'erledigt',
-        confirmedAt: now,
-        confirmedBy: CURRENT_USER,
-        comment: comment?.trim() || prev[idx]?.comment,
-      }
-      if (idx >= 0) {
-        return prev.map((l, i) => (i === idx ? { ...prev[idx]!, ...next } : l))
-      }
-      return [...prev, next]
-    })
-  }, [])
+        comment,
+        by: CURRENT_USER,
+      })
+      if (!res.ok || !Array.isArray(res.data)) throw new Error(res.ok === false ? res.error : 'Fehler')
+      setLogs((prev) => mergeLogs(prev, res.data as TaskLog[]))
+    },
+    [],
+  )
 
   const controlTask = useCallback(
-    (taskId: string, date: string, result: ControlResult, comment?: string) => {
-      const now = new Date().toISOString()
-      setLogs((prev) => {
-        const idx = prev.findIndex((l) => l.taskId === taskId && l.date === date)
-        const base: TaskLog =
-          idx >= 0
-            ? prev[idx]!
-            : {
-                id: createTaskLogId(),
-                taskId,
-                date,
-                status: 'offen',
-              }
-        const status = result === 'ok' ? 'kontrolliert' : 'mangel'
-        const merged: TaskLog = {
-          ...base,
-          status,
-          controlledAt: now,
-          controlledBy: CURRENT_USER,
-          controlResult: result,
-          comment: comment?.trim() || base.comment,
-        }
-        if (idx >= 0) return prev.map((l, i) => (i === idx ? merged : l))
-        return [...prev, merged]
+    async (taskId: string, date: string, result: ControlResult, comment?: string) => {
+      const res = await apiSend<TaskLog[]>('POST', `/tasks/${encodeURIComponent(taskId)}/control`, {
+        date,
+        result,
+        comment,
+        by: CURRENT_USER,
       })
+      if (!res.ok || !Array.isArray(res.data)) throw new Error(res.ok === false ? res.error : 'Fehler')
+      setLogs((prev) => mergeLogs(prev, res.data as TaskLog[]))
     },
     [],
   )
@@ -118,6 +151,9 @@ export function TasksProvider({ children }: { children: ReactNode }) {
     () => ({
       tasks,
       logs,
+      loading,
+      error,
+      refetch,
       addTask,
       updateTask,
       removeTask,
@@ -129,6 +165,9 @@ export function TasksProvider({ children }: { children: ReactNode }) {
     [
       tasks,
       logs,
+      loading,
+      error,
+      refetch,
       addTask,
       updateTask,
       removeTask,

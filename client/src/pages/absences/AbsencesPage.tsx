@@ -48,7 +48,7 @@ export function AbsencesPage() {
   )
 
   const { employees } = useEmployees()
-  const { absences, addAbsence, setAbsence, addVacationBlock, setVacationBlock } = useAbsences()
+  const { absences, addAbsence, setAbsence, addVacationBlock, setVacationBlock, loading, error } = useAbsences()
 
   const [absenceModal, setAbsenceModal] = useState<{
     open: boolean
@@ -138,6 +138,13 @@ export function AbsencesPage() {
         }
       />
 
+      {loading ? <p className="text-sm text-[var(--text-muted)]">Abwesenheiten werden geladen…</p> : null}
+      {error ? (
+        <p className="rounded-md border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-200/90">
+          {error}
+        </p>
+      ) : null}
+
       <AbsenceViewTabs active={view} onChange={setView} />
 
       {view === 'calendar' ? (
@@ -161,8 +168,8 @@ export function AbsencesPage() {
         absence={absenceModal.absence}
         onClose={() => setAbsenceModal((s) => ({ ...s, open: false }))}
         onSave={(a) => {
-          if (absenceModal.mode === 'create') addAbsence(a)
-          else setAbsence(a)
+          if (absenceModal.mode === 'create') void addAbsence(a)
+          else void setAbsence(a)
         }}
       />
 
@@ -172,8 +179,8 @@ export function AbsencesPage() {
         block={vbModal.block}
         onClose={() => setVbModal((s) => ({ ...s, open: false }))}
         onSave={(b) => {
-          if (vbModal.mode === 'create') addVacationBlock(b)
-          else setVacationBlock(b)
+          if (vbModal.mode === 'create') void addVacationBlock(b)
+          else void setVacationBlock(b)
         }}
       />
     </div>

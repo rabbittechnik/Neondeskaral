@@ -89,7 +89,7 @@ export function AbsenceListView({ employees, onEdit, onView }: Props) {
                           <Button
                             variant="outline"
                             className="!px-2 !py-1 text-xs"
-                            onClick={() => approveAbsence(a.id)}
+                            onClick={() => void approveAbsence(a.id)}
                             leftIcon={<Check className="h-3.5 w-3.5" />}
                           >
                             Genehmigen
@@ -97,7 +97,7 @@ export function AbsenceListView({ employees, onEdit, onView }: Props) {
                           <Button
                             variant="ghost"
                             className="!px-2 !py-1 text-xs text-red-300"
-                            onClick={() => rejectAbsence(a.id)}
+                            onClick={() => void rejectAbsence(a.id)}
                             leftIcon={<X className="h-3.5 w-3.5" />}
                           >
                             Ablehnen
@@ -133,7 +133,7 @@ export function AbsenceListView({ employees, onEdit, onView }: Props) {
         variant="danger"
         onCancel={() => setDeleteId(null)}
         onConfirm={() => {
-          if (deleteId) removeAbsence(deleteId)
+          if (deleteId) void removeAbsence(deleteId)
           setDeleteId(null)
         }}
       />

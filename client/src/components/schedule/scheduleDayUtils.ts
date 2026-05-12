@@ -7,6 +7,7 @@ const TYPE_RANK: Partial<Record<ShiftTypeId, number>> = {
   frueh: 0,
   mittel: 1,
   kurz: 1,
+  regular: 1,
   schule: 1,
   sonderdienst: 1,
   konflikt: 1,

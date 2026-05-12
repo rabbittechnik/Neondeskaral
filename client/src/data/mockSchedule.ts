@@ -18,6 +18,7 @@ export type ShiftTypeId =
   | 'konflikt'
   | 'mittel'
   | 'kurz'
+  | 'regular'
 
 export type ShiftTypeDef = {
   id: ShiftTypeId
@@ -70,6 +71,13 @@ export const shiftTypes: ShiftTypeDef[] = [
     legendTime: '08:00–14:15',
     cardClass: 'bg-sky-500/25 text-sky-50 border-sky-300/45',
     glowClass: 'shadow-[0_0_14px_rgba(125,211,252,0.3)]',
+  },
+  {
+    id: 'regular',
+    label: 'Schicht',
+    legendTime: 'individuell',
+    cardClass: 'bg-slate-600/30 text-slate-50 border-slate-400/45',
+    glowClass: 'shadow-[0_0_14px_rgba(148,163,184,0.28)]',
   },
   {
     id: 'kurz',
@@ -140,6 +148,8 @@ export type ScheduleShift = {
   color?: string
   /** Nur Anzeige (Mock / UI) */
   conflict?: boolean
+  /** z. B. stationguide_import (API) */
+  importSource?: string
 }
 
 export type WeekDayIndex = 0 | 1 | 2 | 3 | 4 | 5 | 6

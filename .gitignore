@@ -41,5 +41,12 @@ Thumbs.db
 *.sln
 *.sw?
 
-# Vite
-*.local
+server/data/*.sqlite
+server/data/*.sqlite-wal
+server/data/*.sqlite-shm
+
+# Lokale Test-/Seed-Datenbanken (Repo-Root)
+/data/*.sqlite
+/data/*.sqlite-wal
+/data/*.sqlite-shm
+

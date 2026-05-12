@@ -1,6 +1,6 @@
 import { Download, LayoutGrid, Table2 } from 'lucide-react'
 import type { EmployeeHRStatus, EmploymentType } from '../../types/employee'
-import { WORK_AREA_DEFINITIONS } from '../../data/mockEmployees'
+import { useWorkAreas } from '../../context/work-areas-context'
 import { Button } from '../ui/Button'
 import { EMPLOYMENT_LABELS, STATUS_LABELS } from './employeeLabels'
 
@@ -33,6 +33,7 @@ export function EmployeesToolbar({
   onViewMode,
   onExport,
 }: Props) {
+  const { definitions: workAreaDefinitions } = useWorkAreas()
   const select =
     'h-10 min-w-[140px] rounded-[var(--radius-sm)] border border-[var(--border-strong)] bg-[var(--bg-card)] px-3 text-sm text-[var(--text-main)] focus:border-cyan-400/45 focus:outline-none focus:ring-2 focus:ring-cyan-400/15'
 
@@ -88,7 +89,7 @@ export function EmployeesToolbar({
           onChange={(e) => onWorkArea(e.target.value as string | 'all')}
         >
           <option value="all">Alle Arbeitsbereiche</option>
-          {WORK_AREA_DEFINITIONS.map((w) => (
+          {workAreaDefinitions.map((w) => (
             <option key={w.id} value={w.id}>
               {w.name}
             </option>

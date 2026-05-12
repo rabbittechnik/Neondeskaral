@@ -5,7 +5,7 @@ import { useSidebar } from '../../store/sidebar-context'
 import { navEntries, type NavEntry, type NavGroup } from './navConfig'
 
 function pathMatches(pathname: string, to: string) {
-  if (to === '/') return pathname === '/'
+  if (to === '/dashboard') return pathname === '/dashboard' || pathname === '/'
   if (to === '/schedule') {
     return pathname === '/schedule' || pathname === '/schichtplan'
   }
@@ -126,7 +126,7 @@ function NavSingleRow({
   return (
     <NavLink
       to={entry.to}
-      end={entry.to === '/'}
+      end={entry.to === '/dashboard'}
       title={collapsed ? entry.label : undefined}
       onClick={onNavigate}
       className={({ isActive }) =>

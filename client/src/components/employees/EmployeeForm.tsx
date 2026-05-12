@@ -1,5 +1,5 @@
 import type { Employee, EmployeeHRStatus, EmploymentType } from '../../types/employee'
-import { WORK_AREA_DEFINITIONS } from '../../data/mockEmployees'
+import { useWorkAreas } from '../../context/work-areas-context'
 import { inputClass, labelClass, selectClass } from '../schedule/shift/fieldStyles'
 import { ColorPickerField } from './ColorPickerField'
 import { STATUS_LABELS, EMPLOYMENT_LABELS } from './employeeLabels'
@@ -22,6 +22,7 @@ const employmentOptions: EmploymentType[] = [
 const statusOptions: EmployeeHRStatus[] = ['aktiv', 'inaktiv', 'urlaub', 'krank']
 
 export function EmployeeForm({ value, onChange, disabled }: Props) {
+  const { definitions: workAreaDefinitions } = useWorkAreas()
   const patch = (p: Partial<Employee>) => onChange({ ...value, ...p })
 
   const toggleArea = (id: string) => {
@@ -325,7 +326,7 @@ export function EmployeeForm({ value, onChange, disabled }: Props) {
       <div className="sm:col-span-2">
         <span className={labelClass}>Arbeitsbereiche</span>
         <div className="mt-2 flex flex-wrap gap-2">
-          {WORK_AREA_DEFINITIONS.map((w) => {
+          {workAreaDefinitions.map((w) => {
             const on = value.workAreaIds.includes(w.id)
             return (
               <button

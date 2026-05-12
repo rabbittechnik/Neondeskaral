@@ -43,20 +43,24 @@ export function StaffTerminalPage() {
     setCheckOutMsg(null)
   }
 
-  const finalizeCheckIn = (employeeId: string, note?: string) => {
-    const entry = startShiftForEmployee(employeeId, note)
-    const emp = employees.find((e) => e.id === employeeId)
-    const t = new Date(entry.startAt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
-    setCheckInStep(null)
-    setModal(null)
-    setInSuccess({ name: emp?.displayName ?? 'Mitarbeiter', time: t })
-    log({
-      cardNumber: emp?.cashRegisterCardNumber ?? '',
-      employeeId,
-      actionType: 'check_in',
-      result: 'success',
-      message: `Schicht gestartet ${t}`,
-    })
+  const finalizeCheckIn = async (employeeId: string, note?: string) => {
+    try {
+      const entry = await startShiftForEmployee(employeeId, note)
+      const emp = employees.find((e) => e.id === employeeId)
+      const t = new Date(entry.startAt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+      setCheckInStep(null)
+      setModal(null)
+      setInSuccess({ name: emp?.displayName ?? 'Mitarbeiter', time: t })
+      log({
+        cardNumber: emp?.cashRegisterCardNumber ?? '',
+        employeeId,
+        actionType: 'check_in',
+        result: 'success',
+        message: `Schicht gestartet ${t}`,
+      })
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Check-in fehlgeschlagen')
+    }
   }
 
   const onCardSubmit = (card: string) => {
@@ -109,7 +113,7 @@ export function StaffTerminalPage() {
           result: 'too_late',
           message: `${ev.minutesLate} Min. zu spät`,
         })
-        finalizeCheckIn(ev.employee.id, `Zu spät: ${ev.minutesLate} Min.`)
+        void finalizeCheckIn(ev.employee.id, `Zu spät: ${ev.minutesLate} Min.`)
         return
       }
       log({
@@ -119,7 +123,7 @@ export function StaffTerminalPage() {
         result: 'success',
         message: 'Check-in',
       })
-      finalizeCheckIn(ev.employee.id)
+      void finalizeCheckIn(ev.employee.id)
       return
     }
 
@@ -181,7 +185,7 @@ export function StaffTerminalPage() {
           title="Für dich ist heute keine Schicht geplant."
           message={`${checkInStep.employee.displayName} — du kannst trotzdem starten oder abbrechen.`}
         >
-          <Button variant="primary" type="button" onClick={() => finalizeCheckIn(checkInStep.employee.id, 'Nicht geplant — trotzdem gestartet')}>
+          <Button variant="primary" type="button" onClick={() => void finalizeCheckIn(checkInStep.employee.id, 'Nicht geplant — trotzdem gestartet')}>
             Trotzdem Schicht starten
           </Button>
           <Button variant="ghost" type="button" onClick={() => setCheckInStep(null)}>
@@ -197,7 +201,7 @@ export function StaffTerminalPage() {
           title="Zu früh"
           message={`Deine geplante Schicht beginnt erst um ${checkInStep.plannedStart} Uhr. Du bist ${checkInStep.minutesEarly} Minuten zu früh.`}
         >
-          <Button variant="primary" type="button" onClick={() => finalizeCheckIn(checkInStep.employee.id, 'Zu früh — trotzdem gestartet')}>
+          <Button variant="primary" type="button" onClick={() => void finalizeCheckIn(checkInStep.employee.id, 'Zu früh — trotzdem gestartet')}>
             Trotzdem Schicht starten
           </Button>
           <Button variant="ghost" type="button" onClick={() => setCheckInStep(null)}>
@@ -284,9 +288,14 @@ export function StaffTerminalPage() {
           timeEntryId={checkOutEntry.id}
           employeeId={checkOutEntry.employeeId}
           onClose={() => setCheckOutEntry(null)}
-          onComplete={(checklist) => {
+          onComplete={async (checklist) => {
             const end = new Date().toISOString()
-            completeShiftWithChecklist(checkOutEntry.id, checklist)
+            try {
+              await completeShiftWithChecklist(checkOutEntry.id, checklist)
+            } catch (err) {
+              window.alert(err instanceof Error ? err.message : 'Ausstempeln fehlgeschlagen')
+              return
+            }
             const mins = calculateWorkedMinutes(checkOutEntry.startAt, end, new Date())
             const name = employees.find((e) => e.id === checkOutEntry.employeeId)?.displayName ?? ''
             const endLabel = new Date(end).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })

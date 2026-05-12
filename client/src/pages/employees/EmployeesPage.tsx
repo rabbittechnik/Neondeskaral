@@ -32,7 +32,7 @@ function filterEmployees(
 }
 
 export function EmployeesPage() {
-  const { employees, addEmployee, updateEmployee, deactivateEmployee, reactivateEmployee } =
+  const { employees, addEmployee, updateEmployee, deactivateEmployee, reactivateEmployee, loading, error } =
     useEmployees()
 
   const [search, setSearch] = useState('')
@@ -76,6 +76,15 @@ export function EmployeesPage() {
         }
       />
 
+      {loading ? (
+        <p className="text-sm text-[var(--text-muted)]">Mitarbeiter werden geladen…</p>
+      ) : null}
+      {error ? (
+        <p className="rounded-md border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-200/90">
+          {error}
+        </p>
+      ) : null}
+
       <EmployeesToolbar
         search={search}
         onSearch={setSearch}
@@ -101,7 +110,7 @@ export function EmployeesPage() {
               onEdit={() => openEdit(e)}
               onDeactivate={() => setConfirmDeactivateId(e.id)}
               onReactivate={
-                e.status === 'inaktiv' ? () => reactivateEmployee(e.id) : undefined
+                e.status === 'inaktiv' ? () => void reactivateEmployee(e.id) : undefined
               }
             />
           ))}
@@ -111,7 +120,7 @@ export function EmployeesPage() {
           employees={filtered}
           onEdit={openEdit}
           onDeactivate={(e) => setConfirmDeactivateId(e.id)}
-          onReactivate={(e) => reactivateEmployee(e.id)}
+          onReactivate={(e) => void reactivateEmployee(e.id)}
         />
       )}
 
@@ -139,7 +148,7 @@ export function EmployeesPage() {
         variant="danger"
         onCancel={() => setConfirmDeactivateId(null)}
         onConfirm={() => {
-          if (confirmDeactivateId) deactivateEmployee(confirmDeactivateId)
+          if (confirmDeactivateId) void deactivateEmployee(confirmDeactivateId)
           setConfirmDeactivateId(null)
         }}
       />

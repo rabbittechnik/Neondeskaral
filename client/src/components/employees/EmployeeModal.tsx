@@ -13,8 +13,8 @@ type Props = {
   mode: Mode
   employee: Employee | null
   onClose: () => void
-  onSaveCreate: (e: Employee) => void
-  onSaveEdit: (e: Employee) => void
+  onSaveCreate: (e: Employee) => Promise<void>
+  onSaveEdit: (e: Employee) => Promise<void>
 }
 
 function validate(e: Employee): string[] {
@@ -37,6 +37,7 @@ export function EmployeeModal({
 }: Props) {
   const [form, setForm] = useState<Employee>(() => emptyEmployee())
   const [errors, setErrors] = useState<string[]>([])
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -57,17 +58,24 @@ export function EmployeeModal({
     return () => window.removeEventListener('keydown', h)
   }, [open, onClose])
 
-  const submit = () => {
+  const submit = async () => {
     const v = validate(form)
     setErrors(v)
     if (v.length > 0) return
-    if (mode === 'create') {
-      const id = form.id?.trim() ? form.id : createEmployeeId()
-      onSaveCreate({ ...form, id })
-    } else {
-      onSaveEdit(form)
+    setSaving(true)
+    try {
+      if (mode === 'create') {
+        const id = form.id?.trim() ? form.id : createEmployeeId()
+        await onSaveCreate({ ...form, id })
+      } else {
+        await onSaveEdit(form)
+      }
+      onClose()
+    } catch (err) {
+      setErrors([err instanceof Error ? err.message : 'Speichern fehlgeschlagen'])
+    } finally {
+      setSaving(false)
     }
-    onClose()
   }
 
   if (!open) return null
@@ -126,8 +134,8 @@ export function EmployeeModal({
           <Button variant="ghost" type="button" onClick={onClose}>
             Abbrechen
           </Button>
-          <Button variant="primary" type="button" onClick={submit}>
-            {mode === 'create' ? 'Mitarbeiter speichern' : 'Änderungen speichern'}
+          <Button variant="primary" type="button" onClick={() => void submit()} disabled={saving}>
+            {saving ? 'Speichern…' : mode === 'create' ? 'Mitarbeiter speichern' : 'Änderungen speichern'}
           </Button>
         </div>
       </div>

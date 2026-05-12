@@ -23,8 +23,8 @@ type Props = {
   weekMonday: Date
   allShifts: ScheduleShift[]
   onClose: () => void
-  onUpsert: (shift: ScheduleShift) => void
-  onDelete: (id: string) => void
+  onUpsert: (shift: ScheduleShift) => void | Promise<void>
+  onDelete: (id: string) => void | Promise<void>
   getEmployeeDisplayName: (id: string) => string
   employeeSelectOptions: ShiftEmployeeOption[]
 }
@@ -130,7 +130,7 @@ export function ShiftModal({
     }))
   }
 
-  const commit = (draft: ShiftDraft, ignoreWarnings: boolean) => {
+  const commit = async (draft: ShiftDraft, ignoreWarnings: boolean) => {
     const req = validateRequiredFields(draft)
     setRequiredErrors(req)
     if (req.length > 0) return
@@ -142,8 +142,12 @@ export function ShiftModal({
       return
     }
 
-    onUpsert(draftToShift(draft))
-    onClose()
+    try {
+      await Promise.resolve(onUpsert(draftToShift(draft)))
+      onClose()
+    } catch {
+      window.alert('Schicht konnte nicht gespeichert werden.')
+    }
   }
 
   const tryCommit = (statusOverride?: ScheduleShift['status']) => {
@@ -151,15 +155,15 @@ export function ShiftModal({
       ...form,
       status: statusOverride ?? form.status,
     }
-    commit(draft, false)
+    void commit(draft, false)
   }
 
   const forceCommit = () => {
     if (blockedDraft) {
-      commit(blockedDraft, true)
+      void commit(blockedDraft, true)
       return
     }
-    commit({ ...form, status: form.status }, true)
+    void commit({ ...form, status: form.status }, true)
   }
 
   if (!open) return null
@@ -280,9 +284,15 @@ export function ShiftModal({
         variant="danger"
         onCancel={() => setDeleteOpen(false)}
         onConfirm={() => {
-          if (shift?.id) onDelete(shift.id)
-          setDeleteOpen(false)
-          onClose()
+          void (async () => {
+            try {
+              if (shift?.id) await Promise.resolve(onDelete(shift.id))
+              setDeleteOpen(false)
+              onClose()
+            } catch {
+              window.alert('Löschen fehlgeschlagen')
+            }
+          })()
         }}
       />
     </>

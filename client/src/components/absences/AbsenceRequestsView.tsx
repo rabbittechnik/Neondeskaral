@@ -86,7 +86,7 @@ export function AbsenceRequestsView({ employees, onDetails, federalState }: Prop
                   </div>
                 ) : null}
                 <div className="mt-4 flex flex-wrap gap-2">
-                  <Button variant="primary" type="button" onClick={() => approveAbsence(a.id)} leftIcon={<Check className="h-4 w-4" />}>
+                  <Button variant="primary" type="button" onClick={() => void approveAbsence(a.id)} leftIcon={<Check className="h-4 w-4" />}>
                     Genehmigen
                   </Button>
                   <Button variant="ghost" type="button" className="text-red-300" onClick={() => { setRejecting(a); setRejectReason('') }} leftIcon={<X className="h-4 w-4" />}>
@@ -122,7 +122,7 @@ export function AbsenceRequestsView({ employees, onDetails, federalState }: Prop
                 variant="danger"
                 type="button"
                 onClick={() => {
-                  rejectAbsence(rejecting.id, rejectReason.trim() || undefined)
+                  void rejectAbsence(rejecting.id, rejectReason.trim() || undefined)
                   setRejecting(null)
                 }}
               >
