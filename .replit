@@ -1,0 +1,12 @@
+# NeonShift Station – Monorepo auf Replit
+# Nach dem Import: Root = dieses Verzeichnis (mit package.json + client/ + server/)
+
+run = "npm install && npm run dev"
+
+[nix]
+channel = "stable-24_05"
+
+[deployment]
+# Veröffentlichte Repl-App: Build + Vite preview (hört auf PORT / 0.0.0.0)
+build = ["sh", "-c", "npm install && npm run build:client"]
+run = ["sh", "-c", "npm run preview:client"]
