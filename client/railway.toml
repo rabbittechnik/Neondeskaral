@@ -1,0 +1,10 @@
+# Client-Service: In Railway „Root Directory“ = client setzen
+# oder Config-as-Code-Pfad: client/railway.toml
+[build]
+builder = "railpack"
+buildCommand = "npm ci --include=dev && npm run build"
+
+[deploy]
+startCommand = "npm start"
+healthcheckPath = "/"
+healthcheckTimeout = 300

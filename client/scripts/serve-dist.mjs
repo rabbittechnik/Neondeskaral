@@ -9,7 +9,16 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const dist = path.resolve(__dirname, '..', 'dist')
-const port = parseInt(process.env.PORT || '3000', 10)
+
+const rawPort = process.env.PORT
+const port =
+  rawPort != null && String(rawPort).trim() !== ''
+    ? parseInt(String(rawPort), 10)
+    : 3000
+if (!Number.isFinite(port) || port <= 0 || port > 65535) {
+  console.error('[static] Ungültige PORT-Umgebungsvariable:', rawPort)
+  process.exit(1)
+}
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -143,5 +152,7 @@ if (!fs.existsSync(path.join(dist, 'index.html'))) {
 }
 
 server.listen(port, '0.0.0.0', () => {
-  console.info(`[static] http://0.0.0.0:${port}/  (dist=${dist})`)
+  console.info(
+    `[static] listening PORT=${rawPort ?? '(default 3000)'} bind=0.0.0.0:${port} dist=${dist}`
+  )
 })
