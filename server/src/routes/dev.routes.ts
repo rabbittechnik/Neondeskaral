@@ -50,11 +50,38 @@ devRouter.get('/persistence-summary', (_req, res) => {
       const c = (db.prepare(`SELECT COUNT(*) AS c FROM "${name}"`).get() as { c: number }).c
       tableCounts[name] = c
     }
+
+    const scalar = (sql: string) => (db.prepare(sql).get() as { c: number }).c
+    const employeeAccess = {
+      storage: 'employees.employee_access_token|enabled|created_at|last_used_at (SQLite; Railway: DATABASE_PATH=/data/neonshift.sqlite)',
+      employeesTotal: scalar(`SELECT COUNT(*) AS c FROM employees`),
+      withNonEmptyToken: scalar(
+        `SELECT COUNT(*) AS c FROM employees WHERE employee_access_token IS NOT NULL AND trim(employee_access_token) != ''`,
+      ),
+      accessEnabledFlag: scalar(
+        `SELECT COUNT(*) AS c FROM employees WHERE (employee_access_enabled IS NULL OR employee_access_enabled != 0)`,
+      ),
+      accessDisabledWithToken: scalar(
+        `SELECT COUNT(*) AS c FROM employees WHERE employee_access_token IS NOT NULL AND trim(employee_access_token) != '' AND employee_access_enabled = 0`,
+      ),
+      lastUsedSet: scalar(
+        `SELECT COUNT(*) AS c FROM employees WHERE employee_access_last_used_at IS NOT NULL AND trim(employee_access_last_used_at) != ''`,
+      ),
+      duplicateTokenGroups: scalar(
+        `SELECT COUNT(*) AS c FROM (
+           SELECT employee_access_token AS t FROM employees
+           WHERE employee_access_token IS NOT NULL AND trim(employee_access_token) != ''
+           GROUP BY employee_access_token HAVING COUNT(*) > 1
+         )`,
+      ),
+    }
+
     jsonOk(res, {
       databasePath: getDbPath(),
       tableCounts,
+      employeeAccess,
       note:
-        'Nur Metadaten (Zeilenanzahl). In Produktion nur mit ALLOW_PERSISTENCE_DIAG=1 oder ALLOW_DEV_IMPORT=1.',
+        'Nur Metadaten (Zeilenanzahl). In Produktion nur mit ALLOW_PERSISTENCE_DIAG=1 oder ALLOW_DEV_IMPORT=1. Keine Token-Werte.',
     })
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)

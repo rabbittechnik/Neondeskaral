@@ -347,19 +347,26 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center gap-4 px-6 text-center">
         <p className="text-xl font-semibold text-white">Dein Mitarbeiterzugang ist ungültig oder wurde deaktiviert.</p>
-        <p className="max-w-md text-slate-400">Bitte wende dich an die Stationsleitung.</p>
-        <div className="flex flex-wrap justify-center gap-2">
+        <p className="max-w-md text-slate-400">
+          Bitte wende dich an die Stationsleitung oder scanne einen neuen QR-Code, falls du einen erhalten hast.
+        </p>
+        <div className="flex flex-col items-stretch justify-center gap-3 sm:max-w-sm">
           {onClearSession ? (
-            <Button type="button" variant="outline" onClick={() => onClearSession()}>
-              Zugang entfernen
+            <Button type="button" variant="primary" className="w-full" onClick={() => onClearSession()}>
+              QR-Code erneut scannen
             </Button>
-          ) : null}
-          <Link
-            to="/employee-app"
-            className="inline-flex items-center justify-center rounded-xl border border-cyan-400/40 px-4 py-2 text-sm font-medium text-cyan-100 hover:bg-cyan-500/10"
-          >
-            Neu einrichten
-          </Link>
+          ) : (
+            <Link
+              to="/employee-app"
+              className="inline-flex w-full items-center justify-center rounded-xl bg-cyan-500 px-4 py-3 text-sm font-semibold text-slate-950"
+            >
+              QR-Code erneut scannen
+            </Link>
+          )}
+          <p className="text-center text-xs text-slate-500">
+            Der Zugang bleibt auf dem Server in der Datenbank gespeichert — nur dieses Gerät muss neu verbunden
+            werden.
+          </p>
         </div>
       </div>
     )

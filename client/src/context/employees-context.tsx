@@ -75,7 +75,10 @@ export function EmployeesProvider({ children }: { children: ReactNode }) {
   )
 
   const updateEmployee = useCallback(async (e: Employee) => {
-    const res = await apiSend<Employee>('PUT', `/employees/${encodeURIComponent(e.id)}`, e)
+    // QR-Token nur serverseitig / per regenerate-Endpoint — nie versehentlich per PUT überschreiben
+    const { employeeAccessToken: _omitAccessToken, ...payload } = e
+    void _omitAccessToken
+    const res = await apiSend<Employee>('PUT', `/employees/${encodeURIComponent(e.id)}`, payload)
     if (!res.ok) throw new Error(res.error)
     await refetch()
   }, [refetch])
@@ -90,8 +93,10 @@ export function EmployeesProvider({ children }: { children: ReactNode }) {
     async (id: string) => {
       const got = await apiGet<Employee>(`/employees/${encodeURIComponent(id)}`)
       if (!got.ok || !got.data) throw new Error(got.ok === false ? got.error : 'Mitarbeiter nicht gefunden')
+      const { employeeAccessToken: _omit, ...rest } = got.data
+      void _omit
       const res = await apiSend<Employee>('PUT', `/employees/${encodeURIComponent(id)}`, {
-        ...got.data,
+        ...rest,
         status: 'aktiv',
       })
       if (!res.ok) throw new Error(res.error)

@@ -82,6 +82,7 @@ export function runMigrations(db: Database.Database) {
     FOREIGN KEY (employee_id) REFERENCES employees(id)
   )`)
 
+  /** Einmalige Auffüllung: nur Zeilen ohne Token. Kein Rotieren bei Serverstart/Redeploy/Seed. */
   const needToken = db
     .prepare(
       `SELECT id FROM employees WHERE employee_access_token IS NULL OR trim(employee_access_token) = ''`,
