@@ -44,6 +44,23 @@ export function getISOWeek(date: Date): number {
 
 export const WEEKDAY_LABELS_SHORT = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'] as const
 
+export const WEEKDAY_LABELS_LONG = [
+  'Montag',
+  'Dienstag',
+  'Mittwoch',
+  'Donnerstag',
+  'Freitag',
+  'Samstag',
+  'Sonntag',
+] as const
+
+/** z. B. 11.05. */
+export function formatDayMonthDot(d: Date): string {
+  const day = String(d.getDate()).padStart(2, '0')
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  return `${day}.${m}.`
+}
+
 export function weekDayDates(weekMonday: Date): Date[] {
   return Array.from({ length: 7 }, (_, i) => addDays(weekMonday, i))
 }

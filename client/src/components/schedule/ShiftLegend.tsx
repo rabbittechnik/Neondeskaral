@@ -5,6 +5,7 @@ const legendOrder: ShiftTypeId[] = [
   'spaet',
   'nacht',
   'schule',
+  'sonderdienst',
   'frei',
   'konflikt',
 ]

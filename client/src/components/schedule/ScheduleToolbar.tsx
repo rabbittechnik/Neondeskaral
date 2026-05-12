@@ -7,7 +7,8 @@ import {
   Printer,
   Send,
 } from 'lucide-react'
-import { employees, workAreas } from '../../data/mockSchedule'
+import { workAreas } from '../../data/mockSchedule'
+import type { ScheduleEmployeeRow } from '../../types/employee'
 import { Button } from '../ui/Button'
 
 const selectClass =
@@ -25,6 +26,7 @@ type Props = {
   onPublish: () => void
   onPrint: () => void
   onMore: () => void
+  scheduleEmployees: ScheduleEmployeeRow[]
 }
 
 export function ScheduleToolbar({
@@ -39,6 +41,7 @@ export function ScheduleToolbar({
   onPublish,
   onPrint,
   onMore,
+  scheduleEmployees,
 }: Props) {
   return (
     <div className="flex flex-col gap-3 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-card)]/60 p-3 backdrop-blur-sm md:flex-row md:flex-wrap md:items-center md:justify-between">
@@ -76,7 +79,7 @@ export function ScheduleToolbar({
           aria-label="Mitarbeiter"
         >
           <option value="all">Alle Mitarbeiter</option>
-          {employees.map((e) => (
+          {scheduleEmployees.map((e) => (
             <option key={e.id} value={e.id}>
               {e.name}
             </option>

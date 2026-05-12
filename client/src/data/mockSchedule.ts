@@ -1,5 +1,10 @@
 /** Dummy-Daten für das Schichtplan-Frontend (ohne API/DB). */
 
+import { workAreasScheduleCompat } from './mockEmployees'
+
+export type { Employee, ScheduleEmployeeRow } from '../types/employee'
+export { toScheduleEmployeeRow } from '../types/employee'
+
 export const STATION_NAME = 'Aral Bodelshausen'
 
 export type ShiftTypeId =
@@ -7,6 +12,7 @@ export type ShiftTypeId =
   | 'spaet'
   | 'nacht'
   | 'schule'
+  | 'sonderdienst'
   | 'frei'
   | 'konflikt'
   | 'mittel'
@@ -50,6 +56,14 @@ export const shiftTypes: ShiftTypeDef[] = [
     glowClass: 'shadow-[0_0_16px_rgba(34,211,238,0.35)]',
   },
   {
+    id: 'sonderdienst',
+    label: 'Sonderdienst',
+    legendTime: 'individuell',
+    cardClass:
+      'bg-gradient-to-br from-amber-500/30 to-orange-600/25 text-amber-50 border-amber-400/55',
+    glowClass: 'shadow-[0_0_16px_rgba(251,191,36,0.4)]',
+  },
+  {
     id: 'mittel',
     label: 'Mittel',
     legendTime: '08:00–14:15',
@@ -89,16 +103,7 @@ export type WorkArea = {
   label: string
 }
 
-export const workAreas: WorkArea[] = [
-  { id: 'kasse', shortCode: 'K', label: 'Kasse' },
-  { id: 'buero', shortCode: 'B', label: 'Büro' },
-  { id: 'backshop', shortCode: 'Ba', label: 'Backshop' },
-  { id: 'aussen', shortCode: 'A', label: 'Außenbereich' },
-  { id: 'wasch', shortCode: 'W', label: 'Waschanlage' },
-  { id: 'lager', shortCode: 'L', label: 'Lager' },
-  { id: 'schule', shortCode: 'Sch', label: 'Schule' },
-  { id: 'sonst', shortCode: 'S', label: 'Sonstiges' },
-]
+export const workAreas: WorkArea[] = workAreasScheduleCompat
 
 export function workAreaLabel(code: string): string {
   if (!code) return ''
@@ -106,45 +111,116 @@ export function workAreaLabel(code: string): string {
   return w?.label ?? code
 }
 
-export type Employee = {
-  id: string
-  name: string
-  role: string
-  accentColor: string
+export function workAreaIdFromShortCode(shortCode: string): string {
+  if (!shortCode) return ''
+  const w = workAreas.find((a) => a.shortCode === shortCode)
+  return w?.id ?? ''
 }
 
-export const employees: Employee[] = [
-  {
-    id: 'e1',
-    name: 'Mathias Raselowski',
-    role: 'Schichtleiter',
-    accentColor: '#22d3ee',
-  },
-  {
-    id: 'e2',
-    name: 'Bianca Hornung',
-    role: 'Verkäufer',
-    accentColor: '#a3e635',
-  },
-  { id: 'e3', name: 'Max Vins', role: 'Verkäufer', accentColor: '#f472b6' },
-  {
-    id: 'e4',
-    name: 'Metin Özgür',
-    role: 'Schichtleiter',
-    accentColor: '#c084fc',
-  },
-  { id: 'e5', name: 'Enise A.', role: 'Aushilfe', accentColor: '#fbbf24' },
-  { id: 'e6', name: 'Chiara H.', role: 'Verkäufer', accentColor: '#38bdf8' },
-  { id: 'e7', name: 'Luca Stöck', role: 'Verkäufer', accentColor: '#34d399' },
-  {
-    id: 'e8',
-    name: 'Valerina Mustafa',
-    role: 'Aushilfe',
-    accentColor: '#fb923c',
-  },
-]
+export function shortCodeFromWorkAreaId(workAreaId: string): string {
+  if (!workAreaId) return ''
+  const w = workAreas.find((a) => a.id === workAreaId)
+  return w?.shortCode ?? ''
+}
+
+/** Lokales State-Modell (Phase 3, ohne API). */
+export type ScheduleShift = {
+  id: string
+  employeeId?: string
+  workAreaId: string
+  date: string
+  startTime: string
+  endTime: string
+  breakMinutes: number
+  shiftType: ShiftTypeId
+  note: string
+  status: 'Entwurf' | 'Veröffentlicht'
+  /** Optional: überschreibt Farbe aus Schichttyp */
+  color?: string
+  /** Nur Anzeige (Mock / UI) */
+  conflict?: boolean
+}
 
 export type WeekDayIndex = 0 | 1 | 2 | 3 | 4 | 5 | 6
+
+export function dayIndexInWeek(
+  dateISO: string,
+  weekMonday: Date,
+): WeekDayIndex | null {
+  const t = new Date(`${dateISO}T12:00:00`)
+  const mon = new Date(weekMonday)
+  mon.setHours(12, 0, 0, 0)
+  const diff = Math.round((t.getTime() - mon.getTime()) / 86400000)
+  if (diff < 0 || diff > 6) return null
+  return diff as WeekDayIndex
+}
+
+export function shiftsInWeek(
+  shifts: ScheduleShift[],
+  weekMonday: Date,
+): ScheduleShift[] {
+  return shifts.filter((s) => dayIndexInWeek(s.date, weekMonday) !== null)
+}
+
+/** Darstellung in Raster / Karten (abgeleitet). */
+export type ResolvedShiftBlock = {
+  id: string
+  employeeId?: string
+  dayIndex: WeekDayIndex
+  type: ShiftTypeId
+  start: string
+  end: string
+  workAreaCode: string
+  dateISO: string
+  status?: 'Entwurf' | 'Veröffentlicht'
+  conflict?: boolean
+  breakMinutes?: number
+  note?: string
+  color?: string
+  /** Offene Schicht ohne Mitarbeiter */
+  open?: boolean
+}
+
+export function scheduleShiftToResolved(
+  s: ScheduleShift,
+  weekMonday: Date,
+): ResolvedShiftBlock | null {
+  const di = dayIndexInWeek(s.date, weekMonday)
+  if (di === null) return null
+  const code = shortCodeFromWorkAreaId(s.workAreaId)
+  return {
+    id: s.id,
+    employeeId: s.employeeId,
+    dayIndex: di,
+    type: s.shiftType,
+    start: s.startTime,
+    end: s.endTime,
+    workAreaCode: code,
+    dateISO: s.date,
+    status: s.status,
+    breakMinutes: s.breakMinutes,
+    note: s.note,
+    color: s.color,
+    conflict: s.conflict,
+    open: !s.employeeId && s.shiftType !== 'frei',
+  }
+}
+
+export function resolveShiftsForWeekGrid(
+  shifts: ScheduleShift[],
+  weekMonday: Date,
+): ResolvedShiftBlock[] {
+  return shifts
+    .map((s) => scheduleShiftToResolved(s, weekMonday))
+    .filter((b): b is ResolvedShiftBlock => b !== null)
+}
+
+export function createLocalShiftId(): string {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return `sh-${crypto.randomUUID()}`
+  }
+  return `sh-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
 
 export type ShiftBlockTemplate = {
   employeeId: string
@@ -565,10 +641,6 @@ export function resolveShiftVisual(type: ShiftTypeId): {
   }
 }
 
-export type ResolvedShiftBlock = ShiftBlockTemplate & {
-  dateISO: string
-}
-
 export function toISODate(d: Date): string {
   const y = d.getFullYear()
   const m = String(d.getMonth() + 1).padStart(2, '0')
@@ -576,12 +648,60 @@ export function toISODate(d: Date): string {
   return `${y}-${m}-${day}`
 }
 
-export function resolveBlocksForWeek(weekMonday: Date): ResolvedShiftBlock[] {
-  return shiftBlockTemplates.map((t) => {
+let _seedSeq = 0
+function nextSeedId(): string {
+  _seedSeq += 1
+  return `seed-${_seedSeq}`
+}
+
+/** Dummy-Schichten + offene Slots für eine konkrete Woche (ISO-Datum). */
+export function seedScheduleWeek(weekMonday: Date): ScheduleShift[] {
+  _seedSeq = 0
+  const out: ScheduleShift[] = []
+  for (const t of shiftBlockTemplates) {
     const cell = new Date(weekMonday)
     cell.setDate(cell.getDate() + t.dayIndex)
-    return { ...t, dateISO: toISODate(cell) }
-  })
+    out.push({
+      id: nextSeedId(),
+      employeeId: t.employeeId,
+      workAreaId: workAreaIdFromShortCode(t.workAreaCode),
+      date: toISODate(cell),
+      startTime: t.start,
+      endTime: t.end,
+      breakMinutes: t.type === 'frei' ? 0 : 30,
+      shiftType: t.type,
+      note: '',
+      status: t.status ?? 'Entwurf',
+      conflict: t.conflict,
+    })
+  }
+  const openSlots: {
+    dayIndex: WeekDayIndex
+    shiftType: ShiftTypeId
+    start: string
+    end: string
+    code: string
+  }[] = [
+    { dayIndex: 4, shiftType: 'spaet', start: '14:00', end: '21:15', code: 'W' },
+    { dayIndex: 5, shiftType: 'frueh', start: '05:30', end: '14:00', code: 'K' },
+    { dayIndex: 6, shiftType: 'nacht', start: '22:00', end: '06:00', code: 'K' },
+  ]
+  for (const o of openSlots) {
+    const cell = new Date(weekMonday)
+    cell.setDate(cell.getDate() + o.dayIndex)
+    out.push({
+      id: nextSeedId(),
+      workAreaId: workAreaIdFromShortCode(o.code),
+      date: toISODate(cell),
+      startTime: o.start,
+      endTime: o.end,
+      breakMinutes: 30,
+      shiftType: o.shiftType,
+      note: '',
+      status: 'Veröffentlicht',
+    })
+  }
+  return out
 }
 
 export type OpenShiftSlot = {
@@ -633,7 +753,7 @@ export function computeWeeklyHoursByEmployee(
 ): Map<string, number> {
   const map = new Map<string, number>()
   for (const b of blocks) {
-    if (b.type === 'frei') continue
+    if (!b.employeeId || b.type === 'frei') continue
     const h = hoursBetween(b.start, b.end)
     if (h <= 0) continue
     map.set(b.employeeId, (map.get(b.employeeId) ?? 0) + h)

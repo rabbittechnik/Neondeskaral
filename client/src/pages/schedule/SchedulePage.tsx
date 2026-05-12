@@ -1,12 +1,16 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   computeWeeklyHoursByEmployee,
-  employees as allEmployees,
+  dayIndexInWeek,
   mockConflicts,
-  mockOpenShifts,
   mockWeekAbsences,
-  resolveBlocksForWeek,
+  resolveShiftsForWeekGrid,
+  seedScheduleWeek,
   STATION_NAME,
+  toISODate,
+  toScheduleEmployeeRow,
+  type ResolvedShiftBlock,
+  type ScheduleShift,
 } from '../../data/mockSchedule'
 import { ScheduleStatsPanel } from '../../components/schedule/ScheduleStatsPanel'
 import { ScheduleToolbar } from '../../components/schedule/ScheduleToolbar'
@@ -20,15 +24,37 @@ import {
   formatDE,
   getISOWeek,
   startOfWeekMonday,
-  WEEKDAY_LABELS_SHORT,
 } from '../../components/schedule/scheduleWeekUtils'
+import { ScheduleEmployeeSummaryBar } from '../../components/schedule/ScheduleEmployeeSummaryBar'
 import { WeeklyScheduleGrid } from '../../components/schedule/WeeklyScheduleGrid'
+import { ShiftModal } from '../../components/schedule/shift/ShiftModal'
+import {
+  openShiftSlotsFromBlocks,
+  openShiftWarnings,
+} from '../../components/schedule/schedulePanelUtils'
+import { useEmployees } from '../../context/employees-context'
+
+/** Überlebt React StrictMode-Doppelmount ohne doppeltes Seeding. */
+const seededScheduleWeekKeys = new Set<string>()
 
 export function SchedulePage() {
+  const { employees } = useEmployees()
+
   const [weekOffset, setWeekOffset] = useState(0)
   const [workAreaFilter, setWorkAreaFilter] = useState('all')
   const [employeeFilter, setEmployeeFilter] = useState('all')
   const [view, setView] = useState<ScheduleViewMode>('calendar')
+
+  const [shifts, setShifts] = useState<ScheduleShift[]>(() => {
+    const mon = startOfWeekMonday(new Date())
+    const k = toISODate(mon)
+    seededScheduleWeekKeys.add(k)
+    return seedScheduleWeek(mon)
+  })
+
+  const [modalOpen, setModalOpen] = useState(false)
+  const [modalMode, setModalMode] = useState<'create' | 'edit'>('create')
+  const [modalShift, setModalShift] = useState<ScheduleShift | null>(null)
 
   const weekMonday = useMemo(() => {
     const base = startOfWeekMonday(new Date())
@@ -38,54 +64,114 @@ export function SchedulePage() {
   const weekSunday = useMemo(() => addDays(weekMonday, 6), [weekMonday])
   const isoWeek = useMemo(() => getISOWeek(weekMonday), [weekMonday])
 
-  const allBlocks = useMemo(() => resolveBlocksForWeek(weekMonday), [weekMonday])
+  const scheduleRows = useMemo(
+    () => employees.map(toScheduleEmployeeRow),
+    [employees],
+  )
 
-  const filteredBlocks = useMemo(() => {
-    if (workAreaFilter === 'all') return allBlocks
-    return allBlocks.filter(
-      (b) => b.type === 'frei' || b.workAreaCode === workAreaFilter,
+  const shiftEmployeeOptions = useMemo(
+    () =>
+      employees.map((e) => ({
+        id: e.id,
+        displayName: e.displayName,
+        role: e.role,
+      })),
+    [employees],
+  )
+
+  const getEmployeeDisplayName = useCallback(
+    (id: string) => employees.find((e) => e.id === id)?.displayName ?? 'Mitarbeiter',
+    [employees],
+  )
+
+  const employeeHourLabels = useMemo(
+    () =>
+      employees.map((e) => ({
+        id: e.id,
+        label: e.displayName.split(/\s+/)[0] ?? e.displayName,
+      })),
+    [employees],
+  )
+
+  useEffect(() => {
+    const key = toISODate(weekMonday)
+    if (seededScheduleWeekKeys.has(key)) return
+    seededScheduleWeekKeys.add(key)
+    setShifts((prev) => {
+      const has = prev.some((s) => dayIndexInWeek(s.date, weekMonday) !== null)
+      if (has) return prev
+      return [...prev, ...seedScheduleWeek(weekMonday)]
+    })
+  }, [weekMonday])
+
+  const allBlocks = useMemo(
+    () => resolveShiftsForWeekGrid(shifts, weekMonday),
+    [shifts, weekMonday],
+  )
+
+  /** Wochenraster: nur echte Dienste + offene Schichten (kein „Frei“). */
+  const gridBlocks = useMemo(() => {
+    let list = allBlocks.filter(
+      (b) => b.type !== 'frei' && (b.open || Boolean(b.employeeId)),
     )
-  }, [allBlocks, workAreaFilter])
-
-  const visibleEmployees = useMemo(() => {
-    let list = allEmployees
-    if (employeeFilter !== 'all') {
-      list = list.filter((e) => e.id === employeeFilter)
-    }
     if (workAreaFilter !== 'all') {
-      const ids = new Set(
-        allBlocks
-          .filter((b) => b.type === 'frei' || b.workAreaCode === workAreaFilter)
-          .map((b) => b.employeeId),
-      )
-      list = list.filter((e) => ids.has(e.id))
+      list = list.filter((b) => b.open || b.workAreaCode === workAreaFilter)
+    }
+    if (employeeFilter !== 'all') {
+      list = list.filter((b) => b.open || b.employeeId === employeeFilter)
     }
     return list
-  }, [employeeFilter, workAreaFilter, allBlocks])
+  }, [allBlocks, workAreaFilter, employeeFilter])
 
   const hoursByEmployee = useMemo(
     () => computeWeeklyHoursByEmployee(allBlocks),
     [allBlocks],
   )
 
-  const openShiftsThisWeek = useMemo(() => {
-    const dayIndices = [4, 5, 6] as const
-    return mockOpenShifts.map((o, i) => {
-      const idx = dayIndices[i] ?? 4
-      const d = addDays(weekMonday, idx)
-      const short = d.toLocaleDateString('de-DE', {
-        day: '2-digit',
-        month: '2-digit',
-      })
-      return {
-        ...o,
-        dayLabel: `${WEEKDAY_LABELS_SHORT[idx]}, ${short}`,
-      }
+  const openShiftsThisWeek = useMemo(
+    () => openShiftSlotsFromBlocks(allBlocks),
+    [allBlocks],
+  )
+
+  const panelConflicts = useMemo(
+    () => [...openShiftWarnings(allBlocks), ...mockConflicts],
+    [allBlocks],
+  )
+
+  const openCreate = () => {
+    setModalMode('create')
+    setModalShift(null)
+    setModalOpen(true)
+  }
+
+  const openEdit = (block: ResolvedShiftBlock) => {
+    const s = shifts.find((x) => x.id === block.id)
+    if (!s) return
+    setModalMode('edit')
+    setModalShift(s)
+    setModalOpen(true)
+  }
+
+  const handleUpsert = (s: ScheduleShift) => {
+    setShifts((prev) => {
+      const i = prev.findIndex((x) => x.id === s.id)
+      if (i === -1) return [...prev, s]
+      const next = [...prev]
+      next[i] = s
+      return next
     })
-  }, [weekMonday])
+  }
+
+  const handleDelete = (id: string) => {
+    setShifts((prev) => prev.filter((x) => x.id !== id))
+  }
 
   const stub = () => {
-    alert('Funktion folgt mit Backend (Phase 2+).')
+    alert('Funktion folgt mit Backend (später).')
+  }
+
+  const toggleEmployeeFilter = (id: string) => {
+    setEmployeeFilter((prev) => (prev === id ? 'all' : id))
   }
 
   return (
@@ -126,22 +212,42 @@ export function SchedulePage() {
         onToday={() => setWeekOffset(0)}
         onPrevWeek={() => setWeekOffset((w) => w - 1)}
         onNextWeek={() => setWeekOffset((w) => w + 1)}
-        onNewShift={stub}
+        onNewShift={openCreate}
         onPublish={stub}
         onPrint={stub}
         onMore={stub}
+        scheduleEmployees={scheduleRows}
+      />
+
+      <ShiftModal
+        open={modalOpen}
+        mode={modalMode}
+        shift={modalShift}
+        weekMonday={weekMonday}
+        allShifts={shifts}
+        onClose={() => setModalOpen(false)}
+        onUpsert={handleUpsert}
+        onDelete={handleDelete}
+        getEmployeeDisplayName={getEmployeeDisplayName}
+        employeeSelectOptions={shiftEmployeeOptions}
       />
 
       {view === 'calendar' ? (
         <>
           <ShiftLegend />
+          <ScheduleEmployeeSummaryBar
+            employees={scheduleRows}
+            weeklyHoursById={hoursByEmployee}
+            selectedId={employeeFilter === 'all' ? null : employeeFilter}
+            onToggleEmployee={toggleEmployeeFilter}
+          />
           <div className="grid gap-6 xl:grid-cols-12">
             <div className="space-y-4 xl:col-span-9">
               <WeeklyScheduleGrid
                 weekMonday={weekMonday}
-                employees={visibleEmployees}
-                blocks={filteredBlocks}
-                hoursByEmployee={hoursByEmployee}
+                employees={scheduleRows}
+                blocks={gridBlocks}
+                onShiftSelect={openEdit}
               />
             </div>
             <div className="space-y-4 xl:col-span-3">
@@ -149,7 +255,8 @@ export function SchedulePage() {
                 blocks={allBlocks}
                 openShifts={openShiftsThisWeek}
                 absences={mockWeekAbsences}
-                conflicts={mockConflicts}
+                conflicts={panelConflicts}
+                employeeHourLabels={employeeHourLabels}
               />
             </div>
           </div>

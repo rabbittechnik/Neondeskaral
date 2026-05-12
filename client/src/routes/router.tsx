@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate } from 'react-router-dom'
+import { createBrowserRouter, Navigate, useParams } from 'react-router-dom'
 import { AppLayout } from '../layouts/AppLayout'
 import { AuthLayout } from '../layouts/AuthLayout'
 import { AccountPage } from '../pages/account/AccountPage'
@@ -15,6 +15,9 @@ import { ContactsPage } from '../pages/contacts/ContactsPage'
 import { CountersPage } from '../pages/counters/CountersPage'
 import { DashboardPage } from '../pages/dashboard/DashboardPage'
 import { DocumentsPage } from '../pages/documents/DocumentsPage'
+import { EmployeesProvider } from '../context/employees-context'
+import { EmployeeProfilePage } from '../pages/employees/EmployeeProfilePage'
+import { EmployeesLayout } from '../pages/employees/EmployeesLayout'
 import { EmployeesPage } from '../pages/employees/EmployeesPage'
 import { HolidaysPage } from '../pages/holidays/HolidaysPage'
 import { ListsPage } from '../pages/lists/ListsPage'
@@ -33,6 +36,11 @@ import { VacationBlocksPage } from '../pages/vacationBlocks/VacationBlocksPage'
 import { WorkAreasPage } from '../pages/workAreas/WorkAreasPage'
 import { SidebarProvider } from '../store/sidebar-context'
 
+function MitarbeiterToEmployeesProfile() {
+  const { employeeId } = useParams()
+  return <Navigate to={`/employees/${employeeId ?? ''}`} replace />
+}
+
 export const router = createBrowserRouter([
   {
     path: '/login',
@@ -43,7 +51,9 @@ export const router = createBrowserRouter([
     path: '/',
     element: (
       <SidebarProvider>
-        <AppLayout />
+        <EmployeesProvider>
+          <AppLayout />
+        </EmployeesProvider>
       </SidebarProvider>
     ),
     children: [
@@ -109,8 +119,26 @@ export const router = createBrowserRouter([
       },
       {
         path: 'employees',
-        element: <EmployeesPage />,
+        element: <EmployeesLayout />,
         handle: { title: 'Mitarbeiter' },
+        children: [
+          { index: true, element: <EmployeesPage /> },
+          {
+            path: ':employeeId',
+            element: <EmployeeProfilePage />,
+            handle: { title: 'Mitarbeiterprofil' },
+          },
+        ],
+      },
+      {
+        path: 'mitarbeiter',
+        element: <Navigate to="/employees" replace />,
+        handle: { title: 'Mitarbeiter' },
+      },
+      {
+        path: 'mitarbeiter/:employeeId',
+        element: <MitarbeiterToEmployeesProfile />,
+        handle: { title: 'Mitarbeiterprofil' },
       },
       {
         path: 'work-areas',

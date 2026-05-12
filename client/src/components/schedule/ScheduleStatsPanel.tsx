@@ -5,11 +5,7 @@ import type {
   ScheduleConflict,
   WeekAbsence,
 } from '../../data/mockSchedule'
-import {
-  computeWeeklyHoursByEmployee,
-  employees,
-  totalPlannedHours,
-} from '../../data/mockSchedule'
+import { computeWeeklyHoursByEmployee, totalPlannedHours } from '../../data/mockSchedule'
 import { Card } from '../ui/Card'
 import { ScheduleConflictCard } from './ScheduleConflictCard'
 
@@ -17,7 +13,10 @@ type Props = {
   blocks: ResolvedShiftBlock[]
   openShifts: OpenShiftSlot[]
   absences: WeekAbsence[]
+  /** Mock + dynamische Hinweise (z. B. offene Schichten) */
   conflicts: ScheduleConflict[]
+  /** Kurzname in Stundenliste (erster Vorname) */
+  employeeHourLabels: { id: string; label: string }[]
 }
 
 export function ScheduleStatsPanel({
@@ -25,12 +24,13 @@ export function ScheduleStatsPanel({
   openShifts,
   absences,
   conflicts,
+  employeeHourLabels,
 }: Props) {
   const hoursMap = computeWeeklyHoursByEmployee(blocks)
   const total = totalPlannedHours(blocks)
   const avg =
-    employees.length > 0
-      ? Math.round((total / employees.length) * 10) / 10
+    employeeHourLabels.length > 0
+      ? Math.round((total / employeeHourLabels.length) * 10) / 10
       : 0
 
   return (
@@ -90,9 +90,9 @@ export function ScheduleStatsPanel({
           Summe aller Schichten · Ø {avg} h / Mitarbeiter
         </p>
         <div className="mt-3 max-h-32 space-y-1 overflow-y-auto text-[10px] text-[var(--text-faint)]">
-          {employees.map((e) => (
+          {employeeHourLabels.map((e) => (
             <div key={e.id} className="flex justify-between tabular-nums">
-              <span className="truncate pr-2">{e.name.split(' ')[0]}</span>
+              <span className="truncate pr-2">{e.label}</span>
               <span>{(hoursMap.get(e.id) ?? 0).toFixed(1)} h</span>
             </div>
           ))}
