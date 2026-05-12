@@ -114,6 +114,10 @@ export type ShiftTimelineRowItem = {
   row: number
   leftPercent: number
   widthPercent: number
+  /** Gleiche Zeile: vorherige Schicht endet ≤5 min vor Start → optisch ohne Lücke */
+  seamBefore: boolean
+  /** Gleiche Zeile: nächste Schicht beginnt ≤5 min nach Ende */
+  seamAfter: boolean
 }
 
 function intervalsOverlap(aVs: number, aVe: number, bVs: number, bVe: number): boolean {
@@ -170,7 +174,36 @@ export function groupShiftsIntoRows(
       rowIntervals.push([])
     }
     rowIntervals[row].push({ vs: item.vs, ve: item.ve })
-    result.push({ ...item, row })
+    result.push({
+      ...item,
+      row,
+      seamBefore: false,
+      seamAfter: false,
+    })
+  }
+
+  const SEAM_TOLERANCE_MIN = 5
+  const byRow = new Map<number, ShiftTimelineRowItem[]>()
+  for (const it of result) {
+    const arr = byRow.get(it.row) ?? []
+    arr.push(it)
+    byRow.set(it.row, arr)
+  }
+  for (const list of byRow.values()) {
+    list.sort((a, b) => a.vs - b.vs || a.ve - b.ve)
+    for (let i = 0; i < list.length; i++) {
+      const cur = list[i]!
+      const prev = list[i - 1]
+      const next = list[i + 1]
+      if (prev) {
+        const gap = cur.vs - prev.ve
+        if (gap >= 0 && gap <= SEAM_TOLERANCE_MIN) cur.seamBefore = true
+      }
+      if (next) {
+        const gap = next.vs - cur.ve
+        if (gap >= 0 && gap <= SEAM_TOLERANCE_MIN) cur.seamAfter = true
+      }
+    }
   }
 
   return result

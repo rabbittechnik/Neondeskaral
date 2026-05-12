@@ -11,6 +11,8 @@ type Props = {
     row: number
     leftPercent: number
     widthPercent: number
+    seamBefore?: boolean
+    seamAfter?: boolean
   }
   headerOffsetPx: number
   employeeName: string
@@ -37,7 +39,7 @@ export function TimelineShiftBlock({
   trackRef,
   shiftEdit,
 }: Props) {
-  const { block, row, leftPercent, widthPercent } = item
+  const { block, row, leftPercent, widthPercent, seamBefore = false, seamAfter = false } = item
   const preview = shiftEdit?.previewByShiftId.get(block.id)
   const displayStart = preview?.start ?? block.start
   const displayEnd = preview?.end ?? block.end
@@ -55,6 +57,8 @@ export function TimelineShiftBlock({
   const glowSoft = hexToRgba(accentColor, 0.35)
   const borderHi = lightenHex(accentColor, 0.28)
   const narrow = widthPercent < 16
+  const rL = seamBefore ? 'rounded-l-none' : 'rounded-l-xl'
+  const rR = seamAfter ? 'rounded-r-none' : 'rounded-r-xl'
 
   const edit = shiftEdit?.canEdit
   const assignActive = Boolean(shiftEdit?.assignDragSourceId)
@@ -97,24 +101,6 @@ export function TimelineShiftBlock({
       }}
       data-shift-assign-target={block.id}
     >
-      {edit && !assignActive ? (
-        <>
-          <div
-            role="presentation"
-            className="absolute bottom-0 left-0 top-0 z-[5] w-6 cursor-ew-resize touch-manipulation"
-            style={{ boxShadow: isDropHover ? undefined : 'inset 0 0 0 1px rgba(34,211,238,0.25)' }}
-            title="Startzeit ziehen"
-            onPointerDown={(e) => startInteract('resize-start', e)}
-          />
-          <div
-            role="presentation"
-            className="absolute bottom-0 right-0 top-0 z-[5] w-6 cursor-ew-resize touch-manipulation"
-            title="Endzeit ziehen"
-            onPointerDown={(e) => startInteract('resize-end', e)}
-          />
-        </>
-      ) : null}
-
       <button
         type="button"
         title={`${employeeName} · ${displayStart}–${displayEnd} · ${area}`}
@@ -151,14 +137,16 @@ export function TimelineShiftBlock({
         style={{
           height: h,
           background: `linear-gradient(145deg, ${hi} 0%, ${accentColor} 42%, ${lo} 100%)`,
-          boxShadow: `0 0 18px ${glow}, 0 0 32px ${glowSoft}, inset 0 1px 0 ${hexToRgba(borderHi, 0.55)}, inset 0 -1px 0 ${hexToRgba(deep, 0.45)}`,
+          boxShadow: `${seamBefore ? 'inset 1px 0 0 rgba(255,255,255,0.38),' : ''}${
+            seamAfter ? 'inset -1px 0 0 rgba(255,255,255,0.42),' : ''
+          } 0 0 18px ${glow}, 0 0 32px ${glowSoft}, inset 0 1px 0 ${hexToRgba(borderHi, 0.55)}, inset 0 -1px 0 ${hexToRgba(deep, 0.45)}`,
           borderColor: borderHi,
           textShadow: textShadowStrong,
           ['--accent-glow' as string]: glow,
         }}
-        className={`group absolute inset-x-0 overflow-hidden rounded-xl border px-2 py-1 text-left text-white transition-[box-shadow,filter,transform,opacity] duration-150 hover:z-[3] hover:brightness-[1.06] hover:shadow-[0_0_28px_var(--accent-glow),0_0_44px_var(--accent-glow),inset_0_1px_0_rgba(255,255,255,0.35)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/60 active:scale-[0.99] sm:px-2.5 sm:py-1.5 ${
-          edit ? 'left-6 right-6' : 'inset-x-0'
-        } ${preview ? 'opacity-90' : ''} ${
+        className={`group absolute inset-0 z-[8] overflow-hidden border px-2 py-1 text-left text-white transition-[box-shadow,filter,transform,opacity] duration-150 hover:z-[12] hover:brightness-[1.06] hover:shadow-[0_0_28px_var(--accent-glow),0_0_44px_var(--accent-glow),inset_0_1px_0_rgba(255,255,255,0.35)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/60 active:scale-[0.99] sm:px-2.5 sm:py-1.5 ${rL} ${rR} ${
+          seamBefore ? 'border-l-0' : ''
+        } ${seamAfter ? 'border-r-0' : ''} ${preview ? 'opacity-90' : ''} ${
           block.conflict ? 'ring-2 ring-orange-500 ring-offset-2 ring-offset-[var(--bg-card)]' : ''
         } ${
           isDropHover
@@ -213,6 +201,31 @@ export function TimelineShiftBlock({
           </>
         )}
       </button>
+
+      {edit && !assignActive ? (
+        <>
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Startzeit ziehen"
+            title="Startzeit ziehen"
+            className={`absolute bottom-0 left-0 top-0 w-11 max-w-[40%] cursor-ew-resize touch-manipulation bg-transparent hover:bg-white/[0.08] active:bg-white/10 ${
+              seamBefore ? 'z-[34]' : 'z-[24]'
+            }`}
+            onPointerDown={(e) => startInteract('resize-start', e)}
+          />
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Endzeit ziehen"
+            title="Endzeit ziehen"
+            className={`absolute bottom-0 right-0 top-0 w-11 max-w-[40%] cursor-ew-resize touch-manipulation bg-transparent hover:bg-white/[0.08] active:bg-white/10 ${
+              seamAfter ? 'z-[35]' : 'z-[24]'
+            }`}
+            onPointerDown={(e) => startInteract('resize-end', e)}
+          />
+        </>
+      ) : null}
     </div>
   )
 }

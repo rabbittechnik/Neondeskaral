@@ -11,6 +11,8 @@ type Props = {
     row: number
     leftPercent: number
     widthPercent: number
+    seamBefore?: boolean
+    seamAfter?: boolean
   }
   headerOffsetPx: number
   layout: TimelineLayout
@@ -19,7 +21,7 @@ type Props = {
 }
 
 export function OpenShiftBlock({ item, headerOffsetPx, layout, onSelect, shiftEdit }: Props) {
-  const { block, row, leftPercent, widthPercent } = item
+  const { block, row, leftPercent, widthPercent, seamBefore = false, seamAfter = false } = item
   const area = layout.useWorkAreaShortCode
     ? block.workAreaCode || workAreaLabel(block.workAreaCode) || ''
     : workAreaLabel(block.workAreaCode) || block.workAreaCode || ''
@@ -28,6 +30,8 @@ export function OpenShiftBlock({ item, headerOffsetPx, layout, onSelect, shiftEd
   const g = layout.rowGap
   const top = headerOffsetPx + row * (h + g)
   const narrow = widthPercent < 16
+  const rL = seamBefore ? 'rounded-l-none' : 'rounded-l-xl'
+  const rR = seamAfter ? 'rounded-r-none' : 'rounded-r-xl'
 
   const assignActive = Boolean(shiftEdit?.assignDragSourceId)
   const isDropHover = assignActive && shiftEdit?.assignDropHoverId === block.id
@@ -45,12 +49,15 @@ export function OpenShiftBlock({ item, headerOffsetPx, layout, onSelect, shiftEd
         left: `${leftPercent}%`,
         width: `${widthPercent}%`,
         background: 'linear-gradient(145deg, #fb923c 0%, #ea580c 48%, #c2410c 100%)',
-        boxShadow:
-          '0 0 20px rgba(249,115,22,0.65), 0 0 36px rgba(234,88,12,0.35), inset 0 1px 0 rgba(255,255,255,0.35), inset 0 -1px 0 rgba(127,29,29,0.45)',
+        boxShadow: `${seamBefore ? 'inset 1px 0 0 rgba(255,255,255,0.35),' : ''}${
+          seamAfter ? 'inset -1px 0 0 rgba(255,255,255,0.4),' : ''
+        } 0 0 20px rgba(249,115,22,0.65), 0 0 36px rgba(234,88,12,0.35), inset 0 1px 0 rgba(255,255,255,0.35), inset 0 -1px 0 rgba(127,29,29,0.45)`,
         borderColor: '#fed7aa',
         textShadow: textShadowStrong,
       }}
-      className={`group absolute z-[2] min-w-[40px] overflow-hidden rounded-xl border-2 border-orange-200/90 px-2 py-1 text-left text-white transition-[box-shadow,filter,opacity] duration-150 hover:z-[3] hover:brightness-110 hover:shadow-[0_0_32px_rgba(251,146,60,0.85)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-200 sm:min-w-[48px] sm:px-2.5 sm:py-1.5 ${
+      className={`group absolute z-[2] min-w-[40px] overflow-hidden border-2 border-orange-200/90 px-2 py-1 text-left text-white transition-[box-shadow,filter,opacity] duration-150 hover:z-[12] hover:brightness-110 hover:shadow-[0_0_32px_rgba(251,146,60,0.85)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-200 sm:min-w-[48px] sm:px-2.5 sm:py-1.5 ${rL} ${rR} ${
+        seamBefore ? 'border-l-0' : ''
+      } ${seamAfter ? 'border-r-0' : ''} ${
         dimmed ? 'opacity-35' : ''
       } ${isDropHover ? 'ring-2 ring-cyan-300 ring-offset-2 ring-offset-black/50' : ''}`}
     >

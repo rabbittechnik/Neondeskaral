@@ -40,6 +40,22 @@ export function requirePermission(
   return true
 }
 
+/** Mindestens eine der angegebenen Berechtigungen (Station-Kontext). */
+export function requireAnyPermission(
+  req: Request,
+  res: Response,
+  stationId: string | undefined | null,
+  keys: string[],
+): stationId is string {
+  if (!requireStationId(req, res, stationId)) return false
+  const ctx = getAccess(req)!
+  if (!keys.some((k) => hasPermission(ctx, stationId!, k))) {
+    jsonErr(res, 'Keine Berechtigung', 403)
+    return false
+  }
+  return true
+}
+
 export function requireGlobalAdmin(req: Request, res: Response): boolean {
   const ctx = getAccess(req)
   if (!ctx?.globalAdmin) {

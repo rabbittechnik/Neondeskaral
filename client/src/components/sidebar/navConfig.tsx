@@ -93,7 +93,11 @@ export const navEntries: NavEntry[] = [
       { to: '/zeiterfassung/freigaben', label: 'Zeitfreigaben', approverOnly: true },
       { to: '/reports/payroll-schedule', label: 'Lohnabrechnung (Schichtplan)' },
       { to: '/reports/tasks', label: 'Aufgaben' },
-      { to: '/reports/absences', label: 'Abwesenheiten' },
+      {
+        to: '/reports/absences',
+        label: 'Abwesenheiten',
+        anyPermission: ['reports.view', 'absences.view', 'payroll.view'],
+      },
     ],
   },
   {

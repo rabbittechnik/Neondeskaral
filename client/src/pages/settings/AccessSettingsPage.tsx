@@ -42,6 +42,7 @@ const PERMISSION_UI: { key: string; label: string }[] = [
   { key: 'time.view', label: 'Zeiterfassung ansehen' },
   { key: 'time.approve', label: 'Zeiten freigeben' },
   { key: 'time.correct', label: 'Zeiten korrigieren' },
+  { key: 'reports.view', label: 'Auswertungen (Reports) ansehen' },
   { key: 'settings.view', label: 'Einstellungen ansehen' },
   { key: 'settings.edit', label: 'Einstellungen bearbeiten' },
   { key: 'access.manage', label: 'Benutzer/Zugriffe verwalten' },

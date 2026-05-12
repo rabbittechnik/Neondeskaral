@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Card } from '../../components/ui/Card'
 import { WeeklyScheduleTimeline } from '../../components/schedule/WeeklyScheduleTimeline'
@@ -8,16 +8,29 @@ import {
   computeWeeklyHoursByEmployee,
   resolveShiftsForWeekGrid,
   toScheduleEmployeeRow,
+  type ResolvedShiftBlock,
+  type ScheduleShift,
 } from '../../data/mockSchedule'
 import { useStation } from '../../context/station-context'
 import { useEmployees } from '../../context/employees-context'
-import { useScheduleShifts } from '../../context/schedule-shifts-context'
+import { persistShiftDelete, persistShiftUpsert, useScheduleShifts } from '../../context/schedule-shifts-context'
+import { useAbsences } from '../../context/absences-context'
+import { useAuth } from '../../context/auth-context'
+import { useScheduleShiftInteractions } from '../../components/schedule/useScheduleShiftInteractions'
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
+import { ShiftModal } from '../../components/schedule/shift/ShiftModal'
+import { formatShiftTimeRangeDE } from '../../utils/dateFormat'
 
 export function WeeklySchedule() {
-  const { selectedStation, federalState } = useStation()
+  const { selectedStation, federalState, stationId, hasPermission } = useStation()
+  const { user } = useAuth()
+  const { absences } = useAbsences()
   const { employees } = useEmployees()
-  const { shifts, ensureWeekSeeded } = useScheduleShifts()
+  const { shifts, setShifts, ensureWeekSeeded } = useScheduleShifts()
   const [employeeFilter, setEmployeeFilter] = useState<string>('all')
+
+  const [modalOpen, setModalOpen] = useState(false)
+  const [modalShift, setModalShift] = useState<ScheduleShift | null>(null)
 
   const weekMonday = useMemo(() => startOfWeekMonday(new Date()), [])
 
@@ -27,6 +40,21 @@ export function WeeklySchedule() {
 
   const scheduleRows = useMemo(
     () => employees.map(toScheduleEmployeeRow),
+    [employees],
+  )
+
+  const shiftEmployeeOptions = useMemo(
+    () =>
+      employees.map((e) => ({
+        id: e.id,
+        displayName: e.displayName,
+        role: e.role,
+      })),
+    [employees],
+  )
+
+  const getEmployeeDisplayName = useCallback(
+    (id: string) => employees.find((e) => e.id === id)?.displayName ?? 'Mitarbeiter',
     [employees],
   )
 
@@ -49,6 +77,57 @@ export function WeeklySchedule() {
     setEmployeeFilter((prev) => (prev === id ? 'all' : id))
   }
 
+  const canEditPlan = hasPermission('schedule.edit')
+  const currentUserId = user?.id ?? ''
+
+  const shiftInteractions = useScheduleShiftInteractions({
+    canEdit: canEditPlan,
+    shifts,
+    setShifts,
+    allBlocks,
+    employees,
+    absences,
+    stationId,
+    currentUserId,
+  })
+
+  const openEdit = (block: ResolvedShiftBlock) => {
+    if (!canEditPlan) return
+    const s = shifts.find((x) => x.id === block.id)
+    if (!s) return
+    setModalShift(s)
+    setModalOpen(true)
+  }
+
+  const handleUpsert = async (s: ScheduleShift) => {
+    if (!stationId) return
+    const saved = await persistShiftUpsert(s, stationId)
+    if (!saved) {
+      window.alert('Schicht konnte nicht gespeichert werden.')
+      return
+    }
+    setShifts((prev) => {
+      const i = prev.findIndex((x) => x.id === saved.id)
+      if (i === -1) return [...prev, saved]
+      const next = [...prev]
+      next[i] = saved
+      return next
+    })
+    setModalOpen(false)
+    setModalShift(null)
+  }
+
+  const handleDelete = async (id: string) => {
+    const ok = await persistShiftDelete(id)
+    if (!ok) {
+      window.alert('Schicht konnte nicht gelöscht werden.')
+      return
+    }
+    setShifts((prev) => prev.filter((x) => x.id !== id))
+    setModalOpen(false)
+    setModalShift(null)
+  }
+
   return (
     <Card
       className="border-cyan-500/25 shadow-[0_0_28px_rgba(34,211,238,0.12)]"
@@ -67,13 +146,21 @@ export function WeeklySchedule() {
           to="/schedule"
           className="shrink-0 rounded-[var(--radius-sm)] border border-cyan-400/40 bg-cyan-500/10 px-3 py-2 text-center text-sm font-medium text-cyan-200 transition hover:border-cyan-300/60 hover:bg-cyan-500/15"
         >
-          Schichtplan bearbeiten
+          Vollständiger Schichtplan
         </Link>
       </div>
 
-      <p className="mb-2 text-[11px] text-[var(--text-faint)]">
-        Hinweis: Auf dem Dashboard ist der Plan nur zur Ansicht. Zum Zuweisen und Verschieben von Schichten bitte den Schichtplan öffnen.
-      </p>
+      {canEditPlan ? (
+        <p className="mb-2 text-[11px] text-[var(--text-faint)]">
+          Mit Bearbeitungsrecht: Schichten hier verschieben, Größe ändern oder per Mitarbeiter-Karte zuweisen (wie im
+          Schichtplan). Änderungen werden nach Bestätigung gespeichert.
+        </p>
+      ) : (
+        <p className="mb-2 text-[11px] text-[var(--text-faint)]">
+          Nur Ansicht. Zum Bearbeiten wird die Berechtigung <span className="text-cyan-200/80">schedule.edit</span>{' '}
+          benötigt.
+        </p>
+      )}
 
       <ScheduleEmployeeSummaryBar
         employees={scheduleRows}
@@ -81,6 +168,8 @@ export function WeeklySchedule() {
         selectedId={employeeFilter === 'all' ? null : employeeFilter}
         onToggleEmployee={toggleEmployeeFilter}
         dashboardCompact
+        assignDragEnabled={canEditPlan}
+        onEmployeePointerDownCapture={shiftInteractions.onEmployeePointerDownCapture}
       />
 
       <WeeklyScheduleTimeline
@@ -92,7 +181,94 @@ export function WeeklySchedule() {
         showTitle={false}
         showLegend={false}
         showFooterLink
+        onShiftSelect={canEditPlan ? openEdit : undefined}
+        shiftEdit={shiftInteractions.shiftEdit}
       />
+
+      <ShiftModal
+        open={modalOpen}
+        mode="edit"
+        shift={modalShift}
+        weekMonday={weekMonday}
+        allShifts={shifts}
+        onClose={() => {
+          setModalOpen(false)
+          setModalShift(null)
+        }}
+        onUpsert={handleUpsert}
+        onDelete={handleDelete}
+        getEmployeeDisplayName={getEmployeeDisplayName}
+        employeeSelectOptions={shiftEmployeeOptions}
+      />
+
+      <ConfirmDialog
+        open={Boolean(shiftInteractions.pendingAssign)}
+        title="Schicht neu zuweisen?"
+        message={
+          shiftInteractions.pendingAssign ? shiftInteractions.buildAssignMessage(shiftInteractions.pendingAssign) : ''
+        }
+        confirmLabel="Schicht übertragen"
+        onCancel={() => shiftInteractions.setPendingAssign(null)}
+        onConfirm={() => {
+          const p = shiftInteractions.pendingAssign
+          if (p) void shiftInteractions.confirmAssign(p)
+          shiftInteractions.setPendingAssign(null)
+        }}
+      />
+
+      <ConfirmDialog
+        open={Boolean(shiftInteractions.pendingAssignConflict)}
+        title="Achtung: Konflikt erkannt"
+        variant="danger"
+        message={
+          shiftInteractions.pendingAssignConflict
+            ? shiftInteractions.buildConflictMessage(shiftInteractions.pendingAssignConflict)
+            : ''
+        }
+        confirmLabel="Trotzdem übertragen"
+        cancelLabel="Abbrechen"
+        onCancel={() => shiftInteractions.setPendingAssignConflict(null)}
+        onConfirm={() => {
+          const p = shiftInteractions.pendingAssignConflict
+          if (p) void shiftInteractions.confirmAssign(p)
+          shiftInteractions.setPendingAssignConflict(null)
+        }}
+      />
+
+      <ConfirmDialog
+        open={Boolean(shiftInteractions.pendingTime)}
+        title="Schichtzeit ändern?"
+        message={
+          shiftInteractions.pendingTime
+            ? [
+                `Alt: ${formatShiftTimeRangeDE(shiftInteractions.pendingTime.oldStart, shiftInteractions.pendingTime.oldEnd)}`,
+                `Neu: ${formatShiftTimeRangeDE(shiftInteractions.pendingTime.newStart, shiftInteractions.pendingTime.newEnd)}`,
+              ].join('\n')
+            : ''
+        }
+        confirmLabel="Speichern"
+        onCancel={() => shiftInteractions.setPendingTime(null)}
+        onConfirm={() => {
+          const p = shiftInteractions.pendingTime
+          if (p) void shiftInteractions.confirmTime(p)
+          shiftInteractions.setPendingTime(null)
+        }}
+      />
+
+      {shiftInteractions.ghost ? (
+        <div
+          className="pointer-events-none fixed z-[200] max-w-[220px] rounded-xl border border-cyan-400/50 bg-slate-950/95 px-3 py-2 text-sm font-semibold text-white shadow-[0_0_32px_rgba(34,211,238,0.45)]"
+          style={{
+            left: shiftInteractions.ghost.x,
+            top: shiftInteractions.ghost.y,
+            transform: 'translate(-50%, -120%)',
+            borderColor: `${shiftInteractions.ghost.color}99`,
+            boxShadow: `0 0 36px ${shiftInteractions.ghost.color}66`,
+          }}
+        >
+          {shiftInteractions.ghost.name}
+        </div>
+      ) : null}
     </Card>
   )
 }

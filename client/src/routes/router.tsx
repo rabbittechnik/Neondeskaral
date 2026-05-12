@@ -269,6 +269,11 @@ export const router = createBrowserRouter([
         handle: { title: 'Auswertung Abwesenheiten' },
       },
       {
+        path: 'auswertungen/abwesenheiten',
+        element: <Navigate to="/reports/absences" replace />,
+        handle: { title: 'Auswertung Abwesenheiten' },
+      },
+      {
         path: 'settings/general',
         element: <GeneralSettingsPage />,
         handle: { title: 'Einstellungen · Allgemein' },

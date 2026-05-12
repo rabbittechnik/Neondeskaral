@@ -30,7 +30,7 @@ type Props = {
   showLegend?: boolean
   /** Kompakt: Link zur Schichtplan-Seite */
   showFooterLink?: boolean
-  /** Drag & Drop / Resize (nur Schichtplan-Seite) */
+  /** Drag & Drop / Resize (Schichtplan + Dashboard, wenn shiftEdit gesetzt) */
   shiftEdit?: WeekTimelineEditBridge
 }
 
