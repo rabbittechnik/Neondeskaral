@@ -1,5 +1,7 @@
 export type TimeEntryStatus = 'running' | 'completed' | 'needs_review' | 'corrected' | 'cancelled'
 
+export type TimeEntryApprovalStatus = 'pending' | 'approved' | 'rejected' | 'correction_required'
+
 export type TimeEntrySource =
   | 'cash_register_card_terminal'
   | 'manual'
@@ -23,6 +25,14 @@ export type TimeEntry = {
   endNote?: string
   createdAt: string
   updatedAt: string
+  approvalStatus?: TimeEntryApprovalStatus
+  approvedBy?: string
+  approvedAt?: string
+  rejectedBy?: string
+  rejectedAt?: string
+  rejectionReason?: string
+  correctionNote?: string
+  payrollRelevant?: boolean
 }
 
 export type ShiftCloseChecklist = {

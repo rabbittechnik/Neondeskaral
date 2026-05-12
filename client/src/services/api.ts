@@ -1,5 +1,7 @@
 /** Zentraler REST-Client (Phase 8/9). Base-URL aus VITE_API_URL, Fallback Port 3001. */
 
+import type { ScheduleAssistantApplyResult, ScheduleAssistantGenerateResult } from '../types/scheduleAssistant'
+
 const rawBase = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? ''
 export const API_BASE = rawBase || 'http://localhost:3001/api'
 
@@ -84,6 +86,16 @@ export async function apiSend<T>(
     return { ok: false, error: `HTTP ${res.status}` }
   }
   return json as ApiEnvelope<T>
+}
+
+export async function scheduleAssistantGenerate(
+  body: unknown,
+): Promise<ApiEnvelope<ScheduleAssistantGenerateResult>> {
+  return apiSend('POST', '/schedule-assistant/generate', body)
+}
+
+export async function scheduleAssistantApply(body: unknown): Promise<ApiEnvelope<ScheduleAssistantApplyResult>> {
+  return apiSend('POST', '/schedule-assistant/apply', body)
 }
 
 /** Öffentliche Mitarbeiter-Zugangs-API (nur Token, kein Admin-Bearer). */

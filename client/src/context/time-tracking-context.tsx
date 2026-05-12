@@ -10,7 +10,7 @@ import {
 import type { CashRegisterCardEvent, ShiftCloseChecklist, TimeEntry } from '../types/timeTracking'
 import { STATION } from '../data/station'
 import { createCardEventId } from '../data/mockTimeTracking'
-import { apiGet, apiSend } from '../services/api'
+import { API_BASE, apiGet, apiSend } from '../services/api'
 
 type TimeTrackingContextValue = {
   timeEntries: TimeEntry[]
@@ -19,14 +19,15 @@ type TimeTrackingContextValue = {
   error: string | null
   cardEvents: CashRegisterCardEvent[]
   refetch: () => Promise<void>
-  startShiftForEmployee: (employeeId: string, startNote?: string) => Promise<TimeEntry>
+  startShiftForEmployee: (
+    cardNumber: string,
+    options?: { force?: boolean; startNote?: string },
+  ) => Promise<TimeEntry>
   completeShiftWithChecklist: (timeEntryId: string, checklist: ShiftCloseChecklist) => Promise<void>
   logCardEvent: (ev: Omit<CashRegisterCardEvent, 'id' | 'scannedAt'> & { scannedAt?: string }) => void
 }
 
 const TimeTrackingContext = createContext<TimeTrackingContextValue | null>(null)
-
-const TERMINAL_USER = 'Terminal'
 
 export function TimeTrackingProvider({ children }: { children: ReactNode }) {
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([])
@@ -64,19 +65,31 @@ export function TimeTrackingProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const startShiftForEmployee = useCallback(
-    async (employeeId: string, startNote?: string) => {
-      const now = new Date().toISOString()
-      const res = await apiSend<TimeEntry>('POST', '/time-entries/manual', {
-        employeeId,
-        startAt: now,
-        status: 'running',
-        source: 'tablet',
-        startedBy: TERMINAL_USER,
-        startNote,
+    async (cardNumber: string, options?: { force?: boolean; startNote?: string }) => {
+      const card = cardNumber.trim()
+      if (!card) throw new Error('Kartennummer fehlt')
+      const res = await fetch(`${API_BASE}/terminal/check-in`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cardNumber: card,
+          stationId: STATION.id,
+          force: Boolean(options?.force),
+        }),
       })
-      if (!res.ok || !res.data) throw new Error(res.ok === false ? res.error : 'Check-in fehlgeschlagen')
+      const json = (await res.json()) as {
+        ok?: boolean
+        data?: { timeEntry?: TimeEntry }
+        error?: string
+        timeEntry?: TimeEntry
+      }
+      if (!json.ok) {
+        throw new Error(json.error ?? 'Check-in fehlgeschlagen')
+      }
+      const entry = json.data?.timeEntry ?? json.timeEntry
+      if (!entry) throw new Error('Keine Zeiterfassung in der Antwort')
       await refetch()
-      return res.data as TimeEntry
+      return entry
     },
     [refetch],
   )

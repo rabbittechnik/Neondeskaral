@@ -321,6 +321,11 @@ export function formatMinutesCountdown(m: number): string {
 export const handleEmployeeCheckIn = evaluateCheckIn
 export const handleEmployeeCheckOutStart = evaluateCheckOut
 
+/** Spätere Lohn-/Auswertung: nur freigegebene, abgeschlossene Einträge. */
+export function isPayrollRelevantTimeEntry(e: TimeEntry): boolean {
+  return e.status === 'completed' && e.approvalStatus === 'approved' && e.payrollRelevant === true
+}
+
 export function closeTimeEntryWithChecklist(
   entries: TimeEntry[],
   checklists: ShiftCloseChecklist[],

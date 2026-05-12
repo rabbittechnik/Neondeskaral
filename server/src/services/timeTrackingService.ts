@@ -2,6 +2,7 @@ import type { Database } from 'better-sqlite3'
 import { randomUUID } from 'node:crypto'
 import { DEFAULT_STATION_ID } from '../constants.js'
 import { nowIso } from '../utils/timestamps.js'
+import { listShiftRowsForStationDateRange, type ShiftRow } from './shiftService.js'
 
 export type TimeEntryRow = {
   id: string
@@ -17,11 +18,25 @@ export type TimeEntryRow = {
   ended_by: string | null
   start_note: string | null
   end_note: string | null
+  approval_status: string | null
+  approved_by: string | null
+  approved_at: string | null
+  rejected_by: string | null
+  rejected_at: string | null
+  rejection_reason: string | null
+  correction_note: string | null
+  payroll_relevant: number | null
   created_at: string | null
   updated_at: string | null
 }
 
 export function rowToTimeEntryApi(r: TimeEntryRow) {
+  const approval =
+    r.status === 'completed'
+      ? (r.approval_status && String(r.approval_status).trim() ? r.approval_status : 'pending')
+      : r.approval_status && String(r.approval_status).trim()
+        ? r.approval_status
+        : undefined
   return {
     id: r.id,
     employeeId: r.employee_id,
@@ -36,6 +51,14 @@ export function rowToTimeEntryApi(r: TimeEntryRow) {
     endedBy: r.ended_by ?? undefined,
     startNote: r.start_note ?? undefined,
     endNote: r.end_note ?? undefined,
+    approvalStatus: approval as 'pending' | 'approved' | 'rejected' | 'correction_required' | undefined,
+    approvedBy: r.approved_by ?? undefined,
+    approvedAt: r.approved_at ?? undefined,
+    rejectedBy: r.rejected_by ?? undefined,
+    rejectedAt: r.rejected_at ?? undefined,
+    rejectionReason: r.rejection_reason ?? undefined,
+    correctionNote: r.correction_note ?? undefined,
+    payrollRelevant: (r.payroll_relevant ?? 0) === 1,
     createdAt: r.created_at ?? nowIso(),
     updatedAt: r.updated_at ?? nowIso(),
   }
@@ -151,7 +174,20 @@ export function closeTimeEntry(db: Database, id: string, endedBy?: string) {
   const ts = nowIso()
   const r = db
     .prepare(
-      `UPDATE time_entries SET end_at = ?, status = 'completed', ended_by = ?, updated_at = ? WHERE id = ? AND status = 'running'`,
+      `UPDATE time_entries SET
+        end_at = ?,
+        status = 'completed',
+        ended_by = ?,
+        updated_at = ?,
+        approval_status = 'pending',
+        payroll_relevant = 0,
+        approved_by = NULL,
+        approved_at = NULL,
+        rejected_by = NULL,
+        rejected_at = NULL,
+        rejection_reason = NULL,
+        correction_note = NULL
+      WHERE id = ? AND status = 'running'`,
     )
     .run(ts, endedBy ?? 'System', ts, id)
   if (r.changes === 0) throw new Error('Kein laufender Eintrag oder nicht gefunden')
@@ -165,6 +201,193 @@ export function getRunningForEmployee(db: Database, employeeId: string, stationI
     )
     .get(employeeId, stationId) as TimeEntryRow | undefined
   return r ? rowToTimeEntryApi(r) : undefined
+}
+
+function parseHM(t: string): number {
+  const [h, m] = t.split(':').map(Number)
+  return (h ?? 0) * 60 + (m ?? 0)
+}
+
+function plannedShiftRowForEntry(
+  db: Database,
+  stationId: string,
+  employeeId: string,
+  dateIso: string,
+  shiftId: string | null | undefined,
+): ShiftRow | null {
+  const rows = listShiftRowsForStationDateRange(db, stationId, dateIso, dateIso)
+  if (shiftId) {
+    const s = rows.find((r) => r.id === shiftId)
+    if (s) return s
+  }
+  const list = rows.filter(
+    (s) =>
+      s.employee_id === employeeId &&
+      s.date === dateIso &&
+      s.shift_type !== 'frei' &&
+      Boolean(s.start_time) &&
+      Boolean(s.end_time),
+  )
+  if (list.length === 0) return null
+  list.sort((a, b) => parseHM(a.start_time) - parseHM(b.start_time))
+  return list[0] ?? null
+}
+
+function checklistRowToApi(r: Record<string, unknown>) {
+  return {
+    id: String(r.id),
+    timeEntryId: String(r.time_entry_id),
+    employeeId: String(r.employee_id),
+    fridgeFronted: (r.fridge_fronted as number) === 1,
+    drinksFilled: (r.drinks_filled as number) === 1,
+    cigarettesFilled: (r.cigarettes_filled as number) === 1,
+    shelvesFilled: (r.shelves_filled as number) === 1,
+    trashEmptied: (r.trash_emptied as number) === 1,
+    counterClean: (r.counter_clean as number) === 1,
+    coffeeAreaClean: (r.coffee_area_clean as number) === 1,
+    outsideChecked: (r.outside_checked as number) === 1,
+    incidentsNoted: (r.incidents_noted as number) === 1,
+    handoverPossible: (r.handover_possible as number) === 1,
+    closingReady: (r.closing_ready as number) === 1,
+    everythingOk: (r.everything_ok as number) === 1,
+    incidentNote: String(r.incident_note ?? ''),
+    completedAt: String(r.completed_at ?? ''),
+  }
+}
+
+export type PendingTimeEntryListRow = ReturnType<typeof rowToTimeEntryApi> & { employeeDisplayName: string }
+
+export function listPendingApproval(db: Database, stationId = DEFAULT_STATION_ID): PendingTimeEntryListRow[] {
+  const rows = db
+    .prepare(
+      `SELECT te.*, e.display_name AS employee_display_name
+       FROM time_entries te
+       JOIN employees e ON e.id = te.employee_id
+       WHERE te.station_id = ?
+         AND te.status = 'completed'
+         AND (te.approval_status = 'pending' OR te.approval_status = 'correction_required')
+       ORDER BY datetime(te.end_at) DESC
+       LIMIT 200`,
+    )
+    .all(stationId) as (TimeEntryRow & { employee_display_name: string })[]
+  return rows.map((r) => {
+    const { employee_display_name: employeeDisplayName, ...row } = r
+    return { ...rowToTimeEntryApi(row as TimeEntryRow), employeeDisplayName }
+  })
+}
+
+export function countPendingApproval(db: Database, stationId = DEFAULT_STATION_ID): number {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) as c FROM time_entries
+       WHERE station_id = ? AND status = 'completed'
+         AND (approval_status = 'pending' OR approval_status = 'correction_required')`,
+    )
+    .get(stationId) as { c: number }
+  return row.c ?? 0
+}
+
+export function getTimeEntryDetail(db: Database, id: string) {
+  const row = db.prepare(`SELECT * FROM time_entries WHERE id = ?`).get(id) as TimeEntryRow | undefined
+  if (!row) return undefined
+  const entry = rowToTimeEntryApi(row)
+  const chkRaw = db.prepare(`SELECT * FROM shift_close_checklists WHERE time_entry_id = ?`).get(id) as
+    | Record<string, unknown>
+    | undefined
+  const dateIso = row.start_at.slice(0, 10)
+  const planned = plannedShiftRowForEntry(db, row.station_id, row.employee_id, dateIso, row.shift_id)
+  const emp = db
+    .prepare(`SELECT display_name FROM employees WHERE id = ?`)
+    .get(row.employee_id) as { display_name: string } | undefined
+  return {
+    timeEntry: entry,
+    employeeName: emp?.display_name ?? '',
+    checklist: chkRaw ? checklistRowToApi(chkRaw) : null,
+    plannedShift: planned
+      ? {
+          id: planned.id,
+          date: planned.date,
+          startTime: planned.start_time,
+          endTime: planned.end_time,
+        }
+      : null,
+  }
+}
+
+export function approveTimeEntry(db: Database, id: string, adminUserId: string) {
+  const existing = db.prepare(`SELECT * FROM time_entries WHERE id = ?`).get(id) as TimeEntryRow | undefined
+  if (!existing) throw new Error('Zeiteintrag nicht gefunden')
+  if (existing.status !== 'completed') throw new Error('Nur abgeschlossene Zeiten können freigegeben werden')
+  const ts = nowIso()
+  const r = db
+    .prepare(
+      `UPDATE time_entries SET
+        approval_status = 'approved',
+        payroll_relevant = 1,
+        approved_by = ?,
+        approved_at = ?,
+        rejected_by = NULL,
+        rejected_at = NULL,
+        rejection_reason = NULL,
+        correction_note = NULL,
+        updated_at = ?
+      WHERE id = ?`,
+    )
+    .run(adminUserId, ts, ts, id)
+  if (r.changes === 0) throw new Error('Update fehlgeschlagen')
+  return getTimeEntry(db, id)
+}
+
+export function rejectTimeEntry(db: Database, id: string, adminUserId: string, rejectionReason: string) {
+  const reason = String(rejectionReason ?? '').trim()
+  if (!reason) throw new Error('Ablehnungsgrund erforderlich')
+  const existing = db.prepare(`SELECT * FROM time_entries WHERE id = ?`).get(id) as TimeEntryRow | undefined
+  if (!existing) throw new Error('Zeiteintrag nicht gefunden')
+  if (existing.status !== 'completed') throw new Error('Nur abgeschlossene Zeiten können abgelehnt werden')
+  const ts = nowIso()
+  const r = db
+    .prepare(
+      `UPDATE time_entries SET
+        approval_status = 'rejected',
+        payroll_relevant = 0,
+        rejected_by = ?,
+        rejected_at = ?,
+        rejection_reason = ?,
+        approved_by = NULL,
+        approved_at = NULL,
+        correction_note = NULL,
+        updated_at = ?
+      WHERE id = ?`,
+    )
+    .run(adminUserId, ts, reason, ts, id)
+  if (r.changes === 0) throw new Error('Update fehlgeschlagen')
+  return getTimeEntry(db, id)
+}
+
+export function requestTimeEntryCorrection(db: Database, id: string, correctionNote: string) {
+  const note = String(correctionNote ?? '').trim()
+  if (!note) throw new Error('Hinweis zur Korrektur erforderlich')
+  const existing = db.prepare(`SELECT * FROM time_entries WHERE id = ?`).get(id) as TimeEntryRow | undefined
+  if (!existing) throw new Error('Zeiteintrag nicht gefunden')
+  if (existing.status !== 'completed') throw new Error('Nur abgeschlossene Zeiten')
+  const ts = nowIso()
+  const r = db
+    .prepare(
+      `UPDATE time_entries SET
+        approval_status = 'correction_required',
+        payroll_relevant = 0,
+        correction_note = ?,
+        approved_by = NULL,
+        approved_at = NULL,
+        rejected_by = NULL,
+        rejected_at = NULL,
+        rejection_reason = NULL,
+        updated_at = ?
+      WHERE id = ?`,
+    )
+    .run(note, ts, id)
+  if (r.changes === 0) throw new Error('Update fehlgeschlagen')
+  return getTimeEntry(db, id)
 }
 
 export function insertChecklist(

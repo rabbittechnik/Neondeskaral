@@ -3,6 +3,7 @@ import { useWorkAreas } from '../../context/work-areas-context'
 import { inputClass, labelClass, selectClass } from '../schedule/shift/fieldStyles'
 import { ColorPickerField } from './ColorPickerField'
 import { STATUS_LABELS, EMPLOYMENT_LABELS } from './employeeLabels'
+import { EmployeePlanningPreferencesSection } from './planning/EmployeePlanningPreferencesSection'
 
 type Props = {
   value: Employee
@@ -345,6 +346,9 @@ export function EmployeeForm({ value, onChange, disabled }: Props) {
             )
           })}
         </div>
+      </div>
+      <div className="sm:col-span-2">
+        <EmployeePlanningPreferencesSection value={value} onChange={onChange} disabled={disabled} />
       </div>
       <div className="sm:col-span-2">
         <label className={labelClass} htmlFor="emp-notes">

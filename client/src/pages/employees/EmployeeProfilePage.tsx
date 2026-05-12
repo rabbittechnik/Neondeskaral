@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useLocation, useParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
+import type { Employee } from '../../types/employee'
 import { Card } from '../../components/ui/Card'
+import { Button } from '../../components/ui/Button'
 import { Avatar } from '../../components/ui/Avatar'
 import { useEmployees } from '../../context/employees-context'
 import { WORK_AREA_DEFINITIONS } from '../../data/mockEmployees'
@@ -9,11 +11,50 @@ import { EmployeeStatusBadge } from '../../components/employees/EmployeeStatusBa
 import { EmploymentTypeBadge } from '../../components/employees/EmploymentTypeBadge'
 import { formatDateDe, formatEuroDe, formatHoursDe } from '../../components/employees/employeeFormat'
 import { EMPLOYMENT_LABELS, STATUS_LABELS } from '../../components/employees/employeeLabels'
+import { EmployeePlanningPreferencesSection } from '../../components/employees/planning/EmployeePlanningPreferencesSection'
 
 import { EmployeeAppQrSection } from '../../components/employees/EmployeeAppQrSection'
 
+function EmployeeProfilePlanningSection({ employee }: { employee: Employee }) {
+  const { updateEmployee } = useEmployees()
+  const [form, setForm] = useState(employee)
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+
+  useEffect(() => {
+    setForm(employee)
+    setMsg(null)
+  }, [employee])
+
+  const save = async () => {
+    setSaving(true)
+    setMsg(null)
+    try {
+      await updateEmployee({ ...employee, ...form })
+      setMsg('Gespeichert.')
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Speichern fehlgeschlagen')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Card padding="md" className="border-[var(--border-subtle)]">
+      <EmployeePlanningPreferencesSection value={form} onChange={setForm} disabled={saving} />
+      {msg ? <p className="mt-3 text-xs text-[var(--text-muted)]">{msg}</p> : null}
+      <div className="mt-4 flex justify-end">
+        <Button type="button" variant="primary" disabled={saving} onClick={() => void save()}>
+          {saving ? 'Speichern…' : 'Schichtwünsche speichern'}
+        </Button>
+      </div>
+    </Card>
+  )
+}
+
 const TABS = [
   { id: 'overview', label: 'Übersicht' },
+  { id: 'planning', label: 'Schichtwünsche' },
   { id: 'employeeApp', label: 'Mitarbeiter-App / QR-Code' },
   { id: 'shifts', label: 'Schichten' },
   { id: 'absences', label: 'Abwesenheiten' },
@@ -34,7 +75,7 @@ export function EmployeeProfilePage() {
 
   useEffect(() => {
     const st = location.state as { initialTab?: TabId } | null
-    if (st?.initialTab === 'employeeApp') setTab('employeeApp')
+    if (st?.initialTab && TABS.some((t) => t.id === st.initialTab)) setTab(st.initialTab)
   }, [location.state, employeeId])
 
   const employee = useMemo(
@@ -215,6 +256,8 @@ export function EmployeeProfilePage() {
             </p>
           </Card>
         </div>
+      ) : tab === 'planning' ? (
+        <EmployeeProfilePlanningSection employee={employee} />
       ) : tab === 'employeeApp' ? (
         <EmployeeAppQrSection employee={employee} />
       ) : (

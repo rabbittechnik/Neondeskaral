@@ -5,6 +5,7 @@ import {
   mockWeekAbsences,
   resolveShiftsForWeekGrid,
   STATION_NAME,
+  toISODate,
   toScheduleEmployeeRow,
   type ResolvedShiftBlock,
   type ScheduleShift,
@@ -31,10 +32,12 @@ import {
 import { useEmployees } from '../../context/employees-context'
 import { persistShiftDelete, persistShiftUpsert, useScheduleShifts } from '../../context/schedule-shifts-context'
 import { STATION_FEDERAL_STATE } from '../../data/station'
+import { ScheduleAssistantModal } from '../../components/schedule/assistant/ScheduleAssistantModal'
 
 export function SchedulePage() {
   const { employees } = useEmployees()
-  const { shifts, setShifts, ensureWeekSeeded, loading: shiftsLoading, error: shiftsError } = useScheduleShifts()
+  const { shifts, setShifts, ensureWeekSeeded, loading: shiftsLoading, error: shiftsError, refetchRange } =
+    useScheduleShifts()
 
   const [weekOffset, setWeekOffset] = useState(0)
   const [workAreaFilter, setWorkAreaFilter] = useState('all')
@@ -44,6 +47,7 @@ export function SchedulePage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create')
   const [modalShift, setModalShift] = useState<ScheduleShift | null>(null)
+  const [assistantOpen, setAssistantOpen] = useState(false)
 
   const weekMonday = useMemo(() => {
     const base = startOfWeekMonday(new Date())
@@ -52,6 +56,8 @@ export function SchedulePage() {
 
   const weekSunday = useMemo(() => addDays(weekMonday, 6), [weekMonday])
   const isoWeek = useMemo(() => getISOWeek(weekMonday), [weekMonday])
+  const weekStartIso = useMemo(() => toISODate(weekMonday), [weekMonday])
+  const weekEndIso = useMemo(() => toISODate(weekSunday), [weekSunday])
 
   const scheduleRows = useMemo(
     () => employees.map(toScheduleEmployeeRow),
@@ -72,6 +78,10 @@ export function SchedulePage() {
     (id: string) => employees.find((e) => e.id === id)?.displayName ?? 'Mitarbeiter',
     [employees],
   )
+
+  const handleAssistantApplied = useCallback(async () => {
+    await refetchRange(weekStartIso, weekEndIso)
+  }, [refetchRange, weekStartIso, weekEndIso])
 
   const employeeHourLabels = useMemo(
     () =>
@@ -215,6 +225,14 @@ export function SchedulePage() {
         onPrint={stub}
         onMore={stub}
         scheduleEmployees={scheduleRows}
+        onOpenAssistant={() => setAssistantOpen(true)}
+      />
+
+      <ScheduleAssistantModal
+        open={assistantOpen}
+        initialWeekStartIso={weekStartIso}
+        onClose={() => setAssistantOpen(false)}
+        onApplied={handleAssistantApplied}
       />
 
       <ShiftModal

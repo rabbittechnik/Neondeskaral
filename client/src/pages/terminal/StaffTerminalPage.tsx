@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { STATION_NAME, STATION } from '../../data/station'
 import { useEmployees } from '../../context/employees-context'
 import { useScheduleShifts } from '../../context/schedule-shifts-context'
@@ -25,6 +25,17 @@ export function StaffTerminalPage() {
 
   const [modal, setModal] = useState<ModalMode>(null)
   const [checkInStep, setCheckInStep] = useState<CheckInEvaluation | null>(null)
+  const lastCheckInCardRef = useRef('')
+  const [checkInSecurity, setCheckInSecurity] = useState<{
+    employeeId: string
+    displayName: string
+    plannedLabel: string
+    force: boolean
+  } | null>(null)
+  const [checkoutSecurity, setCheckoutSecurity] = useState<{
+    entry: TimeEntry
+    displayName: string
+  } | null>(null)
   const [checkOutMsg, setCheckOutMsg] = useState<CheckOutEvaluation | null>(null)
   const [checkOutEntry, setCheckOutEntry] = useState<TimeEntry | null>(null)
   const [inSuccess, setInSuccess] = useState<{ name: string; time: string } | null>(null)
@@ -41,18 +52,26 @@ export function StaffTerminalPage() {
     setModal(null)
     setCheckInStep(null)
     setCheckOutMsg(null)
+    setCheckInSecurity(null)
+    setCheckoutSecurity(null)
   }
 
-  const finalizeCheckIn = async (employeeId: string, note?: string) => {
+  const finalizeCheckIn = async (employeeId: string, note?: string, force = false) => {
+    const card = lastCheckInCardRef.current.trim()
+    if (!card) {
+      window.alert('Kartennummer fehlt. Bitte erneut scannen.')
+      return
+    }
     try {
-      const entry = await startShiftForEmployee(employeeId, note)
+      const entry = await startShiftForEmployee(card, { force, startNote: note })
       const emp = employees.find((e) => e.id === employeeId)
       const t = new Date(entry.startAt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
       setCheckInStep(null)
       setModal(null)
+      setCheckInSecurity(null)
       setInSuccess({ name: emp?.displayName ?? 'Mitarbeiter', time: t })
       log({
-        cardNumber: emp?.cashRegisterCardNumber ?? '',
+        cardNumber: emp?.cashRegisterCardNumber ?? card,
         employeeId,
         actionType: 'check_in',
         result: 'success',
@@ -66,6 +85,7 @@ export function StaffTerminalPage() {
   const onCardSubmit = (card: string) => {
     setCheckOutMsg(null)
     if (modal === 'check-in') {
+      lastCheckInCardRef.current = card
       const ev = evaluateCheckIn(card, employees, shifts, timeEntries, new Date())
       if (ev.kind === 'unknown_card') {
         log({ cardNumber: card, actionType: 'check_in', result: 'unknown_card', message: 'Unbekannte Karte' })
@@ -105,6 +125,24 @@ export function StaffTerminalPage() {
         setCheckInStep(ev)
         return
       }
+      if (ev.kind === 'ready') {
+        log({
+          cardNumber: card,
+          employeeId: ev.employee.id,
+          actionType: 'check_in',
+          result: 'success',
+          message: 'Check-in (Bestätigung)',
+        })
+        setModal(null)
+        setCheckInStep(null)
+        setCheckInSecurity({
+          employeeId: ev.employee.id,
+          displayName: ev.employee.displayName,
+          plannedLabel: ev.planned ? `${ev.planned.startTime} – ${ev.planned.endTime}` : '—',
+          force: false,
+        })
+        return
+      }
       if (ev.kind === 'too_late') {
         log({
           cardNumber: card,
@@ -113,18 +151,9 @@ export function StaffTerminalPage() {
           result: 'too_late',
           message: `${ev.minutesLate} Min. zu spät`,
         })
-        void finalizeCheckIn(ev.employee.id, `Zu spät: ${ev.minutesLate} Min.`)
+        setCheckInStep(ev)
         return
       }
-      log({
-        cardNumber: card,
-        employeeId: ev.employee.id,
-        actionType: 'check_in',
-        result: 'success',
-        message: 'Check-in',
-      })
-      void finalizeCheckIn(ev.employee.id)
-      return
     }
 
     if (modal === 'check-out') {
@@ -146,7 +175,10 @@ export function StaffTerminalPage() {
         return
       }
       setModal(null)
-      setCheckOutEntry(ev.entry)
+      setCheckoutSecurity({
+        entry: ev.entry,
+        displayName: ev.employee.displayName,
+      })
       log({
         cardNumber: card,
         employeeId: ev.employee.id,
@@ -185,7 +217,7 @@ export function StaffTerminalPage() {
           title="Für dich ist heute keine Schicht geplant."
           message={`${checkInStep.employee.displayName} — du kannst trotzdem starten oder abbrechen.`}
         >
-          <Button variant="primary" type="button" onClick={() => void finalizeCheckIn(checkInStep.employee.id, 'Nicht geplant — trotzdem gestartet')}>
+          <Button variant="primary" type="button" onClick={() => void finalizeCheckIn(checkInStep.employee.id, 'Nicht geplant — trotzdem gestartet', true)}>
             Trotzdem Schicht starten
           </Button>
           <Button variant="ghost" type="button" onClick={() => setCheckInStep(null)}>
@@ -201,8 +233,24 @@ export function StaffTerminalPage() {
           title="Zu früh"
           message={`Deine geplante Schicht beginnt erst um ${checkInStep.plannedStart} Uhr. Du bist ${checkInStep.minutesEarly} Minuten zu früh.`}
         >
-          <Button variant="primary" type="button" onClick={() => void finalizeCheckIn(checkInStep.employee.id, 'Zu früh — trotzdem gestartet')}>
+          <Button variant="primary" type="button" onClick={() => void finalizeCheckIn(checkInStep.employee.id, 'Zu früh — trotzdem gestartet', true)}>
             Trotzdem Schicht starten
+          </Button>
+          <Button variant="ghost" type="button" onClick={() => setCheckInStep(null)}>
+            Abbrechen
+          </Button>
+        </TerminalResultMessage>
+      )
+    }
+    if (checkInStep.kind === 'too_late') {
+      return (
+        <TerminalResultMessage
+          variant="warning"
+          title="Verspäteter Start"
+          message={`Deine geplante Schicht hat um ${checkInStep.planned.startTime} Uhr begonnen. Du startest ${checkInStep.minutesLate} Minuten später.`}
+        >
+          <Button variant="primary" type="button" onClick={() => void finalizeCheckIn(checkInStep.employee.id, `Zu spät: ${checkInStep.minutesLate} Min.`, true)}>
+            Schicht trotzdem starten
           </Button>
           <Button variant="ghost" type="button" onClick={() => setCheckInStep(null)}>
             Abbrechen
@@ -251,11 +299,15 @@ export function StaffTerminalPage() {
             setCheckInStep(null)
             setCheckOutMsg(null)
             setInSuccess(null)
+            setCheckInSecurity(null)
+            setCheckoutSecurity(null)
             setModal('check-in')
           }}
           onCheckOut={() => {
             setCheckInStep(null)
             setCheckOutMsg(null)
+            setCheckInSecurity(null)
+            setCheckoutSecurity(null)
             setModal('check-out')
           }}
         />
@@ -278,6 +330,86 @@ export function StaffTerminalPage() {
         {renderCheckInFollowUp()}
         {renderCheckOutMsg()}
       </div>
+
+      {checkInSecurity ? (
+        <div className="fixed inset-0 z-[135] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-emerald-400/35 bg-[var(--bg-card)] p-6 shadow-[0_0_40px_rgba(52,211,153,0.15)]">
+            <h2 className="text-lg font-semibold text-[var(--text-main)]">Schicht wirklich starten?</h2>
+            <p className="mt-2 text-sm text-[var(--text-muted)]">Möchtest du dich wirklich zur Schicht anmelden?</p>
+            <div className="mt-4 space-y-1 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-[var(--text-main)]">
+              <p>
+                <span className="text-[var(--text-faint)]">Mitarbeiter:</span> {checkInSecurity.displayName}
+              </p>
+              <p>
+                <span className="text-[var(--text-faint)]">Geplante Schicht:</span> {checkInSecurity.plannedLabel}
+              </p>
+              <p>
+                <span className="text-[var(--text-faint)]">Aktuelle Uhrzeit:</span>{' '}
+                {new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
+              </p>
+            </div>
+            <div className="mt-5 flex flex-wrap gap-2">
+              <Button type="button" variant="ghost" className="flex-1" onClick={() => setCheckInSecurity(null)}>
+                Abbrechen
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                className="flex-1"
+                onClick={() => void finalizeCheckIn(checkInSecurity.employeeId, undefined, checkInSecurity.force)}
+              >
+                Ja, Schicht starten
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {checkoutSecurity ? (
+        <div className="fixed inset-0 z-[135] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-orange-400/35 bg-[var(--bg-card)] p-6 shadow-[0_0_40px_rgba(251,146,60,0.12)]">
+            <h2 className="text-lg font-semibold text-[var(--text-main)]">Schicht wirklich beenden?</h2>
+            <p className="mt-2 text-sm text-[var(--text-muted)]">Möchtest du deine Schicht jetzt wirklich beenden?</p>
+            <div className="mt-4 space-y-1 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-[var(--text-main)]">
+              <p>
+                <span className="text-[var(--text-faint)]">Mitarbeiter:</span> {checkoutSecurity.displayName}
+              </p>
+              <p>
+                <span className="text-[var(--text-faint)]">Startzeit:</span>{' '}
+                {new Date(checkoutSecurity.entry.startAt).toLocaleTimeString('de-DE', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}{' '}
+                Uhr
+              </p>
+              <p>
+                <span className="text-[var(--text-faint)]">Bisherige Arbeitszeit:</span>{' '}
+                {formatWorkedDuration(calculateWorkedMinutes(checkoutSecurity.entry.startAt, undefined, new Date()))}
+              </p>
+              <p>
+                <span className="text-[var(--text-faint)]">Aktuelle Uhrzeit:</span>{' '}
+                {new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
+              </p>
+            </div>
+            <div className="mt-5 flex flex-wrap gap-2">
+              <Button type="button" variant="ghost" className="flex-1" onClick={() => setCheckoutSecurity(null)}>
+                Abbrechen
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                className="flex-1"
+                onClick={() => {
+                  setCheckOutEntry(checkoutSecurity.entry)
+                  setCheckoutSecurity(null)
+                }}
+              >
+                Ja, Schicht beenden
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <CashRegisterNumberModal open={modal !== null} mode={modal === 'check-out' ? 'check-out' : 'check-in'} onClose={closeModal} onSubmit={onCardSubmit} />
 

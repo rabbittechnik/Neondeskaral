@@ -3,6 +3,8 @@ import { useMemo, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { useSidebar } from '../../store/sidebar-context'
 import { navEntries, type NavEntry, type NavGroup } from './navConfig'
+import { useAuth } from '../../context/auth-context'
+import { canApproveTimeEntries } from '../../utils/timeApproval'
 
 function pathMatches(pathname: string, to: string) {
   if (to === '/dashboard') return pathname === '/dashboard' || pathname === '/'
@@ -14,6 +16,9 @@ function pathMatches(pathname: string, to: string) {
   }
   if (to === '/tasks') {
     return pathname === '/tasks' || pathname === '/aufgaben'
+  }
+  if (to === '/zeiterfassung/freigaben') {
+    return pathname === '/zeiterfassung/freigaben' || pathname === '/time-tracking/approvals'
   }
   return pathname === to || pathname.startsWith(`${to}/`)
 }
@@ -154,15 +159,27 @@ export function Sidebar() {
   const closeMobile = () => setMobileOpen(false)
   const { pathname } = useLocation()
 
+  const { user } = useAuth()
+  const canApprove = canApproveTimeEntries(user?.id)
+  const visibleNav = useMemo(() => {
+    return navEntries.map((e) => {
+      if (e.type !== 'group') return e
+      return {
+        ...e,
+        children: e.children.filter((c) => !c.approverOnly || canApprove),
+      }
+    })
+  }, [canApprove])
+
   const defaultOpen = useMemo(() => {
     const ids = new Set<string>()
-    for (const e of navEntries) {
+    for (const e of visibleNav) {
       if (e.type === 'group' && e.children.some((c) => pathMatches(pathname, c.to))) {
         ids.add(e.id)
       }
     }
     return ids
-  }, [pathname])
+  }, [pathname, visibleNav])
 
   const [forcedClosed, setForcedClosed] = useState<Set<string>>(new Set())
   const [forcedOpen, setForcedOpen] = useState<Set<string>>(new Set())
@@ -229,7 +246,7 @@ export function Sidebar() {
         </div>
 
         <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-3">
-          {navEntries.map((entry) => {
+          {visibleNav.map((entry) => {
             if (entry.type === 'single') {
               return (
                 <NavSingleRow

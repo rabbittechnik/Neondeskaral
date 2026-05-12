@@ -176,7 +176,25 @@ export function clockCheckInByEmployeeId(
         plannedStart: planned.start_time,
       }
     }
-    // Verspäteter Start: ohne Zwang erlauben (Tablet & Mitarbeiter-App).
+    if (nowM > startM) {
+      if (card)
+        logCardEvent(db, {
+          cardNumber: card,
+          employeeId,
+          stationId,
+          actionType: 'check_in',
+          result: 'too_late',
+          message: `Verspäteter Start (${planned.start_time} Uhr)`,
+        })
+      return {
+        ok: false as const,
+        result: 'too_late' as const,
+        message: `Deine geplante Schicht hat um ${planned.start_time} Uhr begonnen.`,
+        employee: emp,
+        plannedStart: planned.start_time,
+        minutesLate: nowM - startM,
+      }
+    }
   }
 
   const ts = nowIso()

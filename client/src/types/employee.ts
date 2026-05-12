@@ -63,6 +63,15 @@ export type Employee = {
   employeeAccessEnabled?: boolean
   employeeAccessCreatedAt?: string
   employeeAccessLastUsedAt?: string
+  /** Schichtplan-Assistent (JSON-Arrays aus API) */
+  preferredShiftTypes?: string[]
+  preferredWorkDays?: string[]
+  notPreferredWorkDays?: string[]
+  canWorkWeekends?: boolean
+  canWorkHolidays?: boolean
+  maxPreferredDaysPerWeek?: number
+  maxWeeklyHours?: number
+  planningNotes?: string
 }
 
 /** Für Schichtplan-Komponenten (abgeleitet aus Employee) */

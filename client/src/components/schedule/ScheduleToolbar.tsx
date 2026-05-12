@@ -10,6 +10,7 @@ import {
 import type { ScheduleEmployeeRow } from '../../types/employee'
 import { useWorkAreas } from '../../context/work-areas-context'
 import { Button } from '../ui/Button'
+import { ScheduleAssistantButton } from './assistant/ScheduleAssistantButton'
 
 const selectClass =
   'h-10 rounded-[var(--radius-sm)] border border-[var(--border-strong)] bg-[var(--bg-card)] px-3 text-sm text-[var(--text-main)] focus:border-cyan-400/45 focus:outline-none focus:ring-2 focus:ring-cyan-400/20'
@@ -27,6 +28,7 @@ type Props = {
   onPrint: () => void
   onMore: () => void
   scheduleEmployees: ScheduleEmployeeRow[]
+  onOpenAssistant?: () => void
 }
 
 export function ScheduleToolbar({
@@ -42,6 +44,7 @@ export function ScheduleToolbar({
   onPrint,
   onMore,
   scheduleEmployees,
+  onOpenAssistant,
 }: Props) {
   const { workAreas, loading: areasLoading, error: areasError } = useWorkAreas()
   return (
@@ -92,6 +95,7 @@ export function ScheduleToolbar({
             </option>
           ))}
         </select>
+        {onOpenAssistant ? <ScheduleAssistantButton onClick={onOpenAssistant} /> : null}
         <Button variant="primary" className="px-3 py-2" onClick={onNewShift} leftIcon={<Plus className="h-4 w-4" />}>
           Neue Schicht
         </Button>

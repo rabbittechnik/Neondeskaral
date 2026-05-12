@@ -6,6 +6,7 @@ import { EmployeeStatusBadge } from './EmployeeStatusBadge'
 import { EmploymentTypeBadge } from './EmploymentTypeBadge'
 import { WorkAreaBadges } from './WorkAreaBadges'
 import { formatEuroDe, formatHoursDe } from './employeeFormat'
+import { formatShiftPrefList, formatWeekdayPrefList } from './planning/planningPreferenceLabels'
 
 type Props = {
   employees: Employee[]
@@ -17,7 +18,7 @@ type Props = {
 export function EmployeeTable({ employees, onEdit, onDeactivate, onReactivate }: Props) {
   return (
     <div className="overflow-x-auto rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-card)] shadow-[var(--shadow-card)]">
-      <table className="w-full min-w-[960px] border-collapse text-left text-sm">
+      <table className="w-full min-w-[1080px] border-collapse text-left text-sm">
         <thead>
           <tr className="border-b border-[var(--border-subtle)] bg-[var(--bg-elevated)]/50 text-xs uppercase tracking-wide text-[var(--text-muted)]">
             <th className="px-3 py-3 font-medium">Mitarbeiter</th>
@@ -28,6 +29,7 @@ export function EmployeeTable({ employees, onEdit, onDeactivate, onReactivate }:
             <th className="px-3 py-3 font-medium tabular-nums">Monat</th>
             <th className="px-3 py-3 font-medium tabular-nums">Lohn</th>
             <th className="px-3 py-3 font-medium tabular-nums">Resturlaub</th>
+            <th className="px-3 py-3 font-medium">Wünsche</th>
             <th className="px-3 py-3 font-medium">Bereiche</th>
             <th className="px-3 py-3 font-medium text-right">Aktionen</th>
           </tr>
@@ -76,6 +78,20 @@ export function EmployeeTable({ employees, onEdit, onDeactivate, onReactivate }:
                 </td>
                 <td className="px-3 py-2.5 tabular-nums">{formatEuroDe(e.hourlyWage)}</td>
                 <td className="px-3 py-2.5 tabular-nums">{e.remainingVacationDays} T</td>
+                <td className="max-w-[200px] px-3 py-2.5 align-top text-[10px] leading-snug text-[var(--text-muted)]">
+                  {!(e.preferredShiftTypes?.length || e.preferredWorkDays?.length) ? (
+                    <span className="italic text-[var(--text-faint)]">Keine Wünsche</span>
+                  ) : (
+                    <div className="flex flex-col gap-0.5">
+                      {e.preferredShiftTypes?.length ? (
+                        <span className="text-emerald-200/85">{formatShiftPrefList(e.preferredShiftTypes)}</span>
+                      ) : null}
+                      {e.preferredWorkDays?.length ? (
+                        <span className="text-cyan-200/85">{formatWeekdayPrefList(e.preferredWorkDays)}</span>
+                      ) : null}
+                    </div>
+                  )}
+                </td>
                 <td className="px-3 py-2.5">
                   <WorkAreaBadges workAreaIds={e.workAreaIds} max={4} />
                 </td>

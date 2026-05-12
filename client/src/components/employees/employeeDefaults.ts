@@ -27,5 +27,11 @@ export function emptyEmployee(): Employee {
     cashRegisterCardNumber: '',
     terminalEnabled: true,
     timeTrackingEnabled: true,
+    preferredShiftTypes: [],
+    preferredWorkDays: [],
+    notPreferredWorkDays: [],
+    canWorkWeekends: true,
+    canWorkHolidays: true,
+    planningNotes: '',
   }
 }

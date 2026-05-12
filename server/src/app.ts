@@ -12,6 +12,7 @@ import { timeEntriesRouter, terminalRouter } from './routes/timeTracking.routes.
 import { devRouter } from './routes/dev.routes.js'
 import { authRouter } from './routes/auth.routes.js'
 import { employeeAccessRouter } from './routes/employeeAccess.routes.js'
+import { scheduleAssistantRouter } from './routes/scheduleAssistant.routes.js'
 
 function parseCorsOrigins(): boolean | string[] {
   const raw = process.env.CLIENT_ORIGIN?.trim()
@@ -39,6 +40,7 @@ export function createApp() {
   app.use('/api/employee-access', employeeAccessRouter)
   app.use('/api/terminal', terminalRouter)
 
+  app.use('/api/schedule-assistant', scheduleAssistantRouter)
   app.use('/api/stations', stationsRouter)
   app.use('/api/employees', employeesRouter)
   app.use('/api/work-areas', workAreasRouter)

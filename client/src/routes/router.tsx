@@ -45,6 +45,7 @@ import { SidebarProvider } from '../store/sidebar-context'
 import { RequireAuth } from '../components/auth/RequireAuth'
 import { EmployeeAppLayout } from '../layouts/EmployeeAppLayout'
 import { EmployeeAccessPage } from '../pages/employee-app/EmployeeAccessPage'
+import { TimeApprovalsPage } from '../pages/time-approvals/TimeApprovalsPage'
 
 function MitarbeiterToEmployeesProfile() {
   const { employeeId } = useParams()
@@ -290,6 +291,16 @@ export const router = createBrowserRouter([
         path: 'einstellungen',
         element: <Navigate to="/settings/general" replace />,
         handle: { title: 'Einstellungen' },
+      },
+      {
+        path: 'zeiterfassung/freigaben',
+        element: <TimeApprovalsPage />,
+        handle: { title: 'Zeitfreigaben' },
+      },
+      {
+        path: 'time-tracking/approvals',
+        element: <Navigate to="/zeiterfassung/freigaben" replace />,
+        handle: { title: 'Zeitfreigaben' },
       },
       {
         path: 'zeiterfassung',

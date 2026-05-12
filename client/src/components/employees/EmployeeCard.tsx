@@ -8,6 +8,48 @@ import { EmploymentTypeBadge } from './EmploymentTypeBadge'
 import { WorkAreaBadges } from './WorkAreaBadges'
 import { formatEuroDe, formatHoursDe } from './employeeFormat'
 
+import { formatShiftPrefList, formatWeekdayPrefList } from './planning/planningPreferenceLabels'
+
+function EmployeePlanningChips({ employee }: { employee: Employee }) {
+  const shifts = employee.preferredShiftTypes ?? []
+  const days = employee.preferredWorkDays ?? []
+  if (!shifts.length && !days.length) {
+    return <p className="text-[10px] italic text-[var(--text-faint)]">Keine Wünsche hinterlegt</p>
+  }
+  const shiftLabels = formatShiftPrefList(shifts).split(', ')
+  const dayLabels = formatWeekdayPrefList(days).split(/\s+/)
+  return (
+    <div className="flex flex-col gap-1.5 text-[10px]">
+      {shifts.length ? (
+        <div className="flex flex-wrap items-center gap-1">
+          <span className="text-[var(--text-faint)]">Schicht:</span>
+          {shiftLabels.map((t) => (
+            <span
+              key={t}
+              className="rounded-full border border-emerald-400/35 bg-emerald-500/10 px-1.5 py-0.5 font-medium text-emerald-100/95"
+            >
+              {t}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {days.length ? (
+        <div className="flex flex-wrap items-center gap-1">
+          <span className="text-[var(--text-faint)]">Tage:</span>
+          {dayLabels.map((t) => (
+            <span
+              key={t}
+              className="rounded-full border border-cyan-400/35 bg-cyan-500/10 px-1.5 py-0.5 font-medium text-cyan-100/95"
+            >
+              {t}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 type Props = {
   employee: Employee
   onEdit: () => void
@@ -81,6 +123,13 @@ export function EmployeeCard({ employee, onEdit, onDeactivate, onReactivate }: P
             {employee.remainingVacationDays} Tage
           </dd>
         </dl>
+
+        <div>
+          <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-[var(--text-faint)]">
+            Schichtwünsche
+          </p>
+          <EmployeePlanningChips employee={employee} />
+        </div>
 
         <div>
           <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-[var(--text-faint)]">

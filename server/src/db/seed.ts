@@ -46,7 +46,7 @@ const EMPLOYEES: EmpSeed[] = [
     monthly_hours: 163.5,
     vacation_days_total: 30,
     vacation_days_used: 20,
-    color: '#22d3ee',
+    color: '#2dd4bf',
     cash_register_card_number: '1001',
     terminal_enabled: 1,
     time_tracking_enabled: 1,
@@ -70,7 +70,7 @@ const EMPLOYEES: EmpSeed[] = [
     monthly_hours: 155,
     vacation_days_total: 28,
     vacation_days_used: 18,
-    color: '#a3e635',
+    color: '#ec4899',
     cash_register_card_number: '1002',
     terminal_enabled: 1,
     time_tracking_enabled: 1,
@@ -94,7 +94,7 @@ const EMPLOYEES: EmpSeed[] = [
     monthly_hours: 162.5,
     vacation_days_total: 25,
     vacation_days_used: 12,
-    color: '#f472b6',
+    color: '#2563eb',
     cash_register_card_number: '1003',
     terminal_enabled: 1,
     time_tracking_enabled: 1,
@@ -118,7 +118,7 @@ const EMPLOYEES: EmpSeed[] = [
     monthly_hours: 171,
     vacation_days_total: 30,
     vacation_days_used: 14,
-    color: '#c084fc',
+    color: '#ea580c',
     cash_register_card_number: '1004',
     terminal_enabled: 1,
     time_tracking_enabled: 1,
@@ -142,7 +142,7 @@ const EMPLOYEES: EmpSeed[] = [
     monthly_hours: 72,
     vacation_days_total: 0,
     vacation_days_used: 0,
-    color: '#fbbf24',
+    color: '#fb923c',
     cash_register_card_number: '1005',
     terminal_enabled: 1,
     time_tracking_enabled: 1,
@@ -166,7 +166,7 @@ const EMPLOYEES: EmpSeed[] = [
     monthly_hours: 158.75,
     vacation_days_total: 28,
     vacation_days_used: 10,
-    color: '#38bdf8',
+    color: '#dc2626',
     cash_register_card_number: '1006',
     terminal_enabled: 1,
     time_tracking_enabled: 1,
@@ -190,7 +190,7 @@ const EMPLOYEES: EmpSeed[] = [
     monthly_hours: 164,
     vacation_days_total: 28,
     vacation_days_used: 8,
-    color: '#34d399',
+    color: '#06b6d4',
     cash_register_card_number: '1007',
     terminal_enabled: 1,
     time_tracking_enabled: 1,
@@ -214,7 +214,7 @@ const EMPLOYEES: EmpSeed[] = [
     monthly_hours: 48.5,
     vacation_days_total: 0,
     vacation_days_used: 0,
-    color: '#fb923c',
+    color: '#9333ea',
     cash_register_card_number: '1008',
     terminal_enabled: 1,
     time_tracking_enabled: 1,
@@ -365,6 +365,135 @@ export function seedIfEmpty(db: Database.Database) {
       for (const wid of e.work_area_ids) {
         insEwa.run(randomUUID(), e.id, wid)
       }
+    }
+
+    const updPlanning = db.prepare(
+      `UPDATE employees SET
+        preferred_shift_types_json = ?,
+        preferred_work_days_json = ?,
+        not_preferred_work_days_json = ?,
+        can_work_weekends = ?,
+        can_work_holidays = ?,
+        max_preferred_days_per_week = ?,
+        max_weekly_hours = ?,
+        planning_notes = ?,
+        updated_at = ?
+      WHERE id = ?`,
+    )
+    const planTs = nowIso()
+    const planningRows: {
+      id: string
+      shift: string
+      days: string
+      notDays: string
+      wk: number
+      hk: number
+      maxDays: number | null
+      maxH: number | null
+      notes: string
+    }[] = [
+      {
+        id: 'e1',
+        shift: JSON.stringify(['early', 'middle']),
+        days: JSON.stringify(['monday', 'wednesday', 'friday', 'saturday']),
+        notDays: '[]',
+        wk: 1,
+        hk: 1,
+        maxDays: null,
+        maxH: null,
+        notes: '',
+      },
+      {
+        id: 'e2',
+        shift: JSON.stringify(['early', 'late']),
+        days: JSON.stringify(['monday', 'tuesday', 'wednesday']),
+        notDays: '[]',
+        wk: 0,
+        hk: 1,
+        maxDays: null,
+        maxH: null,
+        notes: '',
+      },
+      {
+        id: 'e3',
+        shift: JSON.stringify(['early']),
+        days: JSON.stringify(['monday', 'tuesday', 'thursday', 'friday']),
+        notDays: '[]',
+        wk: 0,
+        hk: 1,
+        maxDays: null,
+        maxH: null,
+        notes: '',
+      },
+      {
+        id: 'e4',
+        shift: JSON.stringify(['late']),
+        days: JSON.stringify(['monday', 'tuesday', 'wednesday', 'thursday', 'friday']),
+        notDays: '[]',
+        wk: 1,
+        hk: 1,
+        maxDays: null,
+        maxH: null,
+        notes: '',
+      },
+      {
+        id: 'e5',
+        shift: JSON.stringify(['late', 'weekend']),
+        days: JSON.stringify(['friday', 'saturday', 'sunday']),
+        notDays: '[]',
+        wk: 1,
+        hk: 1,
+        maxDays: null,
+        maxH: null,
+        notes: '',
+      },
+      {
+        id: 'e6',
+        shift: JSON.stringify(['early', 'weekend']),
+        days: JSON.stringify(['saturday', 'sunday']),
+        notDays: '[]',
+        wk: 1,
+        hk: 1,
+        maxDays: null,
+        maxH: null,
+        notes: '',
+      },
+      {
+        id: 'e7',
+        shift: JSON.stringify(['middle', 'late']),
+        days: JSON.stringify(['friday', 'saturday', 'sunday']),
+        notDays: '[]',
+        wk: 1,
+        hk: 1,
+        maxDays: null,
+        maxH: null,
+        notes: '',
+      },
+      {
+        id: 'e8',
+        shift: JSON.stringify(['late', 'weekend']),
+        days: JSON.stringify(['sunday']),
+        notDays: '[]',
+        wk: 1,
+        hk: 1,
+        maxDays: null,
+        maxH: null,
+        notes: '',
+      },
+    ]
+    for (const p of planningRows) {
+      updPlanning.run(
+        p.shift,
+        p.days,
+        p.notDays,
+        p.wk,
+        p.hk,
+        p.maxDays,
+        p.maxH,
+        p.notes,
+        planTs,
+        p.id,
+      )
     }
 
     const insAbs = db.prepare(

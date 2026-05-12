@@ -3,6 +3,23 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { DEFAULT_STATION_ID } from '../constants.js'
 import { nowIso } from '../utils/timestamps.js'
 
+function jsonStringArrayFromBody(body: Record<string, unknown>, key: string): string {
+  const v = body[key]
+  if (v == null) return '[]'
+  if (Array.isArray(v)) return JSON.stringify(v.map(String))
+  return '[]'
+}
+
+function parseJsonStringArray(raw: string | null | undefined): string[] {
+  if (!raw || !String(raw).trim()) return []
+  try {
+    const j = JSON.parse(raw) as unknown
+    return Array.isArray(j) ? j.map((x) => String(x)) : []
+  } catch {
+    return []
+  }
+}
+
 export type EmployeeRow = {
   id: string
   station_id: string
@@ -33,6 +50,14 @@ export type EmployeeRow = {
   employee_access_enabled?: number | null
   employee_access_created_at?: string | null
   employee_access_last_used_at?: string | null
+  preferred_shift_types_json?: string | null
+  preferred_work_days_json?: string | null
+  not_preferred_work_days_json?: string | null
+  can_work_weekends?: number | null
+  can_work_holidays?: number | null
+  max_preferred_days_per_week?: number | null
+  max_weekly_hours?: number | null
+  planning_notes?: string | null
 }
 
 function mapStatusToFrontend(dbStatus: string | null, active: number | null): string {
@@ -82,6 +107,15 @@ export function rowToEmployeeApi(
     employeeAccessEnabled: enabled && configured,
     employeeAccessCreatedAt: row.employee_access_created_at ?? undefined,
     employeeAccessLastUsedAt: row.employee_access_last_used_at ?? undefined,
+    preferredShiftTypes: parseJsonStringArray(row.preferred_shift_types_json),
+    preferredWorkDays: parseJsonStringArray(row.preferred_work_days_json),
+    notPreferredWorkDays: parseJsonStringArray(row.not_preferred_work_days_json),
+    canWorkWeekends: (row.can_work_weekends ?? 1) === 1,
+    canWorkHolidays: (row.can_work_holidays ?? 1) === 1,
+    maxPreferredDaysPerWeek:
+      row.max_preferred_days_per_week != null ? Number(row.max_preferred_days_per_week) : undefined,
+    maxWeeklyHours: row.max_weekly_hours != null ? Number(row.max_weekly_hours) : undefined,
+    planningNotes: row.planning_notes ?? '',
     ...(options?.includeAccessToken ? { employeeAccessToken: token } : {}),
   }
 }
@@ -142,9 +176,12 @@ export function createEmployee(db: Database, body: Record<string, unknown>, stat
       color, status, cash_register_card_number, terminal_enabled, time_tracking_enabled,
       start_date, end_date, notes, active,
       employee_access_token, employee_access_enabled, employee_access_created_at,
+      preferred_shift_types_json, preferred_work_days_json, not_preferred_work_days_json,
+      can_work_weekends, can_work_holidays, max_preferred_days_per_week, max_weekly_hours, planning_notes,
       created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, NULL, 1,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, NULL, ?, 1,
       ?, 1, ?,
+      ?, ?, ?, ?, ?, ?, ?, ?,
       ?, ?)`,
   ).run(
     id,
@@ -171,6 +208,14 @@ export function createEmployee(db: Database, body: Record<string, unknown>, stat
     String(body.notes ?? ''),
     accessTok,
     ts,
+    jsonStringArrayFromBody(body, 'preferredShiftTypes'),
+    jsonStringArrayFromBody(body, 'preferredWorkDays'),
+    jsonStringArrayFromBody(body, 'notPreferredWorkDays'),
+    body.canWorkWeekends === false ? 0 : 1,
+    body.canWorkHolidays === false ? 0 : 1,
+    body.maxPreferredDaysPerWeek != null ? Number(body.maxPreferredDaysPerWeek) : null,
+    body.maxWeeklyHours != null ? Number(body.maxWeeklyHours) : null,
+    String(body.planningNotes ?? '') || null,
     ts,
     ts,
   )
@@ -233,6 +278,62 @@ export function updateEmployee(db: Database, id: string, body: Record<string, un
     ts,
     id,
   )
+
+  if (
+    body.preferredShiftTypes !== undefined ||
+    body.preferredWorkDays !== undefined ||
+    body.notPreferredWorkDays !== undefined ||
+    body.canWorkWeekends !== undefined ||
+    body.canWorkHolidays !== undefined ||
+    body.maxPreferredDaysPerWeek !== undefined ||
+    body.maxWeeklyHours !== undefined ||
+    body.planningNotes !== undefined
+  ) {
+    const cur = db.prepare(`SELECT * FROM employees WHERE id = ?`).get(id) as EmployeeRow
+    const prefShift =
+      body.preferredShiftTypes !== undefined
+        ? jsonStringArrayFromBody(body, 'preferredShiftTypes')
+        : (cur.preferred_shift_types_json ?? '[]')
+    const prefDays =
+      body.preferredWorkDays !== undefined
+        ? jsonStringArrayFromBody(body, 'preferredWorkDays')
+        : (cur.preferred_work_days_json ?? '[]')
+    const notPref =
+      body.notPreferredWorkDays !== undefined
+        ? jsonStringArrayFromBody(body, 'notPreferredWorkDays')
+        : (cur.not_preferred_work_days_json ?? '[]')
+    const cWk =
+      body.canWorkWeekends !== undefined ? (body.canWorkWeekends ? 1 : 0) : (cur.can_work_weekends ?? 1)
+    const cH =
+      body.canWorkHolidays !== undefined ? (body.canWorkHolidays ? 1 : 0) : (cur.can_work_holidays ?? 1)
+    const maxDays =
+      body.maxPreferredDaysPerWeek !== undefined
+        ? body.maxPreferredDaysPerWeek == null
+          ? null
+          : Number(body.maxPreferredDaysPerWeek)
+        : cur.max_preferred_days_per_week
+    const maxH =
+      body.maxWeeklyHours !== undefined
+        ? body.maxWeeklyHours == null
+          ? null
+          : Number(body.maxWeeklyHours)
+        : cur.max_weekly_hours
+    const pNotes =
+      body.planningNotes !== undefined ? String(body.planningNotes ?? '') : (cur.planning_notes ?? '')
+    db.prepare(
+      `UPDATE employees SET
+        preferred_shift_types_json = ?,
+        preferred_work_days_json = ?,
+        not_preferred_work_days_json = ?,
+        can_work_weekends = ?,
+        can_work_holidays = ?,
+        max_preferred_days_per_week = ?,
+        max_weekly_hours = ?,
+        planning_notes = ?,
+        updated_at = ?
+      WHERE id = ?`,
+    ).run(prefShift, prefDays, notPref, cWk, cH, maxDays, maxH, pNotes, ts, id)
+  }
 
   if (Array.isArray(body.workAreaIds)) {
     db.prepare(`DELETE FROM employee_work_areas WHERE employee_id = ?`).run(id)

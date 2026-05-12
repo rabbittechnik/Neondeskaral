@@ -60,6 +60,15 @@ function runningDuration(startAt: string): string {
   return formatWorkedDuration(m)
 }
 
+function timeEntryApprovalHint(e: TimeEntry): string {
+  const a = e.approvalStatus ?? 'pending'
+  if (a === 'approved' && e.payrollRelevant) return 'Deine Arbeitszeit wurde freigegeben.'
+  if (a === 'rejected') return 'Deine Arbeitszeit wurde abgelehnt. Bitte wende dich an den Teamleiter.'
+  if (a === 'correction_required') return 'Deine Arbeitszeit muss geprüft/korrigiert werden.'
+  if (a === 'pending' || !e.payrollRelevant) return 'Deine Arbeitszeit wurde erfasst und wartet auf Freigabe.'
+  return 'Deine Arbeitszeit wurde erfasst und wartet auf Freigabe.'
+}
+
 type TabId = 'heute' | 'woche' | 'aufgaben' | 'info'
 
 export function EmployeeAccessPage() {
@@ -73,7 +82,15 @@ export function EmployeeAccessPage() {
   const [msg, setMsg] = useState<string | null>(null)
   const [inOk, setInOk] = useState<string | null>(null)
 
-  const [forcePrompt, setForcePrompt] = useState<{ body: string; after: () => void } | null>(null)
+  const [forcePrompt, setForcePrompt] = useState<{
+    title?: string
+    body: string
+    confirmLabel?: string
+    after: () => void
+  } | null>(null)
+
+  const [checkInConfirmOpen, setCheckInConfirmOpen] = useState(false)
+  const [checkoutConfirmOpen, setCheckoutConfirmOpen] = useState(false)
 
   const [checklistOpen, setChecklistOpen] = useState(false)
   const [checkoutEntry, setCheckoutEntry] = useState<TimeEntry | null>(null)
@@ -106,6 +123,13 @@ export function EmployeeAccessPage() {
     return plannedToday(payload.shifts, today)
   }, [payload, today])
 
+  const recentTimeEntries = useMemo(() => {
+    if (!payload) return []
+    const mine = payload.timeEntries.filter((e) => e.employeeId === payload.employee.id && e.status === 'completed')
+    mine.sort((a, b) => String(b.endAt ?? b.startAt).localeCompare(String(a.endAt ?? a.startAt)))
+    return mine.slice(0, 8)
+  }, [payload])
+
   const weekShifts = useMemo(() => {
     if (!payload) return []
     const shifts = payload.shifts
@@ -121,6 +145,7 @@ export function EmployeeAccessPage() {
   }, [payload])
 
   const tryCheckIn = async (force: boolean) => {
+    setCheckInConfirmOpen(false)
     setBusy(true)
     setMsg(null)
     setInOk(null)
@@ -136,9 +161,11 @@ export function EmployeeAccessPage() {
       }
       const result = String(raw.result ?? '')
       const message = String(raw.message ?? raw.error ?? 'Nicht möglich')
-      if (!force && (result === 'not_scheduled' || result === 'too_early')) {
+      if (!force && (result === 'not_scheduled' || result === 'too_early' || result === 'too_late')) {
         setForcePrompt({
+          title: result === 'too_late' ? 'Verspäteter Start' : 'Hinweis',
           body: message,
+          confirmLabel: result === 'too_late' ? 'Schicht trotzdem starten' : 'Trotzdem starten',
           after: () => {
             setForcePrompt(null)
             void tryCheckIn(true)
@@ -155,6 +182,7 @@ export function EmployeeAccessPage() {
   }
 
   const startCheckout = async () => {
+    setCheckoutConfirmOpen(false)
     setBusy(true)
     setMsg(null)
     try {
@@ -281,7 +309,7 @@ export function EmployeeAccessPage() {
                 variant="primary"
                 className="min-h-[52px] py-3 text-base font-semibold"
                 disabled={busy || Boolean(running)}
-                onClick={() => void tryCheckIn(false)}
+                onClick={() => setCheckInConfirmOpen(true)}
               >
                 Schicht starten
               </Button>
@@ -290,7 +318,7 @@ export function EmployeeAccessPage() {
                 variant="outline"
                 className="min-h-[52px] border-orange-400/40 py-3 text-base font-semibold text-orange-100 hover:bg-orange-500/10"
                 disabled={busy || !running}
-                onClick={() => void startCheckout()}
+                onClick={() => setCheckoutConfirmOpen(true)}
               >
                 Schicht beenden
               </Button>
@@ -307,6 +335,23 @@ export function EmployeeAccessPage() {
               <p className="mt-2 text-slate-400">Keine geplant.</p>
             )}
           </div>
+
+          {recentTimeEntries.length > 0 ? (
+            <div className="rounded-2xl border border-white/10 bg-slate-900/40 p-4">
+              <h2 className="text-sm font-semibold text-cyan-200">Letzte Arbeitszeiten</h2>
+              <ul className="mt-3 space-y-3">
+                {recentTimeEntries.map((e) => (
+                  <li key={e.id} className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-sm">
+                    <p className="font-medium text-white">
+                      {(e.startAt ?? '').slice(0, 10)} · {formatTimeDe(e.startAt)} –{' '}
+                      {e.endAt ? formatTimeDe(e.endAt) : '—'}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-400">{timeEntryApprovalHint(e)}</p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </section>
       ) : null}
 
@@ -400,10 +445,72 @@ export function EmployeeAccessPage() {
         </div>
       </nav>
 
+      {checkInConfirmOpen ? (
+        <div className="fixed inset-0 z-[115] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-emerald-400/35 bg-slate-900 p-5 shadow-xl">
+            <h2 className="text-lg font-semibold text-white">Schicht wirklich starten?</h2>
+            <p className="mt-2 text-sm text-slate-300">Möchtest du dich wirklich zur Schicht anmelden?</p>
+            <div className="mt-4 space-y-1 rounded-lg border border-white/10 bg-black/25 px-3 py-2 text-sm text-slate-100">
+              <p>
+                <span className="text-slate-500">Mitarbeiter:</span> {employee.displayName}
+              </p>
+              <p>
+                <span className="text-slate-500">Geplante Schicht:</span>{' '}
+                {planned ? `${planned.startTime} – ${planned.endTime}` : '—'}
+              </p>
+              <p>
+                <span className="text-slate-500">Aktuelle Uhrzeit:</span>{' '}
+                {new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
+              </p>
+            </div>
+            <div className="mt-5 flex flex-wrap gap-2">
+              <Button type="button" variant="outline" className="flex-1" onClick={() => setCheckInConfirmOpen(false)}>
+                Abbrechen
+              </Button>
+              <Button type="button" variant="primary" className="flex-1" disabled={busy} onClick={() => void tryCheckIn(false)}>
+                Ja, Schicht starten
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {checkoutConfirmOpen && running ? (
+        <div className="fixed inset-0 z-[115] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-orange-400/35 bg-slate-900 p-5 shadow-xl">
+            <h2 className="text-lg font-semibold text-white">Schicht wirklich beenden?</h2>
+            <p className="mt-2 text-sm text-slate-300">Möchtest du deine Schicht jetzt wirklich beenden?</p>
+            <div className="mt-4 space-y-1 rounded-lg border border-white/10 bg-black/25 px-3 py-2 text-sm text-slate-100">
+              <p>
+                <span className="text-slate-500">Mitarbeiter:</span> {employee.displayName}
+              </p>
+              <p>
+                <span className="text-slate-500">Startzeit:</span> {formatTimeDe(running.startAt)} Uhr
+              </p>
+              <p>
+                <span className="text-slate-500">Bisherige Arbeitszeit:</span> {runningDuration(running.startAt)}
+              </p>
+              <p>
+                <span className="text-slate-500">Aktuelle Uhrzeit:</span>{' '}
+                {new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
+              </p>
+            </div>
+            <div className="mt-5 flex flex-wrap gap-2">
+              <Button type="button" variant="outline" className="flex-1" onClick={() => setCheckoutConfirmOpen(false)}>
+                Abbrechen
+              </Button>
+              <Button type="button" variant="primary" className="flex-1" disabled={busy} onClick={() => void startCheckout()}>
+                Ja, Schicht beenden
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {forcePrompt ? (
         <div className="fixed inset-0 z-[120] flex items-end justify-center bg-black/75 p-4 sm:items-center">
           <div className="w-full max-w-md rounded-2xl border border-amber-400/30 bg-slate-900 p-5 shadow-xl">
-            <p className="text-base text-white">Hinweis</p>
+            <p className="text-base text-white">{forcePrompt.title ?? 'Hinweis'}</p>
             <p className="mt-2 text-sm text-slate-300">{forcePrompt.body}</p>
             <div className="mt-4 flex flex-wrap gap-2">
               <Button type="button" variant="outline" className="flex-1" onClick={() => setForcePrompt(null)}>
@@ -417,7 +524,7 @@ export function EmployeeAccessPage() {
                   forcePrompt.after()
                 }}
               >
-                Trotzdem starten
+                {forcePrompt.confirmLabel ?? 'Trotzdem starten'}
               </Button>
             </div>
           </div>

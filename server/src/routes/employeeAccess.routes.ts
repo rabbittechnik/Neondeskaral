@@ -34,6 +34,8 @@ employeeAccessRouter.post('/:token/check-in', (req, res) => {
         result: out.result,
         ...('employee' in out ? { employee: out.employee } : {}),
         ...('timeEntry' in out ? { timeEntry: out.timeEntry } : {}),
+        ...('plannedStart' in out ? { plannedStart: (out as { plannedStart?: string }).plannedStart } : {}),
+        ...('minutesLate' in out ? { minutesLate: (out as { minutesLate?: number }).minutesLate } : {}),
       })
     }
     jsonOk(res, {

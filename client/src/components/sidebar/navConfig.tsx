@@ -11,7 +11,7 @@ import {
   UserCircle,
 } from 'lucide-react'
 
-export type NavLeaf = { to: string; label: string }
+export type NavLeaf = { to: string; label: string; approverOnly?: boolean }
 
 export type NavGroup = {
   type: 'group'
@@ -77,6 +77,7 @@ export const navEntries: NavEntry[] = [
     icon: BarChart3,
     children: [
       { to: '/reports/payroll-time', label: 'Lohnabrechnung (Zeiterfassung)' },
+      { to: '/zeiterfassung/freigaben', label: 'Zeitfreigaben', approverOnly: true },
       { to: '/reports/payroll-schedule', label: 'Lohnabrechnung (Schichtplan)' },
       { to: '/reports/tasks', label: 'Aufgaben' },
       { to: '/reports/absences', label: 'Abwesenheiten' },

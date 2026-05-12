@@ -1,11 +1,12 @@
+import { ActiveAttendanceBar } from '../../components/dashboard/ActiveAttendanceBar'
 import { DashboardStats } from './DashboardStats'
+import { PendingTimeApprovalsCard } from './PendingTimeApprovalsCard'
 import {
   BirthdaysCard,
   PendingAbsencesCard,
   UnfilledShiftsCard,
   WeatherCard,
 } from './DashboardSideColumn'
-import { CurrentShiftPanel, UpcomingShiftPanel } from './ShiftPanels'
 import { QuickActions } from './QuickActions'
 import { WeeklySchedule } from './WeeklySchedule'
 import { WelcomeBanner } from './WelcomeBanner'
@@ -22,31 +23,29 @@ export function DashboardPage() {
         </div>
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-12">
-        <div className="space-y-4 lg:col-span-5">
-          <CurrentShiftPanel />
-        </div>
-        <div className="space-y-4 lg:col-span-4">
-          <UpcomingShiftPanel />
-        </div>
-        <div className="lg:col-span-3">
-          <QuickActions />
-        </div>
-      </section>
+      <ActiveAttendanceBar />
 
-      <section className="grid gap-4 xl:grid-cols-12">
+      <section className="grid gap-4 xl:grid-cols-12 xl:items-stretch">
         <div className="space-y-4 xl:col-span-8">
           <WeeklySchedule />
         </div>
         <div className="space-y-4 xl:col-span-4">
+          <PendingTimeApprovalsCard />
           <PendingAbsencesCard />
           <UnfilledShiftsCard />
         </div>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-2">
-        <BirthdaysCard />
-        <WeatherCard />
+      <section className="grid gap-4 lg:grid-cols-12">
+        <div className="lg:col-span-4">
+          <QuickActions />
+        </div>
+        <div className="lg:col-span-4">
+          <BirthdaysCard />
+        </div>
+        <div className="lg:col-span-4">
+          <WeatherCard />
+        </div>
       </section>
     </div>
   )

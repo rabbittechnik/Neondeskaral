@@ -36,9 +36,9 @@ export function sortBlocksForDay(blocks: ResolvedShiftBlock[]): ResolvedShiftBlo
   })
 }
 
-export function hexToRgba(hex: string, alpha: number): string {
+function parseHexRgb(hex: string): { r: number; g: number; b: number } | null {
   const raw = hex.trim().replace('#', '')
-  if (!raw) return `rgba(34, 211, 238, ${alpha})`
+  if (!raw) return null
   const full =
     raw.length === 3
       ? raw
@@ -47,9 +47,35 @@ export function hexToRgba(hex: string, alpha: number): string {
           .join('')
       : raw.slice(0, 6)
   const n = parseInt(full, 16)
-  if (Number.isNaN(n)) return `rgba(34, 211, 238, ${alpha})`
-  const r = (n >> 16) & 255
-  const g = (n >> 8) & 255
-  const b = n & 255
-  return `rgba(${r},${g},${b},${alpha})`
+  if (Number.isNaN(n)) return null
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 }
+}
+
+export function hexToRgba(hex: string, alpha: number): string {
+  const rgb = parseHexRgb(hex)
+  if (!rgb) return `rgba(34, 211, 238, ${alpha})`
+  return `rgba(${rgb.r},${rgb.g},${rgb.b},${alpha})`
+}
+
+/** Mischt Hex-Farbe Richtung Schwarz (0–1), für kräftige Balken-Verläufe. */
+export function darkenHex(hex: string, amount = 0.28): string {
+  const rgb = parseHexRgb(hex)
+  if (!rgb) return '#0f172a'
+  const t = Math.min(1, Math.max(0, amount))
+  const r = Math.round(rgb.r * (1 - t))
+  const g = Math.round(rgb.g * (1 - t))
+  const b = Math.round(rgb.b * (1 - t))
+  return `#${[r, g, b].map((x) => x.toString(16).padStart(2, '0')).join('')}`
+}
+
+/** Leichter Aufheller für Verlauf-Highlights. */
+export function lightenHex(hex: string, amount = 0.18): string {
+  const rgb = parseHexRgb(hex)
+  if (!rgb) return '#ffffff'
+  const t = Math.min(1, Math.max(0, amount))
+  const mix = (c: number) => Math.round(c + (255 - c) * t)
+  const r = mix(rgb.r)
+  const g = mix(rgb.g)
+  const b = mix(rgb.b)
+  return `#${[r, g, b].map((x) => x.toString(16).padStart(2, '0')).join('')}`
 }
