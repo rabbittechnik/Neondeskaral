@@ -160,6 +160,8 @@ const statements = [
     planning_notes TEXT,
     created_at TEXT,
     updated_at TEXT,
+    deleted_at TEXT,
+    deleted_by TEXT,
     FOREIGN KEY (station_id) REFERENCES stations(id)
   )`,
   `CREATE TABLE IF NOT EXISTS employee_work_areas (

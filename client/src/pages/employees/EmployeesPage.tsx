@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { Plus } from 'lucide-react'
 import { EmployeeCard } from '../../components/employees/EmployeeCard'
 import { EmployeeDeleteDialog } from '../../components/employees/EmployeeDeleteDialog'
@@ -9,6 +9,7 @@ import { Button } from '../../components/ui/Button'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { useEmployees } from '../../context/employees-context'
+import { useStation } from '../../context/station-context'
 import type { Employee, EmployeeHRStatus, EmploymentType } from '../../types/employee'
 
 function filterEmployees(
@@ -40,9 +41,15 @@ export function EmployeesPage() {
     deactivateEmployee,
     deleteEmployee,
     reactivateEmployee,
+    restoreEmployee,
     loading,
     error,
+    includeDeletedInList,
+    setIncludeDeletedInList,
+    includeInactiveInList,
+    setIncludeInactiveInList,
   } = useEmployees()
+  const { hasPermission } = useStation()
 
   const [search, setSearch] = useState('')
   const [employment, setEmployment] = useState<EmploymentType | 'all'>('all')
@@ -57,11 +64,20 @@ export function EmployeesPage() {
   const [confirmDeactivateId, setConfirmDeactivateId] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Employee | null>(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
+  const [deleteNotice, setDeleteNotice] = useState<string | null>(null)
+
+  const canViewDeleted = hasPermission('employees.viewDeleted')
 
   const filtered = useMemo(
     () => filterEmployees(employees, search, employment, status, workAreaId),
     [employees, search, employment, status, workAreaId],
   )
+
+  useEffect(() => {
+    if (!deleteNotice) return
+    const t = window.setTimeout(() => setDeleteNotice(null), 7000)
+    return () => window.clearTimeout(t)
+  }, [deleteNotice])
 
   const openCreate = () => {
     setModalMode('create')
@@ -95,6 +111,14 @@ export function EmployeesPage() {
           {error}
         </p>
       ) : null}
+      {deleteNotice ? (
+        <div
+          role="status"
+          className="rounded-md border border-cyan-400/35 bg-cyan-500/10 px-3 py-2 text-sm text-cyan-100/95 shadow-[0_0_20px_rgba(34,211,238,0.12)]"
+        >
+          {deleteNotice}
+        </div>
+      ) : null}
 
       <EmployeesToolbar
         search={search}
@@ -107,6 +131,11 @@ export function EmployeesPage() {
         onWorkArea={setWorkAreaId}
         viewMode={viewMode}
         onViewMode={setViewMode}
+        showInactiveEmployees={includeInactiveInList}
+        onShowInactiveEmployees={setIncludeInactiveInList}
+        showDeletedEmployees={includeDeletedInList}
+        onShowDeletedEmployees={setIncludeDeletedInList}
+        canViewDeletedEmployees={canViewDeleted}
         onExport={() => {
           alert('Export folgt mit Backend (CSV/PDF).')
         }}
@@ -123,6 +152,7 @@ export function EmployeesPage() {
               onReactivate={
                 e.status === 'inaktiv' ? () => void reactivateEmployee(e.id) : undefined
               }
+              onRestore={e.status === 'geloescht' ? () => void restoreEmployee(e.id) : undefined}
               onRequestDelete={() => setDeleteTarget(e)}
             />
           ))}
@@ -133,6 +163,7 @@ export function EmployeesPage() {
           onEdit={openEdit}
           onDeactivate={(e) => setConfirmDeactivateId(e.id)}
           onReactivate={(e) => void reactivateEmployee(e.id)}
+          onRestore={(e) => void restoreEmployee(e.id)}
           onRequestDelete={(e) => setDeleteTarget(e)}
         />
       )}
@@ -173,26 +204,20 @@ export function EmployeesPage() {
         onClose={() => {
           if (!deleteBusy) setDeleteTarget(null)
         }}
-        onDeactivateInstead={async () => {
-          if (!deleteTarget) return
-          setDeleteBusy(true)
-          try {
-            await deactivateEmployee(deleteTarget.id)
-            setDeleteTarget(null)
-          } catch (err) {
-            window.alert(err instanceof Error ? err.message : 'Fehler')
-          }
-          setDeleteBusy(false)
-        }}
-        onHardDelete={async () => {
+        onConfirmDelete={async () => {
           if (!deleteTarget) return
           setDeleteBusy(true)
           try {
             const r = await deleteEmployee(deleteTarget.id, 'hard')
-            if (r.message) window.alert(r.message)
+            const main = r.message?.trim() || 'Mitarbeiter wurde gelöscht.'
+            const hint =
+              r.mode === 'soft_deleted'
+                ? ' Historische Daten bleiben für Auswertungen erhalten.'
+                : ''
+            setDeleteNotice(`${main}${hint}`)
             setDeleteTarget(null)
           } catch (err) {
-            window.alert(err instanceof Error ? err.message : 'Fehler')
+            setDeleteNotice(err instanceof Error ? err.message : 'Fehler beim Löschen.')
           }
           setDeleteBusy(false)
         }}

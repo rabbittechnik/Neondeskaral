@@ -136,6 +136,7 @@ export function runMigrations(db: Database.Database) {
   mergeEmployeeSensitivePermissionsIntoAccess(db)
   ensureEmployeeAppDevicesTable(db)
   mergeEmployeeAppPermissionsIntoAccess(db)
+  mergeEmployeesViewDeletedPermission(db)
   migrateRoleLabelsAndAbsenceRejectColumns(db)
 }
 
@@ -201,6 +202,8 @@ function migrateEmployeeExtendedColumns(db: Database.Database) {
   add('visible_in_team_schedule', 'visible_in_team_schedule INTEGER DEFAULT 1')
   add('phone_visible_to_team', 'phone_visible_to_team INTEGER DEFAULT 1')
   add('email_visible_to_team', 'email_visible_to_team INTEGER DEFAULT 1')
+  add('deleted_at', 'deleted_at TEXT')
+  add('deleted_by', 'deleted_by TEXT')
   db.prepare(
     `UPDATE employees SET mobile_phone = COALESCE(NULLIF(trim(mobile_phone), ''), phone) WHERE mobile_phone IS NULL OR trim(mobile_phone) = ''`,
   ).run()
@@ -301,6 +304,31 @@ function ensureEmployeeAppDevicesTable(db: Database.Database) {
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_employee_app_devices_emp_device ON employee_app_devices(employee_id, device_id)`,
   )
   db.exec(`CREATE INDEX IF NOT EXISTS idx_employee_app_devices_station ON employee_app_devices(station_id)`)
+}
+
+/** Wer Mitarbeiter endgültig/soft löschen darf, sieht optional die Liste gelöschter Einträge. */
+function mergeEmployeesViewDeletedPermission(db: Database.Database) {
+  const rows = db.prepare(`SELECT id, permissions_json FROM user_station_access`).all() as {
+    id: string
+    permissions_json: string
+  }[]
+  const ts = nowIso()
+  for (const r of rows) {
+    let p: Record<string, boolean> = {}
+    try {
+      p = JSON.parse(r.permissions_json || '{}') as Record<string, boolean>
+    } catch {
+      p = {}
+    }
+    if (p['employees.delete'] !== true) continue
+    if (p['employees.viewDeleted'] !== undefined) continue
+    p['employees.viewDeleted'] = true
+    db.prepare(`UPDATE user_station_access SET permissions_json = ?, updated_at = ? WHERE id = ?`).run(
+      JSON.stringify(p),
+      ts,
+      r.id,
+    )
+  }
 }
 
 function mergeEmployeeAppPermissionsIntoAccess(db: Database.Database) {

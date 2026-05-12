@@ -16,4 +16,5 @@ export const STATUS_LABELS: Record<EmployeeHRStatus, string> = {
   urlaub: 'Urlaub',
   krank: 'Krank',
   gesperrt: 'Gesperrt',
+  geloescht: 'Archiviert',
 }

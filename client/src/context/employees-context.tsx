@@ -18,12 +18,19 @@ type EmployeesContextValue = {
   loading: boolean
   error: string | null
   refetch: () => Promise<void>
+  /** Inaktive (deaktivierte) in derselben Liste wie aktive — ohne Soft-Deletes. */
+  includeInactiveInList: boolean
+  setIncludeInactiveInList: (v: boolean) => void
+  /** Gelöschte in der Liste (nur mit Berechtigung `employees.viewDeleted`). */
+  includeDeletedInList: boolean
+  setIncludeDeletedInList: (v: boolean) => void
   getById: (id: string) => Employee | undefined
   addEmployee: (e: Employee) => Promise<void>
   updateEmployee: (e: Employee) => Promise<void>
   deactivateEmployee: (id: string) => Promise<void>
   deleteEmployee: (id: string, mode: 'soft' | 'hard') => Promise<{ mode: string; message?: string }>
   reactivateEmployee: (id: string) => Promise<void>
+  restoreEmployee: (id: string) => Promise<void>
   regenerateEmployeeAccess: (id: string) => Promise<Employee>
   disableEmployeeAccess: (id: string) => Promise<void>
   enableEmployeeAccess: (id: string) => Promise<void>
@@ -33,10 +40,12 @@ type EmployeesContextValue = {
 const EmployeesContext = createContext<EmployeesContextValue | null>(null)
 
 export function EmployeesProvider({ children }: { children: ReactNode }) {
-  const { stationId } = useStation()
+  const { stationId, hasPermission } = useStation()
   const [employees, setEmployees] = useState<Employee[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [includeInactiveInList, setIncludeInactiveInList] = useState(false)
+  const [includeDeletedInList, setIncludeDeletedInList] = useState(false)
 
   const refetch = useCallback(async () => {
     if (!stationId) {
@@ -46,7 +55,13 @@ export function EmployeesProvider({ children }: { children: ReactNode }) {
     }
     setLoading(true)
     setError(null)
-    const res = await apiGet<Employee[]>('/employees', { stationId, includeInactive: 'true' })
+    const canViewDeleted = hasPermission('employees.viewDeleted')
+    const includeDeleted = includeDeletedInList && canViewDeleted
+    const res = await apiGet<Employee[]>('/employees', {
+      stationId,
+      ...(includeInactiveInList ? { includeInactive: 'true' } : {}),
+      ...(includeDeleted ? { includeDeleted: 'true' } : {}),
+    })
     if (res.ok && Array.isArray(res.data)) {
       setEmployees(res.data.map((x) => mergeEmployeeFromApi(x as Partial<Employee> & { id: string })))
     } else {
@@ -54,7 +69,7 @@ export function EmployeesProvider({ children }: { children: ReactNode }) {
       setEmployees([])
     }
     setLoading(false)
-  }, [stationId])
+  }, [stationId, hasPermission, includeInactiveInList, includeDeletedInList])
 
   useEffect(() => {
     void refetch()
@@ -77,7 +92,6 @@ export function EmployeesProvider({ children }: { children: ReactNode }) {
   )
 
   const updateEmployee = useCallback(async (e: Employee) => {
-    // QR-Token nur serverseitig / per regenerate-Endpoint — nie versehentlich per PUT überschreiben
     const { employeeAccessToken: _omitAccessToken, ...payload } = e
     void _omitAccessToken
     const res = await apiSend<Employee>('PUT', `/employees/${encodeURIComponent(e.id)}`, payload)
@@ -93,7 +107,7 @@ export function EmployeesProvider({ children }: { children: ReactNode }) {
 
   const deleteEmployee = useCallback(
     async (id: string, mode: 'soft' | 'hard') => {
-      const res = await apiSend<{ deleted?: boolean; mode?: string; message?: string }>(
+      const res = await apiSend<{ ok?: boolean; deleted?: boolean; mode?: string; message?: string }>(
         'DELETE',
         `/employees/${encodeURIComponent(id)}`,
         undefined,
@@ -101,7 +115,7 @@ export function EmployeesProvider({ children }: { children: ReactNode }) {
       )
       if (!res.ok) throw new Error(res.error)
       await refetch()
-      const d = res.ok ? (res as { data?: { mode?: string; message?: string } }).data : undefined
+      const d = (res as { data?: { ok?: boolean; mode?: string; message?: string } }).data
       return { mode: d?.mode ?? mode, message: d?.message }
     },
     [refetch],
@@ -123,6 +137,15 @@ export function EmployeesProvider({ children }: { children: ReactNode }) {
     [refetch],
   )
 
+  const restoreEmployee = useCallback(
+    async (id: string) => {
+      const res = await apiSend<Employee>('POST', `/employees/${encodeURIComponent(id)}/restore`, {})
+      if (!res.ok) throw new Error(res.error)
+      await refetch()
+    },
+    [refetch],
+  )
+
   const regenerateEmployeeAccess = useCallback(
     async (id: string) => {
       const res = await apiSend<Employee>('POST', `/employees/${encodeURIComponent(id)}/regenerate-access-token`, {})
@@ -136,7 +159,7 @@ export function EmployeesProvider({ children }: { children: ReactNode }) {
   const disableEmployeeAccess = useCallback(
     async (id: string) => {
       const res = await apiSend<Employee>('POST', `/employees/${encodeURIComponent(id)}/disable-access`, {})
-      if (!res.ok) throw new Error(res.ok === false ? res.error : 'Fehler')
+      if (!res.ok) throw new Error(res.error)
       await refetch()
     },
     [refetch],
@@ -145,7 +168,7 @@ export function EmployeesProvider({ children }: { children: ReactNode }) {
   const enableEmployeeAccess = useCallback(
     async (id: string) => {
       const res = await apiSend<Employee>('POST', `/employees/${encodeURIComponent(id)}/enable-access`, {})
-      if (!res.ok) throw new Error(res.ok === false ? res.error : 'Fehler')
+      if (!res.ok) throw new Error(res.error)
       await refetch()
     },
     [refetch],
@@ -170,12 +193,17 @@ export function EmployeesProvider({ children }: { children: ReactNode }) {
       loading,
       error,
       refetch,
+      includeInactiveInList,
+      setIncludeInactiveInList,
+      includeDeletedInList,
+      setIncludeDeletedInList,
       getById,
       addEmployee,
       updateEmployee,
       deactivateEmployee,
       deleteEmployee,
       reactivateEmployee,
+      restoreEmployee,
       regenerateEmployeeAccess,
       disableEmployeeAccess,
       enableEmployeeAccess,
@@ -186,12 +214,17 @@ export function EmployeesProvider({ children }: { children: ReactNode }) {
       loading,
       error,
       refetch,
+      includeInactiveInList,
+      setIncludeInactiveInList,
+      includeDeletedInList,
+      setIncludeDeletedInList,
       getById,
       addEmployee,
       updateEmployee,
       deactivateEmployee,
       deleteEmployee,
       reactivateEmployee,
+      restoreEmployee,
       regenerateEmployeeAccess,
       disableEmployeeAccess,
       enableEmployeeAccess,

@@ -57,11 +57,20 @@ type Props = {
   onEdit: () => void
   onDeactivate: () => void
   onReactivate?: () => void
+  onRestore?: () => void
   onRequestDelete?: () => void
 }
 
-export function EmployeeCard({ employee, onEdit, onDeactivate, onReactivate, onRequestDelete }: Props) {
+export function EmployeeCard({
+  employee,
+  onEdit,
+  onDeactivate,
+  onReactivate,
+  onRestore,
+  onRequestDelete,
+}: Props) {
   const inactive = employee.status === 'inaktiv'
+  const removed = employee.status === 'geloescht'
   const { hasPermission } = useStation()
   const { user } = useAuth()
   const canSensitive =
@@ -76,7 +85,7 @@ export function EmployeeCard({ employee, onEdit, onDeactivate, onReactivate, onR
   return (
     <div
       className={`group flex flex-col overflow-hidden rounded-[var(--radius-md)] border bg-[var(--bg-card)]/95 shadow-[var(--shadow-card)] transition hover:border-cyan-400/35 hover:shadow-[0_0_28px_rgba(34,211,238,0.12)]
-        ${inactive ? 'border-white/10 opacity-80' : 'border-[var(--border-subtle)]'}
+        ${inactive || removed ? 'border-white/10 opacity-80' : 'border-[var(--border-subtle)]'}
       `}
     >
       <div
@@ -176,11 +185,21 @@ export function EmployeeCard({ employee, onEdit, onDeactivate, onReactivate, onR
             variant="outline"
             className="flex-1 min-w-[5rem] px-2 py-2 text-xs"
             onClick={onEdit}
+            disabled={removed}
           >
             <Pencil className="h-3.5 w-3.5" aria-hidden />
             Bearbeiten
           </Button>
-          {inactive && onReactivate ? (
+          {removed && onRestore ? (
+            <Button
+              variant="primary"
+              className="flex-1 min-w-[5rem] px-2 py-2 text-xs"
+              onClick={onRestore}
+            >
+              <UserCheck className="h-3.5 w-3.5" aria-hidden />
+              Wiederherstellen
+            </Button>
+          ) : inactive && onReactivate ? (
             <Button
               variant="primary"
               className="flex-1 min-w-[5rem] px-2 py-2 text-xs"
@@ -189,7 +208,7 @@ export function EmployeeCard({ employee, onEdit, onDeactivate, onReactivate, onR
               <UserCheck className="h-3.5 w-3.5" aria-hidden />
               Aktivieren
             </Button>
-          ) : !inactive ? (
+          ) : !inactive && !removed ? (
             <Button
               variant="danger"
               className="flex-1 min-w-[5rem] px-2 py-2 text-xs"
@@ -199,7 +218,7 @@ export function EmployeeCard({ employee, onEdit, onDeactivate, onReactivate, onR
               Deaktivieren
             </Button>
           ) : null}
-          {canHardDelete && onRequestDelete ? (
+          {canHardDelete && onRequestDelete && !removed ? (
             <Button
               type="button"
               variant="outline"

@@ -10,6 +10,8 @@ export const RB_ACCESS_DISABLED = 'access_disabled'
 export const RB_ADMIN_DEVICE = 'admin_device'
 export const RB_ADMIN_ALL = 'admin_all_devices'
 export const RB_EMPLOYEE_INACTIVE = 'employee_inactive'
+/** Soft-Delete / aus Verwaltung entfernt — Geräte bleiben gesperrt bis manuell neu freigegeben. */
+export const RB_EMPLOYEE_REMOVED = 'employee_removed'
 export const RB_SELF_DEVICE = 'self_device'
 
 function buildDeviceLabel(userAgent: string, platform: string): string {
@@ -198,10 +200,12 @@ export function listEmployeeAppAccessOverview(db: Database, stationId: string): 
   const emps = db
     .prepare(
       `SELECT id, display_name, station_id, employee_access_token, employee_access_enabled,
-              employee_access_created_at, employee_access_last_used_at, active, status
-       FROM employees WHERE station_id = ? ORDER BY display_name COLLATE NOCASE`,
+              employee_access_created_at, employee_access_last_used_at, active, status, deleted_at
+       FROM employees WHERE station_id = ?
+         AND (deleted_at IS NULL OR trim(deleted_at) = '')
+       ORDER BY display_name COLLATE NOCASE`,
     )
-    .all(stationId) as EmpRow[]
+    .all(stationId) as (EmpRow & { deleted_at?: string | null })[]
   if (!emps.length) return []
 
   const allDev = db

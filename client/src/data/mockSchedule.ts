@@ -148,8 +148,9 @@ export type ScheduleShift = {
   color?: string
   /** Nur Anzeige (Mock / UI) */
   conflict?: boolean
-  /** z. B. stationguide_import (API) */
-  importSource?: string
+  employeeDisplayName?: string
+  employeeColor?: string
+  employeeRemovedFromManagement?: boolean
 }
 
 export type WeekDayIndex = 0 | 1 | 2 | 3 | 4 | 5 | 6
@@ -188,6 +189,8 @@ export type ResolvedShiftBlock = {
   breakMinutes?: number
   note?: string
   color?: string
+  employeeDisplayName?: string
+  employeeColor?: string
   /** Offene Schicht ohne Mitarbeiter */
   open?: boolean
 }
@@ -213,6 +216,8 @@ export function scheduleShiftToResolved(
     note: s.note,
     color: s.color,
     conflict: s.conflict,
+    employeeDisplayName: s.employeeDisplayName,
+    employeeColor: s.employeeColor,
     open: !s.employeeId && s.shiftType !== 'frei',
   }
 }

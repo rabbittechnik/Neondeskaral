@@ -15,10 +15,18 @@ type Props = {
   onEdit: (e: Employee) => void
   onDeactivate: (e: Employee) => void
   onReactivate: (e: Employee) => void
+  onRestore?: (e: Employee) => void
   onRequestDelete?: (e: Employee) => void
 }
 
-export function EmployeeTable({ employees, onEdit, onDeactivate, onReactivate, onRequestDelete }: Props) {
+export function EmployeeTable({
+  employees,
+  onEdit,
+  onDeactivate,
+  onReactivate,
+  onRestore,
+  onRequestDelete,
+}: Props) {
   const { hasPermission } = useStation()
   const { user } = useAuth()
   const canHardDelete =
@@ -51,11 +59,12 @@ export function EmployeeTable({ employees, onEdit, onDeactivate, onReactivate, o
         <tbody>
           {employees.map((e) => {
             const inactive = e.status === 'inaktiv'
+            const removed = e.status === 'geloescht'
             return (
               <tr
                 key={e.id}
                 className={`border-b border-[var(--border-subtle)] transition hover:bg-white/[0.03] ${
-                  inactive ? 'opacity-75' : ''
+                  inactive || removed ? 'opacity-75' : ''
                 }`}
               >
                 <td className="px-3 py-2.5">
@@ -124,11 +133,21 @@ export function EmployeeTable({ employees, onEdit, onDeactivate, onReactivate, o
                       type="button"
                       title="Bearbeiten"
                       onClick={() => onEdit(e)}
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--border-strong)] text-[var(--text-muted)] hover:border-cyan-400/40 hover:text-[var(--text-main)]"
+                      disabled={removed}
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--border-strong)] text-[var(--text-muted)] hover:border-cyan-400/40 hover:text-[var(--text-main)] disabled:pointer-events-none disabled:opacity-40"
                     >
                       <Pencil className="h-4 w-4" />
                     </button>
-                    {inactive ? (
+                    {removed && onRestore ? (
+                      <button
+                        type="button"
+                        title="Wiederherstellen"
+                        onClick={() => onRestore(e)}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] border border-emerald-400/35 text-emerald-200 hover:bg-emerald-500/10"
+                      >
+                        <UserCheck className="h-4 w-4" />
+                      </button>
+                    ) : inactive ? (
                       <button
                         type="button"
                         title="Aktivieren"
@@ -147,7 +166,7 @@ export function EmployeeTable({ employees, onEdit, onDeactivate, onReactivate, o
                         <UserX className="h-4 w-4" />
                       </button>
                     )}
-                    {canHardDelete && onRequestDelete ? (
+                    {canHardDelete && onRequestDelete && !removed ? (
                       <button
                         type="button"
                         title="Mitarbeiter löschen"

@@ -22,10 +22,16 @@ export type ShiftRow = {
   import_source?: string | null
   created_by?: string | null
   updated_by?: string | null
+  emp_display_name?: string | null
+  emp_color?: string | null
+  emp_deleted_at?: string | null
 }
 
 export function rowToScheduleShift(r: ShiftRow) {
   const published = (r.published ?? 0) === 1
+  const empName = String(r.emp_display_name ?? '').trim()
+  const empColor = String(r.emp_color ?? '').trim()
+  const empDel = String(r.emp_deleted_at ?? '').trim()
   return {
     id: r.id,
     employeeId: r.employee_id ?? undefined,
@@ -40,6 +46,9 @@ export function rowToScheduleShift(r: ShiftRow) {
     color: r.color ?? undefined,
     conflict: (r.conflict ?? 0) === 1,
     importSource: r.import_source ?? undefined,
+    employeeDisplayName: empName || undefined,
+    employeeColor: empColor || undefined,
+    employeeRemovedFromManagement: empDel ? true : undefined,
   }
 }
 
@@ -54,31 +63,41 @@ export function listShifts(
   },
 ) {
   const stationId = q.stationId ?? DEFAULT_STATION_ID
-  let sql = `SELECT * FROM shifts WHERE station_id = ?`
+  let sql = `SELECT s.*, e.display_name AS emp_display_name, e.color AS emp_color, e.deleted_at AS emp_deleted_at
+    FROM shifts s
+    LEFT JOIN employees e ON e.id = s.employee_id
+    WHERE s.station_id = ?`
   const params: string[] = [stationId]
   if (q.from) {
-    sql += ` AND date >= ?`
+    sql += ` AND s.date >= ?`
     params.push(q.from)
   }
   if (q.to) {
-    sql += ` AND date <= ?`
+    sql += ` AND s.date <= ?`
     params.push(q.to)
   }
   if (q.employeeId) {
-    sql += ` AND employee_id = ?`
+    sql += ` AND s.employee_id = ?`
     params.push(q.employeeId)
   }
   if (q.workAreaId) {
-    sql += ` AND work_area_id = ?`
+    sql += ` AND s.work_area_id = ?`
     params.push(q.workAreaId)
   }
-  sql += ` ORDER BY date, start_time`
+  sql += ` ORDER BY s.date, s.start_time`
   const rows = db.prepare(sql).all(...params) as ShiftRow[]
   return rows.map(rowToScheduleShift)
 }
 
 export function getShift(db: Database, id: string) {
-  const r = db.prepare(`SELECT * FROM shifts WHERE id = ?`).get(id) as ShiftRow | undefined
+  const r = db
+    .prepare(
+      `SELECT s.*, e.display_name AS emp_display_name, e.color AS emp_color, e.deleted_at AS emp_deleted_at
+       FROM shifts s
+       LEFT JOIN employees e ON e.id = s.employee_id
+       WHERE s.id = ?`,
+    )
+    .get(id) as ShiftRow | undefined
   return r ? rowToScheduleShift(r) : undefined
 }
 

@@ -76,10 +76,14 @@ export function validateEmployeeAppAccess(
   deviceId?: string,
 ): row is EmployeeRow {
   if (!row) return false
-  const tok = String((row as Record<string, unknown>).employee_access_token ?? '').trim()
+  const R = row as Record<string, unknown>
+  const tok = String(R.employee_access_token ?? '').trim()
   if (!tok) return false
+  if (String(R.deleted_at ?? '').trim()) return false
+  const stRaw = String(row.status ?? '').toLowerCase()
+  if (stRaw === 'deleted' || stRaw === 'geloescht') return false
   if ((row.active ?? 1) === 0) return false
-  const st = String(row.status ?? '').toLowerCase()
+  const st = stRaw
   if (st === 'inactive' || st === 'inaktiv') return false
   if ((row.employee_access_enabled ?? 1) === 0) return false
   const station = getStation(db, row.station_id) as { active?: number } | undefined

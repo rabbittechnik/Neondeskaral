@@ -18,6 +18,11 @@ type Props = {
   viewMode: ViewMode
   onViewMode: (v: ViewMode) => void
   onExport: () => void
+  showInactiveEmployees?: boolean
+  onShowInactiveEmployees?: (v: boolean) => void
+  showDeletedEmployees?: boolean
+  onShowDeletedEmployees?: (v: boolean) => void
+  canViewDeletedEmployees?: boolean
 }
 
 export function EmployeesToolbar({
@@ -32,6 +37,11 @@ export function EmployeesToolbar({
   viewMode,
   onViewMode,
   onExport,
+  showInactiveEmployees = false,
+  onShowInactiveEmployees,
+  showDeletedEmployees = false,
+  onShowDeletedEmployees,
+  canViewDeletedEmployees = false,
 }: Props) {
   const { definitions: workAreaDefinitions } = useWorkAreas()
   const select =
@@ -95,6 +105,28 @@ export function EmployeesToolbar({
             </option>
           ))}
         </select>
+
+        <label className="flex cursor-pointer items-center gap-2 whitespace-nowrap rounded-[var(--radius-sm)] border border-[var(--border-strong)] bg-[var(--bg-card)] px-3 py-2 text-xs text-[var(--text-muted)]">
+          <input
+            type="checkbox"
+            className="rounded border-[var(--border-strong)] text-cyan-500 focus:ring-cyan-400/30"
+            checked={showInactiveEmployees}
+            onChange={(e) => onShowInactiveEmployees?.(e.target.checked)}
+          />
+          Deaktivierte anzeigen
+        </label>
+
+        {canViewDeletedEmployees ? (
+          <label className="flex cursor-pointer items-center gap-2 whitespace-nowrap rounded-[var(--radius-sm)] border border-[var(--border-strong)] bg-[var(--bg-card)] px-3 py-2 text-xs text-[var(--text-muted)]">
+            <input
+              type="checkbox"
+              className="rounded border-[var(--border-strong)] text-cyan-500 focus:ring-cyan-400/30"
+              checked={showDeletedEmployees}
+              onChange={(e) => onShowDeletedEmployees?.(e.target.checked)}
+            />
+            Archiv (gelöschte) anzeigen
+          </label>
+        ) : null}
 
         <Button variant="outline" className="px-3 py-2" onClick={onExport} leftIcon={<Download className="h-4 w-4" />}>
           Export

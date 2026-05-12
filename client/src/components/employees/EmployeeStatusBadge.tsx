@@ -12,6 +12,8 @@ const hrStyles: Record<EmployeeHRStatus, string> = {
     'border-rose-400/45 bg-rose-500/15 text-rose-100 shadow-[0_0_12px_rgba(251,113,133,0.2)]',
   gesperrt:
     'border-red-500/50 bg-red-500/15 text-red-100 shadow-[0_0_12px_rgba(248,113,113,0.2)]',
+  geloescht:
+    'border-white/20 bg-white/[0.08] text-[var(--text-muted)] shadow-[0_0_10px_rgba(148,163,184,0.12)]',
 }
 
 const presenceStyles: Record<ScheduleEmployeeRow['schedulePresence'], string> = {

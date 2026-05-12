@@ -271,7 +271,9 @@ export function DayTimelineRow({
                       layout={layout}
                       employeeName={
                         item.block.employeeId
-                          ? (employeeById.get(item.block.employeeId)?.name ?? 'Mitarbeiter')
+                          ? (item.block.employeeDisplayName?.trim() ||
+                              employeeById.get(item.block.employeeId)?.name ||
+                              'Mitarbeiter')
                           : 'Mitarbeiter'
                       }
                       accentColor={(() => {
@@ -280,6 +282,7 @@ export function DayTimelineRow({
                           : undefined
                         return (
                           (item.block.color?.trim() ? item.block.color : null) ??
+                          (item.block.employeeColor?.trim() ? item.block.employeeColor : null) ??
                           row?.color ??
                           DEFAULT_EMPLOYEE_SHIFT_ACCENT
                         )

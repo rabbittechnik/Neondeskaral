@@ -5,6 +5,7 @@ import { nowIso } from '../utils/timestamps.js'
 import {
   RB_ACCESS_DISABLED,
   RB_EMPLOYEE_INACTIVE,
+  RB_EMPLOYEE_REMOVED,
   RB_TOKEN_REGEN,
   reactivateDevicesAfterAccessReEnabled,
   revokeAllDevicesForEmployee,
@@ -92,7 +93,10 @@ export function hashEmployeePin(pin: string): string {
   return createHash('sha256').update(`neonshift-pin|${pin}`).digest('hex')
 }
 
-function mapStatusToFrontend(dbStatus: string | null, active: number | null): string {
+function mapStatusToFrontend(dbStatus: string | null, active: number | null, row?: Record<string, unknown>): string {
+  if (row && String(row.deleted_at ?? '').trim()) return 'geloescht'
+  const ds = String(dbStatus ?? '').toLowerCase()
+  if (ds === 'deleted' || ds === 'geloescht') return 'geloescht'
   if (active === 0) return 'inaktiv'
   if (dbStatus === 'inactive') return 'inaktiv'
   if (dbStatus === 'blocked' || dbStatus === 'gesperrt') return 'gesperrt'
@@ -160,7 +164,7 @@ function rowToEmployeeApiFull(row: EmployeeRow, workAreaIds: string[], includeAc
     vacationDaysUsed: used,
     remainingVacationDays: Math.max(0, total - used),
     color: row.color ?? '#22d3ee',
-    status: mapStatusToFrontend(row.status, row.active),
+    status: mapStatusToFrontend(row.status, row.active, R),
     workAreaIds,
     startDate: row.start_date ?? '',
     endDate: row.end_date ?? undefined,
@@ -233,6 +237,8 @@ function rowToEmployeeApiFull(row: EmployeeRow, workAreaIds: string[], includeAc
     maxPreferredDaysPerWeek: rOptNum(R, 'max_preferred_days_per_week'),
     maxWeeklyHours: rOptNum(R, 'max_weekly_hours'),
     planningNotes: rStr(R, 'planning_notes'),
+    deletedAt: rStr(R, 'deleted_at').trim() || undefined,
+    deletedBy: rStr(R, 'deleted_by').trim() || undefined,
   }
   if (includeAccessToken) api.employeeAccessToken = token
   return api as EmployeeApi
@@ -334,6 +340,8 @@ export type EmployeeApi = {
   maxPreferredDaysPerWeek?: number
   maxWeeklyHours?: number
   planningNotes: string
+  deletedAt?: string
+  deletedBy?: string
   employeeAccessToken?: string
 }
 
@@ -353,15 +361,41 @@ export function rowToEmployeeApi(
   return filterEmployeeSensitiveFields(raw, Boolean(opts?.includeSensitive))
 }
 
+/** Nicht soft-gelöscht: weder Zeitstempel noch Status „deleted“. */
+function sqlEmployeeNotSoftDeleted(alias = ''): string {
+  const p = alias ? `${alias}.` : ''
+  return `( (COALESCE(${p}deleted_at, '') = '' OR trim(${p}deleted_at) = '')
+    AND lower(trim(COALESCE(${p}status, ''))) != 'deleted' )`
+}
+
+/** Für Standardliste: explizit oder per COALESCE als aktiv behandeln (Legacy-Zeilen mit NULL). */
+function sqlEmployeeActive(alias = ''): string {
+  const p = alias ? `${alias}.` : ''
+  return `(COALESCE(${p}active, 1) = 1)`
+}
+
 export function listEmployees(
   db: Database,
   stationId = DEFAULT_STATION_ID,
-  opts?: { includeInactive?: boolean; includeSensitive?: boolean; includeAccessTokens?: boolean },
+  opts?: {
+    includeInactive?: boolean
+    includeDeleted?: boolean
+    includeSensitive?: boolean
+    includeAccessTokens?: boolean
+  },
 ) {
-  const sql =
-    opts?.includeInactive === true
-      ? `SELECT * FROM employees WHERE station_id = ? ORDER BY display_name`
-      : `SELECT * FROM employees WHERE station_id = ? AND (active IS NULL OR active = 1) ORDER BY display_name`
+  const showDeleted = opts?.includeDeleted === true
+  const showInactive = opts?.includeInactive === true
+
+  let where = 'station_id = ?'
+  if (!showDeleted) {
+    where += ` AND ${sqlEmployeeNotSoftDeleted()}`
+    if (!showInactive) {
+      where += ` AND ${sqlEmployeeActive()}`
+    }
+  }
+
+  const sql = `SELECT * FROM employees WHERE ${where} ORDER BY display_name`
   const rows = db.prepare(sql).all(stationId) as EmployeeRow[]
   const waStmt = db.prepare(`SELECT work_area_id FROM employee_work_areas WHERE employee_id = ?`)
   const sens = Boolean(opts?.includeSensitive)
@@ -389,7 +423,10 @@ export function getEmployee(db: Database, id: string, opts?: { includeAccessToke
 export function getEmployeeByCard(db: Database, cardNumber: string, stationId = DEFAULT_STATION_ID) {
   const row = db
     .prepare(
-      `SELECT * FROM employees WHERE station_id = ? AND cash_register_card_number = ? AND (active IS NULL OR active = 1)`,
+      `SELECT * FROM employees WHERE station_id = ? AND cash_register_card_number = ?
+       AND (COALESCE(active, 1) = 1)
+       AND (COALESCE(deleted_at, '') = '' OR trim(deleted_at) = '')
+       AND lower(trim(COALESCE(status, ''))) != 'deleted'`,
     )
     .get(stationId, cardNumber.trim()) as EmployeeRow | undefined
   if (!row) return undefined
@@ -581,6 +618,10 @@ export function updateEmployee(
   const allowSensitive = Boolean(opts?.allowSensitive)
   const ts = nowIso()
   const sid = String(existing.station_id)
+  const exR = existing as Record<string, unknown>
+  if (rStr(exR, 'deleted_at').trim()) {
+    throw new Error('Gelöschte Mitarbeitende können hier nicht bearbeitet werden. Bitte zuerst wiederherstellen.')
+  }
 
   if (body.status === 'inaktiv' || body.status === 'inactive') {
     db.prepare(
@@ -879,6 +920,55 @@ export function softDeleteEmployee(db: Database, id: string) {
   revokeAllDevicesForEmployee(db, id, RB_EMPLOYEE_INACTIVE)
 }
 
+/** Aus aktiver Verwaltung entfernen (Soft Delete): Nachweise in Schichten/Zeiten bleiben erhalten. */
+export function removeEmployeeFromManagement(
+  db: Database,
+  id: string,
+  opts: { revokedBy: string; deletedBy: string },
+) {
+  const ts = nowIso()
+  const r = db
+    .prepare(
+      `UPDATE employees SET
+        active = 0,
+        status = 'deleted',
+        deleted_at = ?,
+        deleted_by = ?,
+        employee_access_enabled = 0,
+        terminal_enabled = 0,
+        updated_at = ?
+      WHERE id = ?`,
+    )
+    .run(ts, opts.deletedBy, ts, id)
+  if (r.changes === 0) throw new Error('Mitarbeiter nicht gefunden')
+  revokeAllDevicesForEmployee(db, id, opts.revokedBy)
+}
+
+export function restoreEmployeeFromDeletion(db: Database, id: string) {
+  const row = getEmployeeRowInternal(db, id)
+  if (!row) throw new Error('Mitarbeiter nicht gefunden')
+  const R = row as Record<string, unknown>
+  const delAt = rStr(R, 'deleted_at').trim()
+  const st = String(row.status ?? '').toLowerCase()
+  if (!delAt && st !== 'deleted') throw new Error('Mitarbeiter ist nicht gelöscht')
+  const ts = nowIso()
+  const r = db
+    .prepare(
+      `UPDATE employees SET
+        active = 1,
+        status = 'active',
+        deleted_at = NULL,
+        deleted_by = NULL,
+        terminal_enabled = 1,
+        employee_access_enabled = 0,
+        updated_at = ?
+      WHERE id = ?`,
+    )
+    .run(ts, id)
+  if (r.changes === 0) throw new Error('Mitarbeiter nicht gefunden')
+  return getEmployee(db, id, { includeAccessToken: true, includeSensitive: false })
+}
+
 export function getEmployeeRowInternal(db: Database, id: string): EmployeeRow | undefined {
   return db.prepare(`SELECT * FROM employees WHERE id = ?`).get(id) as EmployeeRow | undefined
 }
@@ -936,25 +1026,71 @@ export function employeeHistoryCounts(db: Database, employeeId: string) {
       )
       .get(employeeId, employeeId) as { c: number }
   ).c
-  const total = shifts + times + abs + logs + chk
-  return { shifts, times, abs, logs, chk, total, any: total > 0 }
+  const appDevices = (
+    db.prepare(`SELECT COUNT(*) as c FROM employee_app_devices WHERE employee_id = ?`).get(employeeId) as {
+      c: number
+    }
+  ).c
+  let shiftWarnings = 0
+  try {
+    shiftWarnings = (
+      db.prepare(`SELECT COUNT(*) as c FROM employee_shift_warnings WHERE employee_id = ?`).get(employeeId) as {
+        c: number
+      }
+    ).c
+  } catch {
+    shiftWarnings = 0
+  }
+  let checklistReviews = 0
+  try {
+    checklistReviews = (
+      db
+        .prepare(`SELECT COUNT(*) as c FROM shift_checklist_review_items WHERE employee_id = ?`)
+        .get(employeeId) as { c: number }
+    ).c
+  } catch {
+    checklistReviews = 0
+  }
+  const total = shifts + times + abs + logs + chk + appDevices + shiftWarnings + checklistReviews
+  return {
+    shifts,
+    times,
+    abs,
+    logs,
+    chk,
+    appDevices,
+    shiftWarnings,
+    checklistReviews,
+    total,
+    any: total > 0,
+  }
 }
 
-/** Hard-Delete nur ohne Historie; sonst soft deaktivieren. */
-export function deleteEmployeeHardOrFallback(db: Database, id: string): {
-  outcome: 'hard_deleted' | 'soft_fallback'
-  message?: string
+/** Hard-Delete nur ohne Historie; sonst Soft-Delete (aus Verwaltung entfernen). */
+export function deleteEmployeeHardOrFallback(
+  db: Database,
+  id: string,
+  opts?: { deletedBy?: string; revokeBy?: string },
+): {
+  mode: 'hard_deleted' | 'soft_deleted'
+  message: string
 } {
   const hist = employeeHistoryCounts(db, id)
+  const deletedBy = opts?.deletedBy?.trim() || 'system'
+  const revokeBy = opts?.revokeBy?.trim() || RB_EMPLOYEE_REMOVED
   if (hist.any) {
-    softDeleteEmployee(db, id)
+    removeEmployeeFromManagement(db, id, { revokedBy: revokeBy, deletedBy })
     return {
-      outcome: 'soft_fallback',
-      message:
-        'Mitarbeiter hat historische Daten und kann nicht endgültig gelöscht werden. Er wurde deaktiviert.',
+      mode: 'soft_deleted',
+      message: 'Mitarbeiter wurde gelöscht. Historische Daten bleiben erhalten.',
     }
   }
   const tx = db.transaction(() => {
+    db.prepare(`DELETE FROM employee_app_devices WHERE employee_id = ?`).run(id)
+    db.prepare(
+      `DELETE FROM shift_checklist_review_items WHERE employee_id = ? OR time_entry_id IN (SELECT id FROM time_entries WHERE employee_id = ?)`,
+    ).run(id, id)
+    db.prepare(`DELETE FROM employee_shift_warnings WHERE employee_id = ?`).run(id)
     db.prepare(
       `DELETE FROM shift_close_checklists WHERE time_entry_id IN (SELECT id FROM time_entries WHERE employee_id = ?) OR employee_id = ?`,
     ).run(id, id)
@@ -970,5 +1106,5 @@ export function deleteEmployeeHardOrFallback(db: Database, id: string): {
     if (r.changes === 0) throw new Error('Mitarbeiter nicht gefunden')
   })
   tx()
-  return { outcome: 'hard_deleted' }
+  return { mode: 'hard_deleted', message: 'Mitarbeiter wurde gelöscht.' }
 }

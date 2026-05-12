@@ -7,6 +7,8 @@ import { Button } from '../../components/ui/Button'
 import { Avatar } from '../../components/ui/Avatar'
 import { useEmployees } from '../../context/employees-context'
 import { useStation } from '../../context/station-context'
+import { mergeEmployeeFromApi } from '../../components/employees/employeeDefaults'
+import { apiGet } from '../../services/api'
 import { WORK_AREA_DEFINITIONS } from '../../data/mockEmployees'
 import { EmployeeStatusBadge } from '../../components/employees/EmployeeStatusBadge'
 import { EmploymentTypeBadge } from '../../components/employees/EmploymentTypeBadge'
@@ -71,28 +73,63 @@ type TabId = (typeof TABS)[number]['id']
 export function EmployeeProfilePage() {
   const { employeeId } = useParams()
   const location = useLocation()
-  const { employees } = useEmployees()
+  const { employees, restoreEmployee } = useEmployees()
   const { hasPermission } = useStation()
+  const canEdit = hasPermission('employees.edit')
   const canSensitive =
     hasPermission('employees.viewSensitive') ||
     hasPermission('payroll.view') ||
     hasPermission('employees.manageSensitive')
   const canQr = hasPermission('employees.qr')
   const [tab, setTab] = useState<TabId>('overview')
+  const [fetchedEmployee, setFetchedEmployee] = useState<Employee | null>(null)
+  const [employeeFetchLoading, setEmployeeFetchLoading] = useState(false)
 
   useEffect(() => {
     const st = location.state as { initialTab?: TabId } | null
     if (st?.initialTab && TABS.some((t) => t.id === st.initialTab)) setTab(st.initialTab)
   }, [location.state, employeeId])
 
-  const employee = useMemo(
+  const fromList = useMemo(
     () => (employeeId ? employees.find((e) => e.id === employeeId) : undefined),
     [employeeId, employees],
   )
 
-  if (!employeeId || !employee) {
+  useEffect(() => {
+    if (!employeeId || fromList) {
+      setFetchedEmployee(null)
+      return
+    }
+    let cancelled = false
+    setEmployeeFetchLoading(true)
+    void apiGet<Employee>(`/employees/${encodeURIComponent(employeeId)}`).then((res) => {
+      if (cancelled) return
+      setEmployeeFetchLoading(false)
+      if (res.ok && res.data) {
+        setFetchedEmployee(mergeEmployeeFromApi(res.data as Partial<Employee> & { id: string }))
+      } else {
+        setFetchedEmployee(null)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [employeeId, fromList])
+
+  const employee = fromList ?? fetchedEmployee ?? undefined
+
+  if (!employeeId) {
     return <Navigate to="/employees" replace />
   }
+
+  if (!employee) {
+    if (employeeFetchLoading) {
+      return <p className="text-sm text-[var(--text-muted)]">Profil wird geladen…</p>
+    }
+    return <Navigate to="/employees" replace />
+  }
+
+  const isRemoved = employee.status === 'geloescht'
 
   const areas = employee.workAreaIds
     .map((id) => WORK_AREA_DEFINITIONS.find((w) => w.id === id))
@@ -134,6 +171,23 @@ export function EmployeeProfilePage() {
           </div>
         </div>
       </header>
+
+      {isRemoved ? (
+        <div className="rounded-md border border-white/15 bg-white/[0.04] px-4 py-3 text-sm text-[var(--text-muted)]">
+          <p>
+            Dieser Mitarbeiter wurde aus der aktiven Verwaltung entfernt. Bearbeiten ist erst nach Wiederherstellung
+            möglich. Der Mitarbeiter-App-Zugang bleibt aus Sicherheitsgründen deaktiviert, bis er in den
+            Einstellungen erneut freigegeben wird.
+          </p>
+          {canEdit ? (
+            <div className="mt-3">
+              <Button type="button" variant="primary" onClick={() => void restoreEmployee(employee.id)}>
+                Wiederherstellen
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="flex gap-1 overflow-x-auto pb-1 [scrollbar-width:thin]">
         {TABS.map((t) => (
@@ -266,9 +320,25 @@ export function EmployeeProfilePage() {
           </Card>
         </div>
       ) : tab === 'planning' ? (
-        <EmployeeProfilePlanningSection employee={employee} />
+        isRemoved ? (
+          <Card padding="md" className="border-[var(--border-subtle)]">
+            <p className="text-sm text-[var(--text-muted)]">
+              Schichtwünsche können für gelöschte Mitarbeitende nicht bearbeitet werden. Bitte zuerst
+              wiederherstellen.
+            </p>
+          </Card>
+        ) : (
+          <EmployeeProfilePlanningSection employee={employee} />
+        )
       ) : tab === 'employeeApp' ? (
-        canQr ? (
+        isRemoved ? (
+          <Card padding="md" className="border-[var(--border-subtle)]">
+            <p className="text-sm text-[var(--text-muted)]">
+              Der Mitarbeiter-App-Zugang ist deaktiviert. Nach einer Wiederherstellung kann der QR-Zugang unter
+              Mitarbeiter-App / QR-Code manuell erneut freigegeben werden.
+            </p>
+          </Card>
+        ) : canQr ? (
           <EmployeeAppQrSection employee={employee} />
         ) : (
           <Card padding="md" className="border-[var(--border-subtle)]">

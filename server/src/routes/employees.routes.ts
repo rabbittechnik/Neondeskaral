@@ -40,13 +40,18 @@ employeesRouter.get('/', (req, res) => {
     const stationId = typeof req.query.stationId === 'string' ? req.query.stationId : undefined
     if (!requirePermission(req, res, stationId, 'employees.view')) return
     const includeInactive = req.query.includeInactive === '1' || req.query.includeInactive === 'true'
+    const includeDeletedRaw = req.query.includeDeleted === '1' || req.query.includeDeleted === 'true'
     const sens = canViewEmployeeSensitive(req, stationId!)
     const ctx = getAccess(req)
+    const includeDeleted =
+      includeDeletedRaw &&
+      Boolean(ctx && hasPermission(ctx, stationId!, 'employees.viewDeleted'))
     const includeAccessTokens = Boolean(ctx && hasPermission(ctx, stationId!, 'employees.qr'))
     jsonOk(
       res,
       employeeService.listEmployees(getDb(), stationId!, {
         includeInactive,
+        includeDeleted,
         includeSensitive: sens,
         includeAccessTokens,
       }),
@@ -115,6 +120,24 @@ employeesRouter.post('/:id/enable-access', (req, res) => {
     if (!row) return jsonErr(res, 'Mitarbeiter nicht gefunden', 404)
     if (!requirePermission(req, res, row.station_id, 'employees.qr')) return
     jsonOk(res, employeeService.setEmployeeAccessEnabled(getDb(), req.params.id, true))
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
+  }
+})
+
+employeesRouter.post('/:id/restore', (req, res) => {
+  try {
+    const row = employeeService.getEmployeeRowInternal(getDb(), req.params.id)
+    if (!row) return jsonErr(res, 'Mitarbeiter nicht gefunden', 404)
+    if (!requirePermission(req, res, row.station_id, 'employees.edit')) return
+    employeeService.restoreEmployeeFromDeletion(getDb(), req.params.id)
+    const ctx = getAccess(req)
+    const sens = canViewEmployeeSensitive(req, row.station_id)
+    const includeAccessToken = Boolean(ctx && hasPermission(ctx, row.station_id, 'employees.qr'))
+    jsonOk(
+      res,
+      employeeService.getEmployee(getDb(), req.params.id, { includeSensitive: sens, includeAccessToken }),
+    )
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
   }
@@ -201,8 +224,11 @@ employeesRouter.delete('/:id', (req, res) => {
       jsonErr(res, 'Keine Berechtigung für endgültiges Löschen', 403)
       return
     }
-    const out = employeeService.deleteEmployeeHardOrFallback(getDb(), req.params.id)
-    jsonOk(res, { deleted: true, mode: out.outcome, message: out.message })
+    const out = employeeService.deleteEmployeeHardOrFallback(getDb(), req.params.id, {
+      deletedBy: ctx.userId ? `user:${ctx.userId}` : 'system',
+      revokeBy: ctx.userId ? `user:${ctx.userId}` : RB_ADMIN_ALL,
+    })
+    jsonOk(res, { ok: true, mode: out.mode, message: out.message })
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
   }

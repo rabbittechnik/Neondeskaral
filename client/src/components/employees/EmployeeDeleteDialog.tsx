@@ -6,11 +6,10 @@ type Props = {
   employee: Employee | null
   busy: boolean
   onClose: () => void
-  onDeactivateInstead: () => void | Promise<void>
-  onHardDelete: () => void | Promise<void>
+  onConfirmDelete: () => void | Promise<void>
 }
 
-export function EmployeeDeleteDialog({ open, employee, busy, onClose, onDeactivateInstead, onHardDelete }: Props) {
+export function EmployeeDeleteDialog({ open, employee, busy, onClose, onConfirmDelete }: Props) {
   if (!open || !employee) return null
 
   return (
@@ -27,28 +26,18 @@ export function EmployeeDeleteDialog({ open, employee, busy, onClose, onDeactiva
         aria-modal
         className="relative z-10 w-full max-w-lg rounded-[var(--radius-md)] border border-red-400/35 bg-[var(--bg-card)] p-6 shadow-[0_0_40px_rgba(248,113,113,0.15)]"
       >
-        <h2 className="text-lg font-semibold text-[var(--text-main)]">Mitarbeiter wirklich löschen?</h2>
+        <h2 className="text-lg font-semibold text-[var(--text-main)]">Mitarbeiter löschen?</h2>
         <p className="mt-2 text-sm font-medium text-[var(--text-main)]">{employee.displayName}</p>
         <p className="mt-3 text-sm leading-relaxed text-[var(--text-muted)]">
-          Dieser Vorgang kann Auswirkungen auf Schichtplan, Arbeitszeiten und historische Daten haben. Wenn bereits
-          Schichten oder Arbeitszeiten vorhanden sind, wird empfohlen, den Mitarbeiter nur zu deaktivieren.
+          Der Mitarbeiter wird aus der aktiven Verwaltung entfernt. Historische Schichten, Arbeitszeiten und
+          Auswertungen bleiben aus Nachweisgründen erhalten.
         </p>
         <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
           <Button variant="ghost" type="button" disabled={busy} onClick={onClose}>
             Abbrechen
           </Button>
-          <Button
-            variant="outline"
-            type="button"
-            disabled={busy}
-            onClick={() => {
-              void onDeactivateInstead()
-            }}
-          >
-            Deaktivieren statt löschen
-          </Button>
-          <Button variant="danger" type="button" disabled={busy} onClick={() => void onHardDelete()}>
-            Endgültig löschen
+          <Button variant="danger" type="button" disabled={busy} onClick={() => void onConfirmDelete()}>
+            Löschen
           </Button>
         </div>
       </div>

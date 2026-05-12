@@ -12,7 +12,7 @@ export type EmploymentType =
   | 'sonstige'
 
 /** Anstellungs-/Anwesenheits-Anzeige in Listen & Filtern */
-export type EmployeeHRStatus = 'aktiv' | 'inaktiv' | 'urlaub' | 'krank' | 'gesperrt'
+export type EmployeeHRStatus = 'aktiv' | 'inaktiv' | 'urlaub' | 'krank' | 'gesperrt' | 'geloescht'
 
 /** Zusatz-Hinweis für Schichtplan-Leiste (optional) */
 export type EmployeePlanHint = 'frei' | 'ueberstunden'
@@ -52,6 +52,9 @@ export type Employee = {
   remainingVacationDays: number
   color: string
   status: EmployeeHRStatus
+  /** Server: Soft-Delete-Zeitpunkt (nur Admin-Ansicht „gelöscht anzeigen“). */
+  deletedAt?: string
+  deletedBy?: string
   workAreaIds: string[]
   avatar?: string
   startDate: string
@@ -152,7 +155,8 @@ export type ScheduleEmployeeRow = {
 
 export function toScheduleEmployeeRow(e: Employee): ScheduleEmployeeRow {
   let schedulePresence: ScheduleEmployeeRow['schedulePresence'] = 'aktiv'
-  if (e.status === 'inaktiv') schedulePresence = 'inaktiv'
+  if (e.status === 'geloescht') schedulePresence = 'inaktiv'
+  else if (e.status === 'inaktiv') schedulePresence = 'inaktiv'
   else if (e.status === 'gesperrt') schedulePresence = 'gesperrt'
   else if (e.status === 'urlaub') schedulePresence = 'urlaub'
   else if (e.status === 'krank') schedulePresence = 'krank'

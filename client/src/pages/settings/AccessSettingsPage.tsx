@@ -28,6 +28,7 @@ const PERMISSION_UI: { key: string; label: string }[] = [
   { key: 'employees.edit', label: 'Mitarbeiter bearbeiten' },
   { key: 'employees.deactivate', label: 'Mitarbeiter deaktivieren' },
   { key: 'employees.delete', label: 'Mitarbeiter endgültig löschen (ohne Historie)' },
+  { key: 'employees.viewDeleted', label: 'Gelöschte Mitarbeiter in der Liste anzeigen' },
   { key: 'employees.qr', label: 'QR-Codes verwalten' },
   { key: 'employees.viewAppAccess', label: 'Mitarbeiter-App-Zugänge ansehen' },
   { key: 'employees.manageAppAccess', label: 'Mitarbeiter-App-Zugänge verwalten' },

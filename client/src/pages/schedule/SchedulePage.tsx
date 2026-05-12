@@ -84,8 +84,11 @@ export function SchedulePage() {
   )
 
   const getEmployeeDisplayName = useCallback(
-    (id: string) => employees.find((e) => e.id === id)?.displayName ?? 'Mitarbeiter',
-    [employees],
+    (id: string) =>
+      employees.find((e) => e.id === id)?.displayName ??
+      shifts.find((s) => s.employeeId === id && s.employeeDisplayName)?.employeeDisplayName ??
+      'Mitarbeiter',
+    [employees, shifts],
   )
 
   const handleAssistantApplied = useCallback(async () => {
