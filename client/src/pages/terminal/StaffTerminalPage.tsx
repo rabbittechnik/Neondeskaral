@@ -7,6 +7,7 @@ import type { CheckInEvaluation, CheckOutEvaluation } from '../../utils/timeTrac
 import { calculateWorkedMinutes, evaluateCheckIn, evaluateCheckOut, formatWorkedDuration } from '../../utils/timeTrackingUtils'
 import type { TimeEntry } from '../../types/timeTracking'
 import type { CashRegisterCardEvent } from '../../types/timeTracking'
+import { API_BASE } from '../../services/api'
 import { TerminalClock } from '../../components/terminal/TerminalClock'
 import { TerminalActionButtons } from '../../components/terminal/TerminalActionButtons'
 import { CashRegisterNumberModal } from '../../components/terminal/CashRegisterNumberModal'
@@ -17,6 +18,8 @@ import { ShiftCloseSuccessCard } from '../../components/terminal/ShiftCloseSucce
 import { Button } from '../../components/ui/Button'
 
 type ModalMode = null | 'check-in' | 'check-out'
+
+type ShiftWarningLite = { id: string; label: string; message: string }
 
 export function StaffTerminalPage() {
   const { stationId, selectedStation } = useStation()
@@ -41,6 +44,12 @@ export function StaffTerminalPage() {
   const [checkOutEntry, setCheckOutEntry] = useState<TimeEntry | null>(null)
   const [inSuccess, setInSuccess] = useState<{ name: string; time: string } | null>(null)
   const [outSuccess, setOutSuccess] = useState<{ name: string; end: string; dur: string } | null>(null)
+  const [pendingShiftWarnings, setPendingShiftWarnings] = useState<{
+    employeeId: string
+    note?: string
+    force: boolean
+    warnings: ShiftWarningLite[]
+  } | null>(null)
 
   const log = useCallback(
     (partial: Omit<CashRegisterCardEvent, 'id' | 'scannedAt' | 'stationId'>) => {
@@ -55,6 +64,31 @@ export function StaffTerminalPage() {
     setCheckOutMsg(null)
     setCheckInSecurity(null)
     setCheckoutSecurity(null)
+    setPendingShiftWarnings(null)
+  }
+
+  const acknowledgeShiftWarningsAndRetry = async () => {
+    if (!pendingShiftWarnings || !stationId) return
+    const card = lastCheckInCardRef.current.trim()
+    if (!card) {
+      window.alert('Kartennummer fehlt. Bitte erneut scannen.')
+      return
+    }
+    for (const w of pendingShiftWarnings.warnings) {
+      const res = await fetch(`${API_BASE}/terminal/shift-warnings/acknowledge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cardNumber: card, stationId, warningId: w.id }),
+      })
+      const json = (await res.json()) as { ok?: boolean; error?: string }
+      if (!json.ok) {
+        window.alert(json.error ?? 'Hinweis konnte nicht bestätigt werden')
+        return
+      }
+    }
+    const { employeeId, note, force } = pendingShiftWarnings
+    setPendingShiftWarnings(null)
+    await finalizeCheckIn(employeeId, note, force)
   }
 
   const finalizeCheckIn = async (employeeId: string, note?: string, force = false) => {
@@ -79,6 +113,21 @@ export function StaffTerminalPage() {
         message: `Schicht gestartet ${t}`,
       })
     } catch (err) {
+      const e = err as Error & { code?: string; warnings?: unknown }
+      if (e?.code === 'shift_warnings_pending') {
+        const raw = e.warnings
+        const warnings: ShiftWarningLite[] = Array.isArray(raw)
+          ? (raw as Record<string, unknown>[])
+              .map((o) => ({
+                id: String(o.id ?? ''),
+                label: String(o.label ?? 'Hinweis'),
+                message: typeof o.message === 'string' ? o.message : String(o.message ?? ''),
+              }))
+              .filter((w) => w.id)
+          : []
+        setPendingShiftWarnings({ employeeId, note, force, warnings })
+        return
+      }
       window.alert(err instanceof Error ? err.message : 'Check-in fehlgeschlagen')
     }
   }
@@ -302,6 +351,7 @@ export function StaffTerminalPage() {
             setInSuccess(null)
             setCheckInSecurity(null)
             setCheckoutSecurity(null)
+            setPendingShiftWarnings(null)
             setModal('check-in')
           }}
           onCheckOut={() => {
@@ -309,6 +359,7 @@ export function StaffTerminalPage() {
             setCheckOutMsg(null)
             setCheckInSecurity(null)
             setCheckoutSecurity(null)
+            setPendingShiftWarnings(null)
             setModal('check-out')
           }}
         />
@@ -406,6 +457,33 @@ export function StaffTerminalPage() {
                 }}
               >
                 Ja, Schicht beenden
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {pendingShiftWarnings ? (
+        <div className="fixed inset-0 z-[138] flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-2xl border border-amber-400/35 bg-[var(--bg-card)] p-6 shadow-xl">
+            <h2 className="text-lg font-semibold text-[var(--text-main)]">Hinweis aus deiner letzten Schicht</h2>
+            <p className="mt-2 text-sm text-[var(--text-muted)]">
+              Bitte bestätige die folgenden Hinweise der Leitung, bevor du dich erneut einstempelst.
+            </p>
+            <ul className="mt-4 max-h-[40vh] space-y-3 overflow-y-auto text-sm">
+              {pendingShiftWarnings.warnings.map((w) => (
+                <li key={w.id} className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2">
+                  <p className="font-medium text-amber-100">{w.label}</p>
+                  {w.message ? <p className="mt-1 text-[var(--text-muted)]">{w.message}</p> : null}
+                </li>
+              ))}
+            </ul>
+            <div className="mt-5 flex flex-wrap gap-2">
+              <Button type="button" variant="ghost" className="flex-1" onClick={() => setPendingShiftWarnings(null)}>
+                Später
+              </Button>
+              <Button type="button" variant="primary" className="flex-1" onClick={() => void acknowledgeShiftWarningsAndRetry()}>
+                Verstanden, fortfahren
               </Button>
             </div>
           </div>

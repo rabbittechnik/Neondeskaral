@@ -26,6 +26,11 @@ export function initDatabase(): Database.Database {
   fs.mkdirSync(dir, { recursive: true })
   // Keine Secrets — nur der aufgelöste Pfad (Railway: DATABASE_PATH=/data/neonshift.sqlite)
   console.log(`Using database path: ${dbPath}`)
+  if (process.env.NODE_ENV === 'production' && !process.env.DATABASE_PATH) {
+    console.warn(
+      'WARNUNG: DATABASE_PATH ist in Produktion nicht gesetzt. Daten könnten bei Redeploy verloren gehen.',
+    )
+  }
 
   const db = new Database(dbPath)
   db.pragma('journal_mode = WAL')

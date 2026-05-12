@@ -106,18 +106,34 @@ export function listAllActiveStationRows(db: Database) {
     .all() as Record<string, unknown>[]
 }
 
-/** Bootstrap: fehlende Stationen + Arbeitsbereiche (IDs stationKey_templateId). */
+const DEFAULT_WORK_AREA_TEMPLATE: {
+  id: string
+  name: string
+  short_code: string
+  color: string
+  description: string
+}[] = [
+  { id: 'kasse', name: 'Kasse', short_code: 'K', color: '#22d3ee', description: '' },
+  { id: 'buero', name: 'Büro', short_code: 'B', color: '#a78bfa', description: '' },
+  { id: 'backshop', name: 'Backshop', short_code: 'Ba', color: '#fbbf24', description: '' },
+  { id: 'lager', name: 'Lager', short_code: 'L', color: '#94a3b8', description: '' },
+  { id: 'wasch', name: 'Waschanlage', short_code: 'W', color: '#38bdf8', description: '' },
+  { id: 'aussen', name: 'Außenbereich', short_code: 'A', color: '#4ade80', description: '' },
+  { id: 'schule', name: 'Schule', short_code: 'Sch', color: '#2dd4bf', description: '' },
+  { id: 'reinigung', name: 'Reinigung', short_code: 'Re', color: '#64748b', description: '' },
+]
+
+/** Bootstrap: fehlende Stationen + Arbeitsbereiche (INSERT OR IGNORE, keine Überschreibung). */
 export function ensureKnownStationsAndWorkAreas(db: Database, nowIsoStr: string) {
   const insSt = db.prepare(
     `INSERT OR IGNORE INTO stations (id, name, address, city, postal_code, phone, email, federal_state, brand, active, created_at, updated_at)
      VALUES (?, ?, '', ?, '', '', '', ?, ?, 1, ?, ?)`,
   )
   for (const s of KNOWN_STATIONS) {
-    if (s.id === 'aral-bodelshausen') continue
     insSt.run(s.id, s.name, s.city, s.federalState, s.brand, nowIsoStr, nowIsoStr)
   }
 
-  const tpl = db
+  const tplDb = db
     .prepare(`SELECT id, name, short_code, color, description FROM work_areas WHERE station_id = ?`)
     .all('aral-bodelshausen') as {
     id: string
@@ -127,7 +143,7 @@ export function ensureKnownStationsAndWorkAreas(db: Database, nowIsoStr: string)
     description: string
   }[]
 
-  if (tpl.length === 0) return
+  const tpl = tplDb.length > 0 ? tplDb : DEFAULT_WORK_AREA_TEMPLATE
 
   const insWa = db.prepare(
     `INSERT OR IGNORE INTO work_areas (id, station_id, name, short_code, color, description, active, created_at, updated_at)
@@ -135,11 +151,10 @@ export function ensureKnownStationsAndWorkAreas(db: Database, nowIsoStr: string)
   )
 
   for (const s of KNOWN_STATIONS) {
-    if (s.id === 'aral-bodelshausen') continue
     const c = db.prepare(`SELECT COUNT(*) as c FROM work_areas WHERE station_id = ?`).get(s.id) as { c: number }
     if ((c?.c ?? 0) > 0) continue
     for (const w of tpl) {
-      const wid = `${s.id}_${w.id}`
+      const wid = s.id === 'aral-bodelshausen' ? w.id : `${s.id}_${w.id}`
       insWa.run(wid, s.id, w.name, w.short_code, w.color, w.description ?? '', nowIsoStr, nowIsoStr)
     }
   }

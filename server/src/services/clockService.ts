@@ -10,6 +10,8 @@ import {
   insertChecklist,
   logCardEvent,
 } from './timeTrackingService.js'
+import { syncReviewItemsFromCloseChecklist } from './shiftChecklistReviewService.js'
+import { listActiveShiftWarningsForEmployee } from './employeeShiftWarningService.js'
 
 function parseHHMM(t: string): number {
   const [h, m] = t.split(':').map(Number)
@@ -110,6 +112,27 @@ export function clockCheckInByEmployeeId(
         message: 'Terminal/Zeiterfassung deaktiviert',
       })
     return { ok: false as const, result: 'error' as const, message: 'Terminal/Zeiterfassung deaktiviert' }
+  }
+
+  const pendingWarnings = listActiveShiftWarningsForEmployee(db, employeeId)
+  if (pendingWarnings.length > 0) {
+    if (card)
+      logCardEvent(db, {
+        cardNumber: card,
+        employeeId,
+        stationId,
+        actionType: 'check_in',
+        result: 'error',
+        message: 'Schicht-Hinweise noch nicht bestätigt',
+      })
+    return {
+      ok: false as const,
+      result: 'shift_warnings_pending' as const,
+      requiresWarningAcknowledgement: true as const,
+      warnings: pendingWarnings,
+      message: 'Hinweis aus deiner letzten Schicht: Bitte zuerst bestätigen.',
+      employee: emp,
+    }
   }
 
   const running = getRunningForEmployee(db, employeeId, stationId)
@@ -298,6 +321,12 @@ export function clockCheckOutComplete(
   }
 
   insertChecklist(db, timeEntryId, row.employee_id, checklist)
+  syncReviewItemsFromCloseChecklist(db, {
+    timeEntryId,
+    employeeId: row.employee_id,
+    stationId: row.station_id,
+    checklist: checklist as Record<string, unknown>,
+  })
   closeTimeEntry(db, timeEntryId, endedBy)
 
   if (options?.logCardOnSuccess) {

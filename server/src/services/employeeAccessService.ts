@@ -8,6 +8,7 @@ import { confirmTaskFromEmployeeApp, listTaskLogsByTaskIds, listTasks, rowToTask
 import { listTimeEntries } from './timeTrackingService.js'
 import { getStation } from './stationService.js'
 import { listWorkAreas } from './workAreaService.js'
+import { listActiveShiftWarningsForEmployee, acknowledgeShiftWarning } from './employeeShiftWarningService.js'
 import {
   clockCheckInByEmployeeId,
   clockCheckOutComplete,
@@ -205,6 +206,8 @@ export function buildEmployeeAccessPayload(db: Database, token: string) {
 
   const running = timeEntries.find((e) => e.status === 'running')
 
+  const activeShiftWarnings = listActiveShiftWarningsForEmployee(db, empId)
+
   return {
     ok: true as const,
     employee: publicEmployee(row),
@@ -216,6 +219,7 @@ export function buildEmployeeAccessPayload(db: Database, token: string) {
     absences,
     timeEntries,
     runningTimeEntry: running,
+    activeShiftWarnings,
   }
 }
 
@@ -366,6 +370,29 @@ export function employeeAccessCheckIn(db: Database, token: string, force: boolea
     source: 'employee_mobile_app',
     startedBy: 'Mitarbeiter-App',
   })
+}
+
+export function employeeAccessListShiftWarnings(db: Database, token: string) {
+  const row = getEmployeeRowByAccessToken(db, token)
+  if (!row || !assertAccessAllowed(row)) {
+    return { ok: false as const, error: 'invalid_token' as const }
+  }
+  touchEmployeeAccessUsed(db, row.id)
+  return { ok: true as const, data: listActiveShiftWarningsForEmployee(db, row.id) }
+}
+
+export function employeeAccessAcknowledgeShiftWarning(db: Database, token: string, warningId: string) {
+  const row = getEmployeeRowByAccessToken(db, token)
+  if (!row || !assertAccessAllowed(row)) {
+    return { ok: false as const, error: 'invalid_token' as const }
+  }
+  touchEmployeeAccessUsed(db, row.id)
+  try {
+    acknowledgeShiftWarning(db, warningId, row.id)
+    return { ok: true as const }
+  } catch {
+    return { ok: false as const, error: 'ack_failed' as const }
+  }
 }
 
 export function employeeAccessCheckOutStart(db: Database, token: string) {

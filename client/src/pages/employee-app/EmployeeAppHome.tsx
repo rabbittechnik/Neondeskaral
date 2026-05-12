@@ -135,6 +135,11 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
     after: () => void
   } | null>(null)
 
+  const [shiftWarningsGate, setShiftWarningsGate] = useState<{
+    warnings: { id: string; label: string; message: string }[]
+    force: boolean
+  } | null>(null)
+
   const [checkInConfirmOpen, setCheckInConfirmOpen] = useState(false)
   const [checkoutConfirmOpen, setCheckoutConfirmOpen] = useState(false)
 
@@ -236,6 +241,23 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
       .sort((x, y) => x.date.localeCompare(y.date) || x.startTime.localeCompare(y.startTime))
   }, [payload, todayStr])
 
+  const acknowledgeShiftWarningsAndRetry = async () => {
+    if (!shiftWarningsGate) return
+    setBusy(true)
+    setMsg(null)
+    for (const w of shiftWarningsGate.warnings) {
+      const raw = await employeeAccessPost(t, `shift-warnings/${encodeURIComponent(w.id)}/acknowledge`, {})
+      if (raw.ok !== true) {
+        setMsg(String(raw.error ?? 'Hinweis konnte nicht bestätigt werden'))
+        setBusy(false)
+        return
+      }
+    }
+    const force = shiftWarningsGate.force
+    setShiftWarningsGate(null)
+    void tryCheckIn(force)
+  }
+
   const tryCheckIn = async (force: boolean) => {
     setCheckInConfirmOpen(false)
     setBusy(true)
@@ -263,6 +285,19 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
             void tryCheckIn(true)
           },
         })
+        setBusy(false)
+        return
+      }
+      if (result === 'shift_warnings_pending') {
+        const wr = Array.isArray(raw.warnings) ? (raw.warnings as Record<string, unknown>[]) : []
+        const warnings = wr
+          .map((o) => ({
+            id: String(o.id ?? ''),
+            label: String(o.label ?? 'Hinweis'),
+            message: typeof o.message === 'string' ? o.message : String(o.message ?? ''),
+          }))
+          .filter((w) => w.id)
+        setShiftWarningsGate({ warnings, force })
         setBusy(false)
         return
       }
@@ -827,6 +862,33 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
               </Button>
               <Button type="button" variant="primary" className="flex-1" disabled={busy} onClick={() => void startCheckout()}>
                 Ja, Schicht beenden
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {shiftWarningsGate ? (
+        <div className="fixed inset-0 z-[122] flex items-end justify-center bg-black/80 p-4 sm:items-center">
+          <div className="w-full max-w-md rounded-2xl border border-amber-400/35 bg-slate-900 p-5 shadow-xl">
+            <h2 className="text-lg font-semibold text-white">Hinweis aus deiner letzten Schicht</h2>
+            <p className="mt-2 text-sm text-slate-300">
+              Bitte bestätige die folgenden Hinweise der Leitung, bevor du dich einstempelst.
+            </p>
+            <ul className="mt-4 max-h-[36vh] space-y-2 overflow-y-auto text-sm">
+              {shiftWarningsGate.warnings.map((w) => (
+                <li key={w.id} className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2">
+                  <p className="font-medium text-amber-100">{w.label}</p>
+                  {w.message ? <p className="mt-1 text-slate-400">{w.message}</p> : null}
+                </li>
+              ))}
+            </ul>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button type="button" variant="outline" className="flex-1" onClick={() => setShiftWarningsGate(null)}>
+                Später
+              </Button>
+              <Button type="button" variant="primary" className="flex-1" disabled={busy} onClick={() => void acknowledgeShiftWarningsAndRetry()}>
+                Verstanden, fortfahren
               </Button>
             </div>
           </div>

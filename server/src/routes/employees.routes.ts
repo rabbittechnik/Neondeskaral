@@ -4,6 +4,7 @@ import { jsonErr, jsonOk } from '../utils/http.js'
 import { requirePermission, getAccess } from '../middleware/stationAuth.js'
 import { canAccessStation, hasPermission } from '../services/stationAccessService.js'
 import * as employeeService from '../services/employeeService.js'
+import { listActiveShiftWarningsForEmployee, acknowledgeShiftWarningByAdmin } from '../services/employeeShiftWarningService.js'
 
 export const employeesRouter = Router()
 
@@ -81,6 +82,29 @@ employeesRouter.post('/:id/enable-access', (req, res) => {
     if (!row) return jsonErr(res, 'Mitarbeiter nicht gefunden', 404)
     if (!requirePermission(req, res, row.station_id, 'employees.qr')) return
     jsonOk(res, employeeService.setEmployeeAccessEnabled(getDb(), req.params.id, true))
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
+  }
+})
+
+employeesRouter.get('/:id/shift-warnings/active', (req, res) => {
+  try {
+    const row = employeeService.getEmployeeRowInternal(getDb(), req.params.id)
+    if (!row) return jsonErr(res, 'Mitarbeiter nicht gefunden', 404)
+    if (!requirePermission(req, res, row.station_id, 'employees.view')) return
+    jsonOk(res, listActiveShiftWarningsForEmployee(getDb(), req.params.id))
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
+  }
+})
+
+employeesRouter.post('/:id/shift-warnings/:warningId/acknowledge', (req, res) => {
+  try {
+    const row = employeeService.getEmployeeRowInternal(getDb(), req.params.id)
+    if (!row) return jsonErr(res, 'Mitarbeiter nicht gefunden', 404)
+    if (!requirePermission(req, res, row.station_id, 'time.approve')) return
+    acknowledgeShiftWarningByAdmin(getDb(), req.params.warningId, req.params.id)
+    jsonOk(res, { ok: true })
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
   }

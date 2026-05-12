@@ -66,6 +66,7 @@ export type CardEntryResult =
   | 'too_early'
   | 'too_late'
   | 'checklist_required'
+  | 'shift_warnings_pending'
   | 'error'
 
 export type CashRegisterCardEvent = {

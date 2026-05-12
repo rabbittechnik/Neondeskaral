@@ -1,3 +1,4 @@
+import fs from 'node:fs'
 import { Router } from 'express'
 import { getDb, getDbPath } from '../db/database.js'
 import { seedImportedStationGuideSchedule } from '../db/seedSchedule.js'
@@ -20,24 +21,28 @@ const PERSISTENCE_TABLES = [
   'task_logs',
   'time_entries',
   'shift_close_checklists',
+  'shift_checklist_review_items',
   'card_entry_events',
+  'employee_shift_warnings',
   'tuv_reports',
   'tuv_report_items',
   'employee_access_logs',
+  'settings',
 ] as const
 
 function devDiagnosticsAllowed(): boolean {
   if (process.env.NODE_ENV !== 'production') return true
-  return process.env.ALLOW_PERSISTENCE_DIAG === '1' || process.env.ALLOW_DEV_IMPORT === '1'
+  return process.env.ENABLE_DEV_DIAGNOSTICS === '1'
 }
 
 devRouter.get('/persistence-summary', (_req, res) => {
   if (!devDiagnosticsAllowed()) {
-    res.status(404).json({ ok: false, error: 'Nicht gefunden' })
+    res.status(403).json({ ok: false, error: 'Diagnostics disabled (set ENABLE_DEV_DIAGNOSTICS=1 in production).' })
     return
   }
   try {
     const db = getDb()
+    const dbPath = getDbPath()
     const tableCounts: Record<string, number | null> = {}
     for (const name of PERSISTENCE_TABLES) {
       const exists = db.prepare(`SELECT 1 AS ok FROM sqlite_master WHERE type='table' AND name=? LIMIT 1`).get(name) as
@@ -76,12 +81,18 @@ devRouter.get('/persistence-summary', (_req, res) => {
       ),
     }
 
+    const dbFileExists = fs.existsSync(dbPath)
+    const underDataPath = dbPath.startsWith('/data/') || dbPath.startsWith('/data\\')
+
     jsonOk(res, {
-      databasePath: getDbPath(),
+      databasePath: dbPath,
+      databasePathFromEnv: Boolean(process.env.DATABASE_PATH),
+      dbFileExists,
+      underDataPath,
       tableCounts,
       employeeAccess,
       note:
-        'Nur Metadaten (Zeilenanzahl). In Produktion nur mit ALLOW_PERSISTENCE_DIAG=1 oder ALLOW_DEV_IMPORT=1. Keine Token-Werte.',
+        'Nur Metadaten (Zeilenanzahl, Pfade). Keine Token-Werte. In Produktion: ENABLE_DEV_DIAGNOSTICS=1.',
     })
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)

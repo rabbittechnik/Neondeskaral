@@ -6,6 +6,7 @@ import {
   clockCheckOutStartByEmployeeId,
 } from './clockService.js'
 import { getTimeEntry, logCardEvent } from './timeTrackingService.js'
+import { acknowledgeShiftWarning } from './employeeShiftWarningService.js'
 
 export function terminalCheckIn(
   db: Database,
@@ -78,4 +79,22 @@ export function terminalCheckOutComplete(
     })
   }
   return out
+}
+
+export function terminalAcknowledgeShiftWarning(
+  db: Database,
+  body: { cardNumber: string; stationId: string; warningId: string },
+) {
+  const stationId = body.stationId || 'aral-bodelshausen'
+  const card = String(body.cardNumber ?? '').trim()
+  const emp = getEmployeeByCard(db, card, stationId)
+  if (!emp) {
+    return { ok: false as const, message: 'Unbekannte Kartennummer' }
+  }
+  try {
+    acknowledgeShiftWarning(db, body.warningId, emp.id)
+    return { ok: true as const }
+  } catch {
+    return { ok: false as const, message: 'Hinweis konnte nicht bestätigt werden' }
+  }
 }

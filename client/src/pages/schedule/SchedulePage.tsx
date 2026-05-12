@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   computeWeeklyHoursByEmployee,
-  mockConflicts,
-  mockWeekAbsences,
   resolveShiftsForWeekGrid,
   STATION_NAME,
   toISODate,
   toScheduleEmployeeRow,
   type ResolvedShiftBlock,
+  type ScheduleConflict,
   type ScheduleShift,
+  type WeekAbsence,
 } from '../../data/mockSchedule'
 import { ScheduleStatsPanel } from '../../components/schedule/ScheduleStatsPanel'
 import { ScheduleToolbar } from '../../components/schedule/ScheduleToolbar'
@@ -38,6 +38,7 @@ import { useScheduleShiftInteractions } from '../../components/schedule/useSched
 import { useAbsences } from '../../context/absences-context'
 import { useAuth } from '../../context/auth-context'
 import { formatShiftTimeRangeDE } from '../../utils/dateFormat'
+import { apiGet } from '../../services/api'
 
 export function SchedulePage() {
   const { federalState, stationId, hasPermission } = useStation()
@@ -133,10 +134,80 @@ export function SchedulePage() {
     [allBlocks],
   )
 
+  const [scheduleConflicts, setScheduleConflicts] = useState<ScheduleConflict[]>([])
+  const [conflictsError, setConflictsError] = useState<string | null>(null)
+
   const panelConflicts = useMemo(
-    () => [...openShiftWarnings(allBlocks), ...mockConflicts],
-    [allBlocks],
+    () => [...openShiftWarnings(allBlocks), ...scheduleConflicts],
+    [allBlocks, scheduleConflicts],
   )
+
+  useEffect(() => {
+    if (!stationId) {
+      setScheduleConflicts([])
+      setConflictsError(null)
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      const res = await apiGet<ScheduleShift[]>('/shifts/conflicts', {
+        stationId,
+        from: weekStartIso,
+        to: weekEndIso,
+      })
+      if (cancelled) return
+      if (!res.ok) {
+        setScheduleConflicts([])
+        setConflictsError(res.error)
+        return
+      }
+      setConflictsError(null)
+      const list = Array.isArray(res.data) ? res.data : []
+      setScheduleConflicts(
+        list.map((s) => ({
+          id: `conf-${s.id}`,
+          message: 'Schichtkonflikt',
+          detail: `${getEmployeeDisplayName(s.employeeId ?? '')} · ${s.date} · ${s.workAreaId} · ${s.startTime}–${s.endTime}`,
+        })),
+      )
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [stationId, weekStartIso, weekEndIso, getEmployeeDisplayName])
+
+  const weekAbsencesPanel = useMemo((): WeekAbsence[] => {
+    const typeLabel: Record<string, string> = {
+      urlaub: 'Urlaub',
+      krankheit: 'Krank',
+      berufsschule: 'Berufsschule',
+      frei: 'Frei',
+      sonderurlaub: 'Sonderurlaub',
+      unbezahlt: 'Unbezahlt',
+      kind_krank: 'Kind krank',
+      sonstiges: 'Sonstiges',
+    }
+    const fmt = (iso: string) => {
+      const [y, m, d] = iso.split('-')
+      return d && m && y ? `${d}.${m}.${y}` : iso
+    }
+    const out: WeekAbsence[] = []
+    for (const a of absences) {
+      if (a.status === 'storniert') continue
+      if (a.endDate < weekStartIso || a.startDate > weekEndIso) continue
+      const emp = employees.find((e) => e.id === a.employeeId)
+      const tl = typeLabel[a.type] ?? a.type
+      const range =
+        a.startDate === a.endDate ? fmt(a.startDate) : `${fmt(a.startDate)} – ${fmt(a.endDate)}`
+      out.push({
+        id: a.id,
+        employeeName: emp?.displayName ?? 'Mitarbeiter',
+        type: tl,
+        range,
+      })
+    }
+    return out
+  }, [absences, employees, weekStartIso, weekEndIso])
 
   const openCreate = () => {
     setModalMode('create')
@@ -218,6 +289,11 @@ export function SchedulePage() {
             {shiftsError ? (
               <span className="text-amber-300/90" title={shiftsError}>
                 Schichten: {shiftsError}
+              </span>
+            ) : null}
+            {conflictsError ? (
+              <span className="text-amber-300/90" title={conflictsError}>
+                Konflikte: {conflictsError}
               </span>
             ) : null}
             <span>
@@ -366,8 +442,9 @@ export function SchedulePage() {
               <ScheduleStatsPanel
                 blocks={allBlocks}
                 openShifts={openShiftsThisWeek}
-                absences={mockWeekAbsences}
+                absences={weekAbsencesPanel}
                 conflicts={panelConflicts}
+                conflictsLoadError={conflictsError}
                 employeeHourLabels={employeeHourLabels}
               />
             </div>

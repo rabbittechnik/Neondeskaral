@@ -91,10 +91,23 @@ export function listOpenShifts(db: Database, stationId = DEFAULT_STATION_ID) {
   return rows.map(rowToScheduleShift)
 }
 
-export function listConflicts(db: Database, stationId = DEFAULT_STATION_ID) {
-  const rows = db
-    .prepare(`SELECT * FROM shifts WHERE station_id = ? AND conflict = 1 ORDER BY date`)
-    .all(stationId) as ShiftRow[]
+export function listConflicts(
+  db: Database,
+  stationId = DEFAULT_STATION_ID,
+  range?: { from?: string; to?: string },
+) {
+  let sql = `SELECT * FROM shifts WHERE station_id = ? AND conflict = 1`
+  const params: string[] = [stationId]
+  if (range?.from) {
+    sql += ` AND date >= ?`
+    params.push(range.from)
+  }
+  if (range?.to) {
+    sql += ` AND date <= ?`
+    params.push(range.to)
+  }
+  sql += ` ORDER BY date, start_time`
+  const rows = db.prepare(sql).all(...params) as ShiftRow[]
   return rows.map(rowToScheduleShift)
 }
 

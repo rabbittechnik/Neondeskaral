@@ -13,8 +13,9 @@ type Props = {
   blocks: ResolvedShiftBlock[]
   openShifts: OpenShiftSlot[]
   absences: WeekAbsence[]
-  /** Mock + dynamische Hinweise (z. B. offene Schichten) */
+  /** Offene Schicht-Hinweise + API-Konflikte */
   conflicts: ScheduleConflict[]
+  conflictsLoadError?: string | null
   /** Kurzname in Stundenliste (erster Vorname) */
   employeeHourLabels: { id: string; label: string }[]
 }
@@ -24,6 +25,7 @@ export function ScheduleStatsPanel({
   openShifts,
   absences,
   conflicts,
+  conflictsLoadError,
   employeeHourLabels,
 }: Props) {
   const hoursMap = computeWeeklyHoursByEmployee(blocks)
@@ -58,26 +60,30 @@ export function ScheduleStatsPanel({
         </ul>
       </Card>
 
-      <ScheduleConflictCard conflicts={conflicts} />
+      <ScheduleConflictCard conflicts={conflicts} loadError={conflictsLoadError} />
 
       <Card padding="md" className="border-pink-500/20">
         <h3 className="flex items-center gap-2 text-sm font-semibold text-[var(--text-main)]">
           <UserX className="h-4 w-4 text-pink-300" aria-hidden />
           Abwesenheiten diese Woche
         </h3>
-        <ul className="mt-3 space-y-2">
-          {absences.map((a) => (
-            <li
-              key={a.id}
-              className="rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--bg-elevated)]/40 px-3 py-2 text-xs"
-            >
-              <p className="font-medium text-[var(--text-main)]">{a.employeeName}</p>
-              <p className="text-[var(--text-muted)]">
-                {a.type} · {a.range}
-              </p>
-            </li>
-          ))}
-        </ul>
+        {absences.length === 0 ? (
+          <p className="mt-3 text-xs text-[var(--text-muted)]">Keine Abwesenheiten diese Woche</p>
+        ) : (
+          <ul className="mt-3 space-y-2">
+            {absences.map((a) => (
+              <li
+                key={a.id}
+                className="rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--bg-elevated)]/40 px-3 py-2 text-xs"
+              >
+                <p className="font-medium text-[var(--text-main)]">{a.employeeName}</p>
+                <p className="text-[var(--text-muted)]">
+                  {a.type} · {a.range}
+                </p>
+              </li>
+            ))}
+          </ul>
+        )}
       </Card>
 
       <Card padding="md" className="border-lime-500/20">

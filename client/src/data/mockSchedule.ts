@@ -734,30 +734,12 @@ export type ScheduleConflict = {
   detail: string
 }
 
-export const mockConflicts: ScheduleConflict[] = [
-  {
-    id: 'c1',
-    message: 'Überlappende Schichten',
-    detail: 'Max Vins · Do · Kasse / Backshop',
-  },
-  {
-    id: 'c2',
-    message: 'Ruhezeit',
-    detail: 'Metin Özgür · weniger als 11h zwischen zwei Diensten (Mi)',
-  },
-]
-
 export type WeekAbsence = {
   id: string
   employeeName: string
   type: string
   range: string
 }
-
-export const mockWeekAbsences: WeekAbsence[] = [
-  { id: 'a1', employeeName: 'Valerina Mustafa', type: 'Urlaub', range: 'Fr–So' },
-  { id: 'a2', employeeName: 'Enise A.', type: 'Krank', range: 'Sa' },
-]
 
 export function computeWeeklyHoursByEmployee(
   blocks: ResolvedShiftBlock[],

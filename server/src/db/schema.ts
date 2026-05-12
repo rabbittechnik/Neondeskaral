@@ -376,6 +376,47 @@ const statements = [
     FOREIGN KEY (report_id) REFERENCES tuv_reports(id) ON DELETE CASCADE
   )`,
   `CREATE INDEX IF NOT EXISTS idx_tuv_report_items_report ON tuv_report_items(report_id)`,
+  `CREATE TABLE IF NOT EXISTS employee_shift_warnings (
+    id TEXT PRIMARY KEY,
+    station_id TEXT NOT NULL,
+    employee_id TEXT NOT NULL,
+    source_time_entry_id TEXT,
+    checklist_key TEXT,
+    label TEXT NOT NULL,
+    message TEXT,
+    severity TEXT DEFAULT 'warning',
+    created_by TEXT,
+    created_at TEXT,
+    acknowledged_at TEXT,
+    acknowledged_on_time_entry_id TEXT,
+    active INTEGER DEFAULT 1
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_employee_shift_warnings_employee_active ON employee_shift_warnings(employee_id, active)`,
+  `CREATE TABLE IF NOT EXISTS shift_checklist_review_items (
+    id TEXT PRIMARY KEY,
+    time_entry_id TEXT NOT NULL,
+    employee_id TEXT NOT NULL,
+    station_id TEXT NOT NULL,
+    checklist_key TEXT NOT NULL,
+    label TEXT NOT NULL,
+    employee_checked INTEGER DEFAULT 0,
+    review_checked INTEGER DEFAULT 1,
+    review_comment TEXT,
+    reviewed_by TEXT,
+    reviewed_at TEXT,
+    created_at TEXT,
+    updated_at TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_shift_checklist_review_time_entry ON shift_checklist_review_items(time_entry_id)`,
+  `CREATE TABLE IF NOT EXISTS settings (
+    id TEXT PRIMARY KEY,
+    station_id TEXT,
+    key TEXT NOT NULL,
+    value TEXT,
+    type TEXT,
+    created_at TEXT,
+    updated_at TEXT
+  )`,
 ]
 
 export function runSchema(db: Database.Database) {

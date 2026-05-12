@@ -9,7 +9,6 @@ import {
 } from 'react'
 import type { CashRegisterCardEvent, ShiftCloseChecklist, TimeEntry } from '../types/timeTracking'
 import { DEFAULT_TABLET_STATION_ID } from '../data/station'
-import { createCardEventId } from '../data/mockTimeTracking'
 import { API_BASE, apiGet, apiSend } from '../services/api'
 import { useStation } from './station-context'
 
@@ -20,15 +19,30 @@ type TimeTrackingContextValue = {
   error: string | null
   cardEvents: CashRegisterCardEvent[]
   refetch: () => Promise<void>
+  refetchCardEvents: () => Promise<void>
   startShiftForEmployee: (
     cardNumber: string,
     options?: { force?: boolean; startNote?: string },
   ) => Promise<TimeEntry>
   completeShiftWithChecklist: (timeEntryId: string, checklist: ShiftCloseChecklist) => Promise<void>
+  /** Nach Terminal-Aktionen Kartenprotokoll aus der API aktualisieren (serverseitig gespeichert). */
   logCardEvent: (ev: Omit<CashRegisterCardEvent, 'id' | 'scannedAt'> & { scannedAt?: string }) => void
 }
 
 const TimeTrackingContext = createContext<TimeTrackingContextValue | null>(null)
+
+function mapCardEventRow(r: Record<string, unknown>): CashRegisterCardEvent {
+  return {
+    id: String(r.id),
+    cardNumber: String(r.cardNumber ?? ''),
+    employeeId: r.employeeId ? String(r.employeeId) : undefined,
+    stationId: String(r.stationId ?? ''),
+    actionType: r.actionType === 'check_out' ? 'check_out' : 'check_in',
+    scannedAt: String(r.scannedAt ?? ''),
+    result: (String(r.result ?? 'success') || 'success') as CashRegisterCardEvent['result'],
+    message: String(r.message ?? ''),
+  }
+}
 
 export function TimeTrackingProvider({ children }: { children: ReactNode }) {
   const { stationId } = useStation()
@@ -37,9 +51,28 @@ export function TimeTrackingProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null)
   const [cardEvents, setCardEvents] = useState<CashRegisterCardEvent[]>([])
 
+  const refetchCardEvents = useCallback(async () => {
+    if (!stationId) {
+      setCardEvents([])
+      return
+    }
+    const from = new Date()
+    from.setDate(from.getDate() - 14)
+    const to = new Date()
+    to.setDate(to.getDate() + 1)
+    const res = await apiGet<Record<string, unknown>[]>('/time-entries/card-events', {
+      stationId,
+      from: from.toISOString(),
+      to: to.toISOString(),
+    })
+    if (res.ok && Array.isArray(res.data)) setCardEvents(res.data.map(mapCardEventRow))
+    else setCardEvents([])
+  }, [stationId])
+
   const refetch = useCallback(async () => {
     if (!stationId) {
       setTimeEntries([])
+      setCardEvents([])
       setLoading(false)
       return
     }
@@ -55,21 +88,20 @@ export function TimeTrackingProvider({ children }: { children: ReactNode }) {
       setTimeEntries([])
       if (!res.ok) setError(res.error)
     }
+    await refetchCardEvents()
     setLoading(false)
-  }, [stationId])
+  }, [stationId, refetchCardEvents])
 
   useEffect(() => {
     void refetch()
   }, [refetch])
 
-  const logCardEvent = useCallback((ev: Omit<CashRegisterCardEvent, 'id' | 'scannedAt'> & { scannedAt?: string }) => {
-    const row: CashRegisterCardEvent = {
-      ...ev,
-      id: createCardEventId(),
-      scannedAt: ev.scannedAt ?? new Date().toISOString(),
-    }
-    setCardEvents((prev) => [row, ...prev].slice(0, 200))
-  }, [])
+  const logCardEvent = useCallback(
+    (_ev: Omit<CashRegisterCardEvent, 'id' | 'scannedAt'> & { scannedAt?: string }) => {
+      void refetchCardEvents()
+    },
+    [refetchCardEvents],
+  )
 
   const startShiftForEmployee = useCallback(
     async (cardNumber: string, options?: { force?: boolean; startNote?: string }) => {
@@ -90,16 +122,26 @@ export function TimeTrackingProvider({ children }: { children: ReactNode }) {
         data?: { timeEntry?: TimeEntry }
         error?: string
         timeEntry?: TimeEntry
+        result?: string
+        warnings?: unknown
+        requiresWarningAcknowledgement?: boolean
       }
       if (!json.ok) {
+        if (json.result === 'shift_warnings_pending') {
+          const err = new Error(json.error ?? 'Hinweis aus deiner letzten Schicht: Bitte zuerst bestätigen.')
+          ;(err as Error & { code: string; warnings?: unknown }).code = 'shift_warnings_pending'
+          ;(err as Error & { code: string; warnings?: unknown }).warnings = json.warnings
+          throw err
+        }
         throw new Error(json.error ?? 'Check-in fehlgeschlagen')
       }
       const entry = json.data?.timeEntry ?? json.timeEntry
       if (!entry) throw new Error('Keine Zeiterfassung in der Antwort')
       await refetch()
+      await refetchCardEvents()
       return entry
     },
-    [refetch, stationId],
+    [refetch, refetchCardEvents, stationId],
   )
 
   const completeShiftWithChecklist = useCallback(
@@ -125,8 +167,9 @@ export function TimeTrackingProvider({ children }: { children: ReactNode }) {
       const res = await apiSend<TimeEntry>('POST', '/terminal/check-out-complete', body)
       if (!res.ok) throw new Error(res.error)
       await refetch()
+      await refetchCardEvents()
     },
-    [refetch],
+    [refetch, refetchCardEvents],
   )
 
   const value = useMemo(
@@ -137,6 +180,7 @@ export function TimeTrackingProvider({ children }: { children: ReactNode }) {
       error,
       cardEvents,
       refetch,
+      refetchCardEvents,
       startShiftForEmployee,
       completeShiftWithChecklist,
       logCardEvent,
@@ -147,6 +191,7 @@ export function TimeTrackingProvider({ children }: { children: ReactNode }) {
       error,
       cardEvents,
       refetch,
+      refetchCardEvents,
       startShiftForEmployee,
       completeShiftWithChecklist,
       logCardEvent,

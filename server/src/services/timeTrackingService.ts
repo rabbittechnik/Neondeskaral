@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { DEFAULT_STATION_ID } from '../constants.js'
 import { nowIso } from '../utils/timestamps.js'
 import { listShiftRowsForStationDateRange, type ShiftRow } from './shiftService.js'
+import { listReviewItemsForTimeEntry, syncReviewItemsFromCloseChecklist } from './shiftChecklistReviewService.js'
 
 export type TimeEntryRow = {
   id: string
@@ -298,6 +299,31 @@ export function getTimeEntryDetail(db: Database, id: string) {
   const chkRaw = db.prepare(`SELECT * FROM shift_close_checklists WHERE time_entry_id = ?`).get(id) as
     | Record<string, unknown>
     | undefined
+  let reviewItems = listReviewItemsForTimeEntry(db, id)
+  if (chkRaw && reviewItems.length === 0) {
+    const api = checklistRowToApi(chkRaw)
+    syncReviewItemsFromCloseChecklist(db, {
+      timeEntryId: id,
+      employeeId: row.employee_id,
+      stationId: row.station_id,
+      checklist: {
+        fridgeFronted: api.fridgeFronted,
+        drinksFilled: api.drinksFilled,
+        cigarettesFilled: api.cigarettesFilled,
+        shelvesFilled: api.shelvesFilled,
+        trashEmptied: api.trashEmptied,
+        counterClean: api.counterClean,
+        coffeeAreaClean: api.coffeeAreaClean,
+        outsideChecked: api.outsideChecked,
+        incidentsNoted: api.incidentsNoted,
+        handoverPossible: api.handoverPossible,
+        closingReady: api.closingReady,
+        everythingOk: api.everythingOk,
+        incidentNote: api.incidentNote,
+      },
+    })
+    reviewItems = listReviewItemsForTimeEntry(db, id)
+  }
   const dateIso = row.start_at.slice(0, 10)
   const planned = plannedShiftRowForEntry(db, row.station_id, row.employee_id, dateIso, row.shift_id)
   const emp = db
@@ -307,6 +333,7 @@ export function getTimeEntryDetail(db: Database, id: string) {
     timeEntry: entry,
     employeeName: emp?.display_name ?? '',
     checklist: chkRaw ? checklistRowToApi(chkRaw) : null,
+    checklistReviewItems: reviewItems,
     plannedShift: planned
       ? {
           id: planned.id,
@@ -430,6 +457,38 @@ export function insertChecklist(
     ts,
   )
   return id
+}
+
+export function listCardEntryEvents(
+  db: Database,
+  q: { stationId: string; from?: string; to?: string; employeeId?: string },
+) {
+  let sql = `SELECT * FROM card_entry_events WHERE station_id = ?`
+  const params: string[] = [q.stationId]
+  if (q.from) {
+    sql += ` AND datetime(created_at) >= datetime(?)`
+    params.push(q.from)
+  }
+  if (q.to) {
+    sql += ` AND datetime(created_at) <= datetime(?)`
+    params.push(q.to)
+  }
+  if (q.employeeId) {
+    sql += ` AND employee_id = ?`
+    params.push(q.employeeId)
+  }
+  sql += ` ORDER BY datetime(created_at) DESC LIMIT 500`
+  const rows = db.prepare(sql).all(...params) as Record<string, unknown>[]
+  return rows.map((r) => ({
+    id: String(r.id),
+    cardNumber: String(r.card_number ?? ''),
+    employeeId: r.employee_id ? String(r.employee_id) : undefined,
+    stationId: String(r.station_id),
+    actionType: (String(r.action_type ?? 'check_in') === 'check_out' ? 'check_out' : 'check_in') as 'check_in' | 'check_out',
+    scannedAt: String(r.created_at ?? r.entered_at ?? ''),
+    result: String(r.result ?? 'success') as string,
+    message: String(r.message ?? ''),
+  }))
 }
 
 export function logCardEvent(

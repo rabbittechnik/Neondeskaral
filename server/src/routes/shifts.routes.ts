@@ -20,7 +20,9 @@ shiftsRouter.get('/conflicts', (req, res) => {
   try {
     const stationId = typeof req.query.stationId === 'string' ? req.query.stationId : undefined
     if (!requirePermission(req, res, stationId, 'schedule.view')) return
-    jsonOk(res, shiftService.listConflicts(getDb(), stationId!))
+    const from = typeof req.query.from === 'string' ? req.query.from : undefined
+    const to = typeof req.query.to === 'string' ? req.query.to : undefined
+    jsonOk(res, shiftService.listConflicts(getDb(), stationId!, { from, to }))
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
   }

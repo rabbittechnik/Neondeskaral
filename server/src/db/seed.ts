@@ -257,13 +257,38 @@ const WORK_AREAS: {
   { id: 'reinigung', name: 'Reinigung', short_code: 'Re', color: '#64748b', description: '' },
 ]
 
-function isDbEmpty(db: Database.Database): boolean {
-  const row = db.prepare(`SELECT COUNT(*) as c FROM employees`).get() as { c: number }
-  return row.c === 0
+function tableCount(db: Database.Database, table: string): number {
+  const exists = db
+    .prepare(`SELECT 1 AS ok FROM sqlite_master WHERE type='table' AND name = ? LIMIT 1`)
+    .get(table) as { ok: number } | undefined
+  if (!exists) return 0
+  const row = db.prepare(`SELECT COUNT(*) as c FROM "${table}"`).get() as { c: number }
+  return row.c ?? 0
+}
+
+/** True only if alle Kern-Tabellen leer — verhindert Demo-Seed nach Restore mit leeren Mitarbeitern. */
+export function isDatabaseReallyEmpty(db: Database.Database): boolean {
+  const tables = [
+    'employees',
+    'stations',
+    'shifts',
+    'time_entries',
+    'absences',
+    'tasks',
+    'tuv_reports',
+  ] as const
+  return tables.every((t) => tableCount(db, t) === 0)
+}
+
+function shouldRunDemoSeed(db: Database.Database): boolean {
+  if (!isDatabaseReallyEmpty(db)) return false
+  if (process.env.SEED_DEMO === '1') return true
+  if (process.env.NODE_ENV === 'production') return false
+  return true
 }
 
 export function seedIfEmpty(db: Database.Database) {
-  if (!isDbEmpty(db)) return
+  if (!shouldRunDemoSeed(db)) return
 
   const ts = nowIso()
   const tx = db.transaction(() => {

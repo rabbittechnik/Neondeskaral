@@ -62,6 +62,26 @@ employeeAccessRouter.post('/:token/tasks/:taskId/confirm', (req, res) => {
   }
 })
 
+employeeAccessRouter.get('/:token/shift-warnings/active', (req, res) => {
+  try {
+    const out = access.employeeAccessListShiftWarnings(getDb(), req.params.token)
+    if (!out.ok) return jsonErr(res, 'Zugang ungültig oder deaktiviert.', 403)
+    jsonOk(res, out.data)
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
+  }
+})
+
+employeeAccessRouter.post('/:token/shift-warnings/:warningId/acknowledge', (req, res) => {
+  try {
+    const out = access.employeeAccessAcknowledgeShiftWarning(getDb(), req.params.token, req.params.warningId)
+    if (!out.ok) return jsonErr(res, 'Zugang ungültig oder Bestätigung fehlgeschlagen.', 403)
+    jsonOk(res, { ok: true })
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
+  }
+})
+
 employeeAccessRouter.get('/:token', (req, res) => {
   try {
     const out = access.buildEmployeeAccessPayload(getDb(), req.params.token)
@@ -76,6 +96,7 @@ employeeAccessRouter.get('/:token', (req, res) => {
       absences: out.absences,
       timeEntries: out.timeEntries,
       runningTimeEntry: out.runningTimeEntry,
+      activeShiftWarnings: out.activeShiftWarnings,
     })
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
@@ -95,6 +116,10 @@ employeeAccessRouter.post('/:token/check-in', (req, res) => {
         ...('timeEntry' in out ? { timeEntry: out.timeEntry } : {}),
         ...('plannedStart' in out ? { plannedStart: (out as { plannedStart?: string }).plannedStart } : {}),
         ...('minutesLate' in out ? { minutesLate: (out as { minutesLate?: number }).minutesLate } : {}),
+        ...('warnings' in out ? { warnings: (out as { warnings?: unknown }).warnings } : {}),
+        ...('requiresWarningAcknowledgement' in out
+          ? { requiresWarningAcknowledgement: (out as { requiresWarningAcknowledgement?: boolean }).requiresWarningAcknowledgement }
+          : {}),
       })
     }
     jsonOk(res, {

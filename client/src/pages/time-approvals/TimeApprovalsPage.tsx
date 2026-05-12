@@ -12,10 +12,22 @@ import { dispatchNotificationsRefresh } from '../../utils/notificationsRefresh'
 
 type PendingRow = TimeEntry & { employeeDisplayName: string }
 
+type ChecklistReviewItem = {
+  id: string
+  checklistKey: string
+  label: string
+  employeeChecked: boolean
+  reviewChecked: boolean
+  reviewComment: string
+  reviewedBy?: string
+  reviewedAt?: string
+}
+
 type DetailPayload = {
   timeEntry: TimeEntry
   employeeName: string
   checklist: Record<string, unknown> | null
+  checklistReviewItems?: ChecklistReviewItem[]
   plannedShift: { id: string; date: string; startTime: string; endTime: string } | null
 }
 
@@ -48,6 +60,15 @@ export function TimeApprovalsPage() {
   const [rejectReason, setRejectReason] = useState('')
   const [corrNote, setCorrNote] = useState('')
   const [confirmApprove, setConfirmApprove] = useState(false)
+  const [reviewDraft, setReviewDraft] = useState<ChecklistReviewItem[]>([])
+
+  useEffect(() => {
+    if (!detail) {
+      setReviewDraft([])
+      return
+    }
+    setReviewDraft((detail.checklistReviewItems ?? []).map((i) => ({ ...i })))
+  }, [detail])
 
   const load = useCallback(async () => {
     if (!allowed || !stationId) return
@@ -132,6 +153,29 @@ export function TimeApprovalsPage() {
     setCorrNote('')
     setDetail(null)
     await load()
+    dispatchNotificationsRefresh()
+  }
+
+  const saveChecklistReview = async () => {
+    if (!detail || reviewDraft.length === 0) return
+    setBusy(true)
+    const res = await apiSend<DetailPayload>(
+      'POST',
+      `/time-entries/${encodeURIComponent(detail.timeEntry.id)}/checklist-review`,
+      {
+        items: reviewDraft.map((i) => ({
+          id: i.id,
+          reviewChecked: i.reviewChecked,
+          reviewComment: i.reviewComment,
+        })),
+      },
+    )
+    setBusy(false)
+    if (!res.ok) {
+      setErr(res.error)
+      return
+    }
+    setDetail(res.data)
     dispatchNotificationsRefresh()
   }
 
@@ -286,6 +330,59 @@ export function TimeApprovalsPage() {
                     Bemerkung: {String(detail.checklist.incidentNote)}
                   </p>
                 ) : null}
+              </div>
+            ) : null}
+
+            {reviewDraft.length > 0 ? (
+              <div className="mt-4 rounded-md border border-cyan-500/20 bg-cyan-500/5 p-3 text-xs text-[var(--text-muted)]">
+                <p className="font-semibold text-[var(--text-main)]">Nachprüfung durch Leitung</p>
+                <p className="mt-1 text-[var(--text-faint)]">
+                  Wenn die Leitung einen Punkt nicht bestätigt, obwohl der Mitarbeiter ihn als erledigt markiert hat, wird
+                  eine dokumentierte Beanstandung erzeugt.
+                </p>
+                <ul className="mt-3 space-y-3">
+                  {reviewDraft.map((row) => (
+                    <li key={row.id} className="rounded-md border border-white/10 bg-black/20 p-2">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <p className="font-medium text-[var(--text-main)]">{row.label}</p>
+                          <p className="text-[var(--text-faint)]">
+                            Mitarbeiter: {row.employeeChecked ? 'Ja' : 'Nein'}
+                          </p>
+                        </div>
+                        <label className="flex cursor-pointer items-center gap-2 text-[var(--text-main)]">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-white/20 bg-black/30"
+                            checked={row.reviewChecked}
+                            onChange={(e) =>
+                              setReviewDraft((prev) =>
+                                prev.map((r) => (r.id === row.id ? { ...r, reviewChecked: e.target.checked } : r)),
+                              )
+                            }
+                          />
+                          <span>Leitung bestätigt</span>
+                        </label>
+                      </div>
+                      <label className="mt-2 block text-[var(--text-faint)]">Kommentar</label>
+                      <textarea
+                        className="mt-1 w-full rounded border border-white/10 bg-black/30 px-2 py-1.5 text-[var(--text-main)]"
+                        rows={2}
+                        value={row.reviewComment}
+                        onChange={(e) =>
+                          setReviewDraft((prev) =>
+                            prev.map((r) => (r.id === row.id ? { ...r, reviewComment: e.target.value } : r)),
+                          )
+                        }
+                      />
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-3">
+                  <Button type="button" variant="outline" className="text-xs" disabled={busy} onClick={() => void saveChecklistReview()}>
+                    Nachprüfung speichern
+                  </Button>
+                </div>
               </div>
             ) : null}
 

@@ -4,6 +4,7 @@ import { jsonErr, jsonOk } from '../utils/http.js'
 import { requirePermission } from '../middleware/stationAuth.js'
 import * as timeTracking from '../services/timeTrackingService.js'
 import * as terminal from '../services/terminalService.js'
+import { updateShiftChecklistReviewItems } from '../services/shiftChecklistReviewService.js'
 
 export const timeEntriesRouter = Router()
 
@@ -40,6 +41,27 @@ timeEntriesRouter.get('/pending-approval', (req, res) => {
   }
 })
 
+timeEntriesRouter.get('/card-events', (req, res) => {
+  try {
+    const stationId = typeof req.query.stationId === 'string' ? req.query.stationId : undefined
+    if (!requirePermission(req, res, stationId, 'time.view')) return
+    const from = typeof req.query.from === 'string' ? req.query.from : undefined
+    const to = typeof req.query.to === 'string' ? req.query.to : undefined
+    const employeeId = typeof req.query.employeeId === 'string' ? req.query.employeeId : undefined
+    jsonOk(
+      res,
+      timeTracking.listCardEntryEvents(getDb(), {
+        stationId: stationId!,
+        from,
+        to,
+        employeeId,
+      }),
+    )
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
+  }
+})
+
 timeEntriesRouter.get('/', (req, res) => {
   try {
     const stationId = typeof req.query.stationId === 'string' ? req.query.stationId : undefined
@@ -64,6 +86,30 @@ timeEntriesRouter.post('/manual', (req, res) => {
     const stationId = typeof req.query.stationId === 'string' ? req.query.stationId : undefined
     if (!requirePermission(req, res, stationId, 'time.correct')) return
     jsonOk(res, timeTracking.createManualTimeEntry(getDb(), req.body ?? {}, stationId!), 201)
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
+  }
+})
+
+timeEntriesRouter.post('/:id/checklist-review', (req, res) => {
+  try {
+    const row = timeTracking.getTimeEntryRow(getDb(), req.params.id)
+    if (!row) return jsonErr(res, 'Zeiteintrag nicht gefunden', 404)
+    if (!requirePermission(req, res, row.station_id, 'time.approve')) return
+    const body = (req.body ?? {}) as {
+      items?: { id: string; reviewChecked: boolean; reviewComment?: string }[]
+    }
+    const items = Array.isArray(body.items) ? body.items : []
+    const uid = req.adminUser!.sub
+    updateShiftChecklistReviewItems(getDb(), {
+      timeEntryId: req.params.id,
+      stationId: row.station_id,
+      employeeId: row.employee_id,
+      items,
+      reviewedBy: uid,
+    })
+    const d = timeTracking.getTimeEntryDetail(getDb(), req.params.id)
+    jsonOk(res, d)
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
   }
@@ -166,6 +212,10 @@ function terminalCheckInErrorBody(out: Record<string, unknown>) {
     ...('timeEntry' in out ? { timeEntry: out.timeEntry } : {}),
     ...('plannedStart' in out ? { plannedStart: out.plannedStart } : {}),
     ...('minutesLate' in out ? { minutesLate: out.minutesLate } : {}),
+    ...('warnings' in out ? { warnings: out.warnings } : {}),
+    ...('requiresWarningAcknowledgement' in out
+      ? { requiresWarningAcknowledgement: out.requiresWarningAcknowledgement }
+      : {}),
   }
 }
 
@@ -204,6 +254,21 @@ terminalRouter.post('/check-out-complete', (req, res) => {
     const out = terminal.terminalCheckOutComplete(getDb(), (req.body ?? {}) as { timeEntryId: string; checklist: Record<string, unknown> })
     if (!out.ok) return jsonErr(res, out.error, 400)
     jsonOk(res, out.data)
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
+  }
+})
+
+terminalRouter.post('/shift-warnings/acknowledge', (req, res) => {
+  try {
+    const body = (req.body ?? {}) as { cardNumber?: string; stationId?: string; warningId?: string }
+    const card = String(body.cardNumber ?? '').trim()
+    const stationId = String(body.stationId ?? '').trim()
+    const warningId = String(body.warningId ?? '').trim()
+    if (!card || !stationId || !warningId) return jsonErr(res, 'cardNumber, stationId und warningId erforderlich', 400)
+    const out = terminal.terminalAcknowledgeShiftWarning(getDb(), { cardNumber: card, stationId, warningId })
+    if (!out.ok) return jsonErr(res, out.message, 400)
+    jsonOk(res, { ok: true })
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
   }
