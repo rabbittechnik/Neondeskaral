@@ -198,7 +198,7 @@ export function EmployeeAppQrSection({ employee }: Props) {
       <ConfirmDialog
         open={regenConfirmOpen}
         title="QR-Code neu generieren?"
-        message="Der alte QR-Code funktioniert danach nicht mehr. Der Mitarbeiter muss den neuen QR-Code scannen."
+        message="Der alte QR-Code und bereits verbundene Geräte funktionieren danach nicht mehr. Der Mitarbeiter muss den neuen QR-Code erneut scannen."
         cancelLabel="Abbrechen"
         confirmLabel="Neu generieren"
         variant="primary"

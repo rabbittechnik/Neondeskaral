@@ -121,7 +121,7 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
   const standalone = useStandalonePwa()
   const sessionWritten = useRef(false)
 
-  const [loadState, setLoadState] = useState<'loading' | 'ok' | 'invalid'>('loading')
+  const [loadState, setLoadState] = useState<'loading' | 'ok' | 'invalid' | 'access_denied'>('loading')
   const [payload, setPayload] = useState<Payload | null>(null)
   const [tab, setTab] = useState<TabId>('heute')
   const [busy, setBusy] = useState(false)
@@ -155,8 +155,9 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
     setLoadState('loading')
     const res = await employeeAccessGet<Payload>(t)
     if (!res.ok) {
-      setLoadState('invalid')
       setPayload(null)
+      if (res.httpStatus === 403) setLoadState('access_denied')
+      else setLoadState('invalid')
       return
     }
     setPayload(res.data)
@@ -275,6 +276,12 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
       }
       const result = String(raw.result ?? '')
       const message = String(raw.message ?? raw.error ?? 'Nicht möglich')
+      if (result === 'invalid_token') {
+        setPayload(null)
+        setLoadState('access_denied')
+        setBusy(false)
+        return
+      }
       if (!force && (result === 'not_scheduled' || result === 'too_early' || result === 'too_late')) {
         setForcePrompt({
           title: result === 'too_late' ? 'Verspäteter Start' : 'Hinweis',
@@ -314,6 +321,12 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
     setMsg(null)
     try {
       const raw = await employeeAccessPost(t, 'check-out-start', {})
+      if (raw.result === 'invalid_token') {
+        setPayload(null)
+        setLoadState('access_denied')
+        setBusy(false)
+        return
+      }
       if (raw.ok === true && raw.data && typeof raw.data === 'object') {
         const d = raw.data as { timeEntry?: TimeEntry }
         if (d.timeEntry) {
@@ -352,6 +365,12 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
           incidentNote: checklist.incidentNote,
         },
       })
+      if (raw.result === 'invalid_token') {
+        setPayload(null)
+        setLoadState('access_denied')
+        setBusy(false)
+        return
+      }
       if (raw.ok === true && raw.data && typeof raw.data === 'object') {
         const te = raw.data as TimeEntry
         const end = te.endAt ? formatTimeDE(te.endAt) : ''
@@ -374,6 +393,20 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
     return (
       <div className="flex min-h-dvh items-center justify-center px-4 text-slate-400">
         Deine Daten werden geladen…
+      </div>
+    )
+  }
+
+  if (loadState === 'access_denied') {
+    return (
+      <div className="flex min-h-dvh flex-col items-center justify-center gap-4 px-6 text-center">
+        <p className="text-xl font-semibold text-white">Dein Mitarbeiterzugang wurde deaktiviert.</p>
+        <p className="max-w-md text-slate-400">Bitte wende dich an die Stationsleitung.</p>
+        {onClearSession ? (
+          <Button type="button" variant="outline" onClick={() => onClearSession()}>
+            Sitzung auf diesem Gerät beenden
+          </Button>
+        ) : null}
       </div>
     )
   }
@@ -762,7 +795,20 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
               type="button"
               variant="outline"
               className="mt-3 border-red-400/40 text-red-200 hover:bg-red-500/10"
-              onClick={() => onClearSession?.()}
+              disabled={busy}
+              onClick={() => {
+                void (async () => {
+                  setBusy(true)
+                  try {
+                    await employeeAccessPost(t, 'revoke-this-device', {})
+                  } catch {
+                    /* ignore network */
+                  } finally {
+                    setBusy(false)
+                    onClearSession?.()
+                  }
+                })()
+              }}
             >
               <LogOut className="mr-2 inline h-4 w-4" aria-hidden />
               Mitarbeiterzugang von diesem Gerät entfernen

@@ -170,6 +170,24 @@ const statements = [
     FOREIGN KEY (employee_id) REFERENCES employees(id),
     FOREIGN KEY (work_area_id) REFERENCES work_areas(id)
   )`,
+  `CREATE TABLE IF NOT EXISTS employee_app_devices (
+    id TEXT PRIMARY KEY,
+    employee_id TEXT NOT NULL,
+    station_id TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    device_label TEXT,
+    user_agent TEXT,
+    platform TEXT,
+    last_ip TEXT,
+    first_seen_at TEXT,
+    last_seen_at TEXT,
+    is_active INTEGER DEFAULT 1,
+    revoked_at TEXT,
+    revoked_by TEXT,
+    created_at TEXT,
+    updated_at TEXT,
+    FOREIGN KEY (employee_id) REFERENCES employees(id)
+  )`,
   `CREATE TABLE IF NOT EXISTS shifts (
     id TEXT PRIMARY KEY,
     station_id TEXT NOT NULL,

@@ -1,6 +1,7 @@
 /** Zentraler REST-Client (Phase 8/9). Base-URL aus VITE_API_URL, Fallback Port 3001. */
 
 import type { ScheduleAssistantApplyResult, ScheduleAssistantGenerateResult } from '../types/scheduleAssistant'
+import { getEmployeeAppDeviceHeaders } from '../pages/employee-app/employeeAppStorage'
 
 const rawBase = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? ''
 export const API_BASE = rawBase || 'http://localhost:3001/api'
@@ -100,41 +101,50 @@ export async function scheduleAssistantApply(body: unknown): Promise<ApiEnvelope
 }
 
 /** Öffentliche Mitarbeiter-Zugangs-API (nur Token, kein Admin-Bearer). */
-export async function employeeAccessGet<T>(token: string): Promise<ApiEnvelope<T>> {
+export type EmployeeAccessFetchMeta = { httpStatus: number }
+
+export async function employeeAccessGet<T>(
+  token: string,
+): Promise<ApiEnvelope<T> & EmployeeAccessFetchMeta> {
   const url = `${API_BASE}/employee-access/${encodeURIComponent(token)}`
-  const res = await fetch(url)
+  const res = await fetch(url, { headers: { ...getEmployeeAppDeviceHeaders() } })
+  const httpStatus = res.status
   const json = (await res.json()) as ApiEnvelope<T>
   if (!res.ok && json && typeof json === 'object' && 'ok' in json && json.ok === false) {
-    return json as ApiEnvelope<T>
+    return { ...(json as ApiEnvelope<T>), httpStatus }
   }
-  if (!res.ok) return { ok: false, error: `HTTP ${res.status}` }
-  return json as ApiEnvelope<T>
+  if (!res.ok) return { ok: false, error: `HTTP ${res.status}`, httpStatus }
+  return { ...(json as ApiEnvelope<T> & { ok: true }), httpStatus }
 }
 
 export async function employeeAccessGetWeekSchedule<T>(
   token: string,
   weekStart?: string,
-): Promise<ApiEnvelope<T>> {
+): Promise<ApiEnvelope<T> & EmployeeAccessFetchMeta> {
   const q = weekStart ? `?weekStart=${encodeURIComponent(weekStart)}` : ''
   const url = `${API_BASE}/employee-access/${encodeURIComponent(token)}/week-schedule${q}`
-  const res = await fetch(url)
+  const res = await fetch(url, { headers: { ...getEmployeeAppDeviceHeaders() } })
+  const httpStatus = res.status
   const json = (await res.json()) as ApiEnvelope<T>
   if (!res.ok && json && typeof json === 'object' && 'ok' in json && json.ok === false) {
-    return json as ApiEnvelope<T>
+    return { ...(json as ApiEnvelope<T>), httpStatus }
   }
-  if (!res.ok) return { ok: false, error: `HTTP ${res.status}` }
-  return json as ApiEnvelope<T>
+  if (!res.ok) return { ok: false, error: `HTTP ${res.status}`, httpStatus }
+  return { ...(json as ApiEnvelope<T> & { ok: true }), httpStatus }
 }
 
-export async function employeeAccessGetTasks<T>(token: string): Promise<ApiEnvelope<T>> {
+export async function employeeAccessGetTasks<T>(
+  token: string,
+): Promise<ApiEnvelope<T> & EmployeeAccessFetchMeta> {
   const url = `${API_BASE}/employee-access/${encodeURIComponent(token)}/tasks`
-  const res = await fetch(url)
+  const res = await fetch(url, { headers: { ...getEmployeeAppDeviceHeaders() } })
+  const httpStatus = res.status
   const json = (await res.json()) as ApiEnvelope<T>
   if (!res.ok && json && typeof json === 'object' && 'ok' in json && json.ok === false) {
-    return json as ApiEnvelope<T>
+    return { ...(json as ApiEnvelope<T>), httpStatus }
   }
-  if (!res.ok) return { ok: false, error: `HTTP ${res.status}` }
-  return json as ApiEnvelope<T>
+  if (!res.ok) return { ok: false, error: `HTTP ${res.status}`, httpStatus }
+  return { ...(json as ApiEnvelope<T> & { ok: true }), httpStatus }
 }
 
 /** Öffentliche Mitarbeiter-Zugangs-POST (Antwort kann ok:false bei HTTP 200 enthalten). */
@@ -146,10 +156,17 @@ export async function employeeAccessPost(
   const url = `${API_BASE}/employee-access/${encodeURIComponent(token)}/${subPath.replace(/^\//, '')}`
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...getEmployeeAppDeviceHeaders() },
     body: JSON.stringify(body ?? {}),
   })
   const json = (await res.json()) as Record<string, unknown>
+  if (res.status === 403) {
+    return {
+      ok: false,
+      result: 'invalid_token',
+      message: typeof json.error === 'string' ? json.error : 'Zugang verweigert',
+    }
+  }
   if (!res.ok && json.ok !== false) {
     return { ok: false, error: `HTTP ${res.status}` }
   }
@@ -161,19 +178,23 @@ export async function employeeAccessPostJson<T>(
   token: string,
   subPath: string,
   body?: unknown,
-): Promise<ApiEnvelope<T>> {
+): Promise<ApiEnvelope<T> & EmployeeAccessFetchMeta> {
   const url = `${API_BASE}/employee-access/${encodeURIComponent(token)}/${subPath.replace(/^\//, '')}`
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...getEmployeeAppDeviceHeaders() },
     body: JSON.stringify(body ?? {}),
   })
+  const httpStatus = res.status
   const json = (await res.json()) as ApiEnvelope<T>
+  if (res.status === 403 && json && typeof json === 'object' && 'ok' in json && json.ok === false) {
+    return { ...(json as ApiEnvelope<T>), httpStatus }
+  }
   if (!res.ok && json && typeof json === 'object' && 'ok' in json && json.ok === false) {
-    return json as ApiEnvelope<T>
+    return { ...(json as ApiEnvelope<T>), httpStatus }
   }
   if (!res.ok) {
-    return { ok: false, error: `HTTP ${res.status}` }
+    return { ok: false, error: `HTTP ${res.status}`, httpStatus }
   }
-  return json as ApiEnvelope<T>
+  return { ...(json as ApiEnvelope<T> & { ok: true }), httpStatus }
 }

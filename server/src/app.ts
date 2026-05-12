@@ -12,6 +12,7 @@ import { timeEntriesRouter, terminalRouter } from './routes/timeTracking.routes.
 import { devRouter } from './routes/dev.routes.js'
 import { authRouter } from './routes/auth.routes.js'
 import { employeeAccessRouter } from './routes/employeeAccess.routes.js'
+import { employeeAppAdminRouter } from './routes/employeeAppAdmin.routes.js'
 import { scheduleAssistantRouter } from './routes/scheduleAssistant.routes.js'
 import { accessRouter } from './routes/access.routes.js'
 import { tuvReportsRouter } from './routes/tuvReports.routes.js'
@@ -50,6 +51,7 @@ export function createApp() {
   app.use('/api/access', accessRouter)
   app.use('/api/stations', stationsRouter)
   app.use('/api/employees', employeesRouter)
+  app.use('/api/employee-app', employeeAppAdminRouter)
   app.use('/api/work-areas', workAreasRouter)
   app.use('/api/shifts', shiftsRouter)
   app.use('/api/absences', absencesRouter)

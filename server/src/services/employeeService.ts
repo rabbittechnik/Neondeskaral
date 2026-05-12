@@ -2,6 +2,13 @@ import type { Database } from 'better-sqlite3'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { DEFAULT_STATION_ID } from '../constants.js'
 import { nowIso } from '../utils/timestamps.js'
+import {
+  RB_ACCESS_DISABLED,
+  RB_EMPLOYEE_INACTIVE,
+  RB_TOKEN_REGEN,
+  reactivateDevicesAfterAccessReEnabled,
+  revokeAllDevicesForEmployee,
+} from './employeeAppDeviceService.js'
 
 function jsonStringArrayFromBody(body: Record<string, unknown>, key: string): string {
   const v = body[key]
@@ -579,6 +586,7 @@ export function updateEmployee(
     db.prepare(
       `UPDATE employees SET active = 0, status = 'inactive', employee_access_enabled = 0, updated_at = ? WHERE id = ?`,
     ).run(ts, id)
+    revokeAllDevicesForEmployee(db, id, RB_EMPLOYEE_INACTIVE)
   } else if (body.status === 'aktiv' || body.status === 'active') {
     db.prepare(
       `UPDATE employees SET active = 1, status = 'active', employee_access_enabled = 1, updated_at = ? WHERE id = ?`,
@@ -868,6 +876,7 @@ export function softDeleteEmployee(db: Database, id: string) {
     )
     .run(ts, id)
   if (r.changes === 0) throw new Error('Mitarbeiter nicht gefunden')
+  revokeAllDevicesForEmployee(db, id, RB_EMPLOYEE_INACTIVE)
 }
 
 export function getEmployeeRowInternal(db: Database, id: string): EmployeeRow | undefined {
@@ -875,6 +884,7 @@ export function getEmployeeRowInternal(db: Database, id: string): EmployeeRow | 
 }
 
 export function regenerateEmployeeAccessToken(db: Database, id: string) {
+  revokeAllDevicesForEmployee(db, id, RB_TOKEN_REGEN)
   const ts = nowIso()
   const tok = randomBytes(32).toString('hex')
   const r = db
@@ -899,6 +909,11 @@ export function setEmployeeAccessEnabled(db: Database, id: string, enabled: bool
     .prepare(`UPDATE employees SET employee_access_enabled = ?, updated_at = ? WHERE id = ?`)
     .run(enabled ? 1 : 0, ts, id)
   if (r.changes === 0) throw new Error('Mitarbeiter nicht gefunden')
+  if (!enabled) {
+    revokeAllDevicesForEmployee(db, id, RB_ACCESS_DISABLED)
+  } else if (existingTok) {
+    reactivateDevicesAfterAccessReEnabled(db, id)
+  }
   return getEmployee(db, id, { includeAccessToken: true, includeSensitive: false })
 }
 

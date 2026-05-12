@@ -1,9 +1,13 @@
 import { Router } from 'express'
 import { getDb } from '../db/database.js'
 import { jsonErr, jsonOk } from '../utils/http.js'
-import { requirePermission, getAccess } from '../middleware/stationAuth.js'
+import { requirePermission, getAccess, requireAnyPermission } from '../middleware/stationAuth.js'
 import { canAccessStation, hasPermission } from '../services/stationAccessService.js'
 import * as employeeService from '../services/employeeService.js'
+import {
+  revokeAllDevicesForEmployee,
+  RB_ADMIN_ALL,
+} from '../services/employeeAppDeviceService.js'
 import { listActiveShiftWarningsForEmployee, acknowledgeShiftWarningByAdmin } from '../services/employeeShiftWarningService.js'
 
 export const employeesRouter = Router()
@@ -69,6 +73,26 @@ employeesRouter.post('/:id/regenerate-access-token', (req, res) => {
     if (!row) return jsonErr(res, 'Mitarbeiter nicht gefunden', 404)
     if (!requirePermission(req, res, row.station_id, 'employees.qr')) return
     jsonOk(res, employeeService.regenerateEmployeeAccessToken(getDb(), req.params.id))
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
+  }
+})
+
+employeesRouter.post('/:id/revoke-all-devices', (req, res) => {
+  try {
+    const row = employeeService.getEmployeeRowInternal(getDb(), req.params.id)
+    if (!row) return jsonErr(res, 'Mitarbeiter nicht gefunden', 404)
+    if (
+      !requireAnyPermission(req, res, row.station_id, [
+        'employees.revokeDevices',
+        'employees.manageAppAccess',
+        'employees.qr',
+      ])
+    )
+      return
+    const ctx = getAccess(req)
+    revokeAllDevicesForEmployee(getDb(), req.params.id, ctx?.userId ? `user:${ctx.userId}` : RB_ADMIN_ALL)
+    jsonOk(res, { ok: true })
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
   }

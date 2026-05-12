@@ -14,6 +14,49 @@ import {
   clockCheckOutComplete,
   clockCheckOutStartByEmployeeId,
 } from './clockService.js'
+import { isDeviceRequestBlocked, recordEmployeeAppDeviceVisit } from './employeeAppDeviceService.js'
+
+export const EMPLOYEE_APP_ACCESS_DENIED_MESSAGE =
+  'Dein Mitarbeiterzugang wurde deaktiviert. Bitte wende dich an die Stationsleitung.'
+
+export type EmployeeAccessRequestMeta = {
+  deviceId: string
+  platform: string
+  appVersion: string
+  userAgent: string
+  lastIp: string | null
+}
+
+export function parseEmployeeAccessRequestMeta(req: import('express').Request): EmployeeAccessRequestMeta {
+  const h = req.headers
+  const pick = (name: string) => {
+    const v = h[name.toLowerCase()]
+    if (Array.isArray(v)) return String(v[0] ?? '').trim()
+    return typeof v === 'string' ? v.trim() : ''
+  }
+  const ipRaw =
+    typeof req.ip === 'string' && req.ip
+      ? req.ip
+      : typeof (req.socket as { remoteAddress?: string } | undefined)?.remoteAddress === 'string'
+        ? String((req.socket as { remoteAddress?: string }).remoteAddress)
+        : ''
+  return {
+    deviceId: pick('x-employee-device-id').slice(0, 96),
+    platform: pick('x-employee-app-platform').slice(0, 120),
+    appVersion: pick('x-employee-app-version').slice(0, 40),
+    userAgent: pick('user-agent').slice(0, 500),
+    lastIp: ipRaw ? ipRaw.slice(0, 64) : null,
+  }
+}
+
+export function touchEmployeeAccessUsed(db: Database, employeeId: string) {
+  const ts = nowIso()
+  db.prepare(`UPDATE employees SET employee_access_last_used_at = ?, updated_at = ? WHERE id = ?`).run(
+    ts,
+    ts,
+    employeeId,
+  )
+}
 
 export function generateAccessToken(): string {
   return randomBytes(32).toString('hex')
@@ -23,15 +66,54 @@ export function getEmployeeRowByAccessToken(db: Database, token: string): Employ
   const t = String(token ?? '').trim()
   if (!t) return undefined
   return db
-    .prepare(`SELECT * FROM employees WHERE employee_access_token = ? AND (active IS NULL OR active = 1)`)
+    .prepare(`SELECT * FROM employees WHERE trim(employee_access_token) = ?`)
     .get(t) as EmployeeRow | undefined
 }
 
-function assertAccessAllowed(row: EmployeeRow) {
+export function validateEmployeeAppAccess(
+  db: Database,
+  row: EmployeeRow | undefined,
+  deviceId?: string,
+): row is EmployeeRow {
+  if (!row) return false
+  const tok = String((row as Record<string, unknown>).employee_access_token ?? '').trim()
+  if (!tok) return false
   if ((row.active ?? 1) === 0) return false
+  const st = String(row.status ?? '').toLowerCase()
+  if (st === 'inactive' || st === 'inaktiv') return false
   if ((row.employee_access_enabled ?? 1) === 0) return false
-  if (!row.employee_access_token) return false
+  const station = getStation(db, row.station_id) as { active?: number } | undefined
+  if (!station || (station.active ?? 1) === 0) return false
+  const d = deviceId?.trim()
+  if (d && isDeviceRequestBlocked(db, row.id, d)) return false
   return true
+}
+
+function touchAccessAndDevice(db: Database, row: EmployeeRow, meta?: EmployeeAccessRequestMeta) {
+  touchEmployeeAccessUsed(db, row.id)
+  const d = meta?.deviceId?.trim()
+  if (d) {
+    recordEmployeeAppDeviceVisit(db, {
+      employeeId: row.id,
+      stationId: row.station_id,
+      deviceId: d,
+      userAgent: meta?.userAgent ?? '',
+      platform: meta?.platform ?? '',
+      lastIp: meta?.lastIp ?? null,
+    })
+  }
+}
+
+export function resolveEmployeeAccessContext(
+  db: Database,
+  token: string,
+  meta?: EmployeeAccessRequestMeta,
+): { ok: true; row: EmployeeRow } | { ok: false } {
+  const row = getEmployeeRowByAccessToken(db, token)
+  const deviceId = meta?.deviceId?.trim() || undefined
+  if (!validateEmployeeAppAccess(db, row, deviceId)) return { ok: false }
+  touchAccessAndDevice(db, row, meta)
+  return { ok: true, row }
 }
 
 function employmentRoleFromRow(row: EmployeeRow): string {
@@ -123,11 +205,12 @@ function publicStation(db: Database, stationId: string) {
   return { id: r.id, name: r.name, federalState: r.federal_state ?? 'BW' }
 }
 
-export function buildEmployeeAccessPayload(db: Database, token: string) {
-  const row = getEmployeeRowByAccessToken(db, token)
-  if (!row || !assertAccessAllowed(row)) {
+export function buildEmployeeAccessPayload(db: Database, token: string, meta?: EmployeeAccessRequestMeta) {
+  const ctx = resolveEmployeeAccessContext(db, token, meta)
+  if (!ctx.ok) {
     return { ok: false as const, error: 'invalid_token' as const }
   }
+  const row = ctx.row
   const stationId = row.station_id
   const empId = row.id
   const empRole = String(row.role ?? '').trim()
@@ -301,11 +384,17 @@ function loadPublicEmployeesForIds(db: Database, ids: string[]): Map<string, Pub
   return map
 }
 
-export function buildEmployeeWeekSchedule(db: Database, token: string, weekStart?: string) {
-  const row = getEmployeeRowByAccessToken(db, token)
-  if (!row || !assertAccessAllowed(row)) {
+export function buildEmployeeWeekSchedule(
+  db: Database,
+  token: string,
+  weekStart?: string,
+  meta?: EmployeeAccessRequestMeta,
+) {
+  const ctx = resolveEmployeeAccessContext(db, token, meta)
+  if (!ctx.ok) {
     return { ok: false as const, error: 'invalid_token' as const }
   }
+  const row = ctx.row
   const weekMonday = normalizeWeekMonday(weekStart)
   const weekSunday = addDaysToYmd(weekMonday, 6)
   const { week: calendarWeek, weekYear: calendarWeekYear } = isoCalendarWeekFromMondayYmd(weekMonday)
@@ -348,21 +437,12 @@ export function buildEmployeeWeekSchedule(db: Database, token: string, weekStart
   }
 }
 
-export function touchEmployeeAccessUsed(db: Database, employeeId: string) {
-  const ts = nowIso()
-  db.prepare(`UPDATE employees SET employee_access_last_used_at = ?, updated_at = ? WHERE id = ?`).run(
-    ts,
-    ts,
-    employeeId,
-  )
-}
-
-export function employeeAccessCheckIn(db: Database, token: string, force: boolean) {
-  const row = getEmployeeRowByAccessToken(db, token)
-  if (!row || !assertAccessAllowed(row)) {
-    return { ok: false as const, result: 'invalid_token' as const, message: 'Zugang ungültig oder deaktiviert.' }
+export function employeeAccessCheckIn(db: Database, token: string, force: boolean, meta?: EmployeeAccessRequestMeta) {
+  const ctx = resolveEmployeeAccessContext(db, token, meta)
+  if (!ctx.ok) {
+    return { ok: false as const, result: 'invalid_token' as const, message: EMPLOYEE_APP_ACCESS_DENIED_MESSAGE }
   }
-  touchEmployeeAccessUsed(db, row.id)
+  const row = ctx.row
   return clockCheckInByEmployeeId(db, {
     employeeId: row.id,
     stationId: row.station_id,
@@ -372,21 +452,21 @@ export function employeeAccessCheckIn(db: Database, token: string, force: boolea
   })
 }
 
-export function employeeAccessListShiftWarnings(db: Database, token: string) {
-  const row = getEmployeeRowByAccessToken(db, token)
-  if (!row || !assertAccessAllowed(row)) {
+export function employeeAccessListShiftWarnings(db: Database, token: string, meta?: EmployeeAccessRequestMeta) {
+  const ctx = resolveEmployeeAccessContext(db, token, meta)
+  if (!ctx.ok) {
     return { ok: false as const, error: 'invalid_token' as const }
   }
-  touchEmployeeAccessUsed(db, row.id)
+  const row = ctx.row
   return { ok: true as const, data: listActiveShiftWarningsForEmployee(db, row.id) }
 }
 
-export function employeeAccessAcknowledgeShiftWarning(db: Database, token: string, warningId: string) {
-  const row = getEmployeeRowByAccessToken(db, token)
-  if (!row || !assertAccessAllowed(row)) {
+export function employeeAccessAcknowledgeShiftWarning(db: Database, token: string, warningId: string, meta?: EmployeeAccessRequestMeta) {
+  const ctx = resolveEmployeeAccessContext(db, token, meta)
+  if (!ctx.ok) {
     return { ok: false as const, error: 'invalid_token' as const }
   }
-  touchEmployeeAccessUsed(db, row.id)
+  const row = ctx.row
   try {
     acknowledgeShiftWarning(db, warningId, row.id)
     return { ok: true as const }
@@ -395,12 +475,12 @@ export function employeeAccessAcknowledgeShiftWarning(db: Database, token: strin
   }
 }
 
-export function employeeAccessCheckOutStart(db: Database, token: string) {
-  const row = getEmployeeRowByAccessToken(db, token)
-  if (!row || !assertAccessAllowed(row)) {
-    return { ok: false as const, result: 'invalid_token' as const, message: 'Zugang ungültig oder deaktiviert.' }
+export function employeeAccessCheckOutStart(db: Database, token: string, meta?: EmployeeAccessRequestMeta) {
+  const ctx = resolveEmployeeAccessContext(db, token, meta)
+  if (!ctx.ok) {
+    return { ok: false as const, result: 'invalid_token' as const, message: EMPLOYEE_APP_ACCESS_DENIED_MESSAGE }
   }
-  touchEmployeeAccessUsed(db, row.id)
+  const row = ctx.row
   return clockCheckOutStartByEmployeeId(db, {
     employeeId: row.id,
     stationId: row.station_id,
@@ -411,11 +491,13 @@ export function employeeAccessCheckOutComplete(
   db: Database,
   token: string,
   body: { timeEntryId: string; checklist: Record<string, unknown> },
+  meta?: EmployeeAccessRequestMeta,
 ) {
-  const row = getEmployeeRowByAccessToken(db, token)
-  if (!row || !assertAccessAllowed(row)) {
-    return { ok: false as const, error: 'Zugang ungültig oder deaktiviert.' }
+  const ctx = resolveEmployeeAccessContext(db, token, meta)
+  if (!ctx.ok) {
+    return { ok: false as const, error: EMPLOYEE_APP_ACCESS_DENIED_MESSAGE }
   }
+  const row = ctx.row
   const te = listTimeEntries(db, {
     stationId: row.station_id,
     employeeId: row.id,
@@ -424,7 +506,6 @@ export function employeeAccessCheckOutComplete(
   if (!te || te.id !== body.timeEntryId) {
     return { ok: false as const, error: 'Kein passender laufender Eintrag.' }
   }
-  touchEmployeeAccessUsed(db, row.id)
   return clockCheckOutComplete(db, {
     timeEntryId: body.timeEntryId,
     checklist: body.checklist,
@@ -432,22 +513,27 @@ export function employeeAccessCheckOutComplete(
   })
 }
 
-export function employeeAccessListAbsences(db: Database, token: string) {
-  const row = getEmployeeRowByAccessToken(db, token)
-  if (!row || !assertAccessAllowed(row)) {
+export function employeeAccessListAbsences(db: Database, token: string, meta?: EmployeeAccessRequestMeta) {
+  const ctx = resolveEmployeeAccessContext(db, token, meta)
+  if (!ctx.ok) {
     return { ok: false as const, error: 'invalid_token' as const }
   }
-  touchEmployeeAccessUsed(db, row.id)
+  const row = ctx.row
   const data = listAbsences(db, { stationId: row.station_id, employeeId: row.id })
   return { ok: true as const, data }
 }
 
-export function employeeAccessCreateAbsence(db: Database, token: string, body: Record<string, unknown>) {
-  const row = getEmployeeRowByAccessToken(db, token)
-  if (!row || !assertAccessAllowed(row)) {
+export function employeeAccessCreateAbsence(
+  db: Database,
+  token: string,
+  body: Record<string, unknown>,
+  meta?: EmployeeAccessRequestMeta,
+) {
+  const ctx = resolveEmployeeAccessContext(db, token, meta)
+  if (!ctx.ok) {
     return { ok: false as const, error: 'invalid_token' as const }
   }
-  touchEmployeeAccessUsed(db, row.id)
+  const row = ctx.row
   const safe: Record<string, unknown> = { ...(body ?? {}) }
   delete safe.employeeId
   const data = createAbsence(
@@ -462,8 +548,8 @@ export function employeeAccessCreateAbsence(db: Database, token: string, body: R
   return { ok: true as const, data }
 }
 
-export function employeeAccessGetTasks(db: Database, token: string) {
-  const full = buildEmployeeAccessPayload(db, token)
+export function employeeAccessGetTasks(db: Database, token: string, meta?: EmployeeAccessRequestMeta) {
+  const full = buildEmployeeAccessPayload(db, token, meta)
   if (!full.ok) return { ok: false as const, error: 'invalid_token' as const }
   return {
     ok: true as const,
@@ -476,12 +562,13 @@ export function employeeAccessConfirmTask(
   token: string,
   taskId: string,
   body: { comment?: string },
+  meta?: EmployeeAccessRequestMeta,
 ) {
-  const row = getEmployeeRowByAccessToken(db, token)
-  if (!row || !assertAccessAllowed(row)) {
+  const ctx = resolveEmployeeAccessContext(db, token, meta)
+  if (!ctx.ok) {
     return { ok: false as const, error: 'invalid_token' as const }
   }
-  touchEmployeeAccessUsed(db, row.id)
+  const row = ctx.row
   const stationId = row.station_id
   const empId = row.id
   const empRole = String(row.role ?? '').trim()

@@ -1,6 +1,35 @@
 const KEY_TOKEN = 'employeeAccessToken'
 const KEY_NAME = 'employeeAccessEmployeeName'
 const KEY_STATION = 'employeeAccessStationName'
+const KEY_DEVICE = 'employeeAppDeviceId'
+
+export function getOrCreateEmployeeAppDeviceId(): string {
+  if (typeof window === 'undefined') return ''
+  let id = localStorage.getItem(KEY_DEVICE)?.trim()
+  if (!id) {
+    id = crypto.randomUUID()
+    localStorage.setItem(KEY_DEVICE, id)
+  }
+  return id
+}
+
+export function getEmployeeAppPlatformLabel(): string {
+  if (typeof window === 'undefined') return ''
+  const ua = navigator.userAgent
+  if (/Android/i.test(ua)) return 'Android'
+  if (/iPhone|iPad|iPod/i.test(ua)) return 'iOS'
+  return navigator.platform || ''
+}
+
+export function getEmployeeAppDeviceHeaders(): Record<string, string> {
+  const id = getOrCreateEmployeeAppDeviceId()
+  if (!id) return {}
+  return {
+    'X-Employee-Device-Id': id,
+    'X-Employee-App-Platform': getEmployeeAppPlatformLabel(),
+    'X-Employee-App-Version': '1',
+  }
+}
 
 export function getStoredEmployeeAccessToken(): string | null {
   if (typeof window === 'undefined') return null
@@ -28,6 +57,7 @@ export function clearStoredEmployeeAccessSession(): void {
   localStorage.removeItem(KEY_TOKEN)
   localStorage.removeItem(KEY_NAME)
   localStorage.removeItem(KEY_STATION)
+  localStorage.removeItem(KEY_DEVICE)
 }
 
 /** Aus URL, Roh-Token oder eingefügtem Link */

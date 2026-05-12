@@ -27,6 +27,7 @@ type EmployeesContextValue = {
   regenerateEmployeeAccess: (id: string) => Promise<Employee>
   disableEmployeeAccess: (id: string) => Promise<void>
   enableEmployeeAccess: (id: string) => Promise<void>
+  revokeAllEmployeeAppDevices: (id: string) => Promise<void>
 }
 
 const EmployeesContext = createContext<EmployeesContextValue | null>(null)
@@ -150,6 +151,19 @@ export function EmployeesProvider({ children }: { children: ReactNode }) {
     [refetch],
   )
 
+  const revokeAllEmployeeAppDevices = useCallback(
+    async (id: string) => {
+      const res = await apiSend<{ ok?: boolean }>(
+        'POST',
+        `/employees/${encodeURIComponent(id)}/revoke-all-devices`,
+        {},
+      )
+      if (!res.ok) throw new Error(res.ok === false ? res.error : 'Fehler')
+      await refetch()
+    },
+    [refetch],
+  )
+
   const value = useMemo(
     () => ({
       employees,
@@ -165,6 +179,7 @@ export function EmployeesProvider({ children }: { children: ReactNode }) {
       regenerateEmployeeAccess,
       disableEmployeeAccess,
       enableEmployeeAccess,
+      revokeAllEmployeeAppDevices,
     }),
     [
       employees,
@@ -180,6 +195,7 @@ export function EmployeesProvider({ children }: { children: ReactNode }) {
       regenerateEmployeeAccess,
       disableEmployeeAccess,
       enableEmployeeAccess,
+      revokeAllEmployeeAppDevices,
     ],
   )
 

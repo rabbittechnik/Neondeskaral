@@ -134,6 +134,8 @@ export function runMigrations(db: Database.Database) {
 
   mergeTuvPermissionsIntoAccess(db)
   mergeEmployeeSensitivePermissionsIntoAccess(db)
+  ensureEmployeeAppDevicesTable(db)
+  mergeEmployeeAppPermissionsIntoAccess(db)
   migrateRoleLabelsAndAbsenceRejectColumns(db)
 }
 
@@ -273,6 +275,68 @@ function migrateRoleLabelsAndAbsenceRejectColumns(db: Database.Database) {
   }
   if (!absNames.has('rejected_at')) {
     db.exec(`ALTER TABLE absences ADD COLUMN rejected_at TEXT`)
+  }
+}
+
+function ensureEmployeeAppDevicesTable(db: Database.Database) {
+  db.exec(`CREATE TABLE IF NOT EXISTS employee_app_devices (
+    id TEXT PRIMARY KEY,
+    employee_id TEXT NOT NULL,
+    station_id TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    device_label TEXT,
+    user_agent TEXT,
+    platform TEXT,
+    last_ip TEXT,
+    first_seen_at TEXT,
+    last_seen_at TEXT,
+    is_active INTEGER DEFAULT 1,
+    revoked_at TEXT,
+    revoked_by TEXT,
+    created_at TEXT,
+    updated_at TEXT,
+    FOREIGN KEY (employee_id) REFERENCES employees(id)
+  )`)
+  db.exec(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_employee_app_devices_emp_device ON employee_app_devices(employee_id, device_id)`,
+  )
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_employee_app_devices_station ON employee_app_devices(station_id)`)
+}
+
+function mergeEmployeeAppPermissionsIntoAccess(db: Database.Database) {
+  const keys = [
+    'employees.viewAppAccess',
+    'employees.viewDevices',
+    'employees.manageAppAccess',
+    'employees.revokeDevices',
+  ] as const
+  const rows = db.prepare(`SELECT id, permissions_json FROM user_station_access`).all() as {
+    id: string
+    permissions_json: string
+  }[]
+  const ts = nowIso()
+  for (const r of rows) {
+    let p: Record<string, boolean> = {}
+    try {
+      p = JSON.parse(r.permissions_json || '{}') as Record<string, boolean>
+    } catch {
+      p = {}
+    }
+    if (p['employees.qr'] !== true && p['employees.edit'] !== true) continue
+    let changed = false
+    for (const k of keys) {
+      if (p[k] === undefined) {
+        p[k] = true
+        changed = true
+      }
+    }
+    if (changed) {
+      db.prepare(`UPDATE user_station_access SET permissions_json = ?, updated_at = ? WHERE id = ?`).run(
+        JSON.stringify(p),
+        ts,
+        r.id,
+      )
+    }
   }
 }
 
