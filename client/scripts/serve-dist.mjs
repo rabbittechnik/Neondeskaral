@@ -1,43 +1,147 @@
 /**
- * Statisches SPA aus ./dist (relativ zum client-Paket).
- * Liegt im Workspace-Paket, damit Railpack/Railway die Datei in der Runtime behält.
+ * Statisches SPA aus ./dist – nur Node-Standardbibliothek (kein `serve`-CLI).
+ * Zuverlässiger hinter Railway/Railpack-Proxies.
  */
-import { spawn } from 'node:child_process'
-import { existsSync } from 'node:fs'
-import { createRequire } from 'node:module'
-import { dirname, join } from 'node:path'
+import fs from 'node:fs'
+import http from 'node:http'
+import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
-const clientRoot = join(__dirname, '..')
-const dist = join(clientRoot, 'dist')
-const port = process.env.PORT ?? '4173'
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const dist = path.resolve(__dirname, '..', 'dist')
+const port = parseInt(process.env.PORT || '3000', 10)
 
-if (!existsSync(join(dist, 'index.html'))) {
-  console.error(
-    '[static] FEHLER: dist/index.html fehlt. Build zuerst ausführen (z. B. npm run build --workspace=client).',
-  )
-  console.error('[static] clientRoot=', clientRoot)
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.mjs': 'application/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json',
+  '.ico': 'image/x-icon',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.woff2': 'font/woff2',
+  '.woff': 'font/woff',
+  '.map': 'application/json',
+  '.txt': 'text/plain; charset=utf-8',
+}
+
+function mimeFor(filePath) {
+  return MIME[path.extname(filePath).toLowerCase()] || 'application/octet-stream'
+}
+
+/** Map URL path to absolute file under dist; null if path escapes dist */
+function fileUnderDist(urlPathname) {
+  const raw = decodeURIComponent(String(urlPathname).split('?')[0])
+  const rel =
+    raw === '/' || raw === '' ? 'index.html' : path.normalize(raw.replace(/^\//, ''))
+  if (rel.includes('..')) return null
+  const full = path.resolve(dist, rel)
+  const distWithSep = dist.endsWith(path.sep) ? dist : dist + path.sep
+  if (full !== dist && !full.startsWith(distWithSep)) return null
+  return full
+}
+
+function sendFile(req, res, filePath) {
+  const type = mimeFor(filePath)
+  fs.stat(filePath, (err, st) => {
+    if (err || !st.isFile()) {
+      sendSpaIndex(req, res)
+      return
+    }
+    if (req.method === 'HEAD') {
+      res.writeHead(200, {
+        'Content-Type': type,
+        'Content-Length': st.size,
+        'Cache-Control': 'public, max-age=3600',
+      })
+      res.end()
+      return
+    }
+    res.writeHead(200, {
+      'Content-Type': type,
+      'Cache-Control': 'public, max-age=3600',
+    })
+    fs.createReadStream(filePath).pipe(res)
+  })
+}
+
+function sendSpaIndex(req, res) {
+  const indexHtml = path.join(dist, 'index.html')
+  fs.stat(indexHtml, (err, st) => {
+    if (err || !st.isFile()) {
+      res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' })
+      res.end('dist/index.html missing')
+      return
+    }
+    if (req.method === 'HEAD') {
+      res.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Length': st.size,
+      })
+      res.end()
+      return
+    }
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+    fs.createReadStream(indexHtml).pipe(res)
+  })
+}
+
+const server = http.createServer((req, res) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    res.writeHead(405).end()
+    return
+  }
+
+  const host = req.headers.host || 'localhost'
+  let pathname = '/'
+  try {
+    pathname = new URL(req.url || '/', `http://${host}`).pathname
+  } catch {
+    res.writeHead(400).end()
+    return
+  }
+
+  const candidate = fileUnderDist(pathname)
+  if (!candidate) {
+    res.writeHead(403).end()
+    return
+  }
+
+  fs.stat(candidate, (err, st) => {
+    if (!err && st.isFile()) {
+      sendFile(req, res, candidate)
+      return
+    }
+    if (!err && st.isDirectory()) {
+      const idx = path.join(candidate, 'index.html')
+      fs.stat(idx, (e2, st2) => {
+        if (!e2 && st2.isFile()) {
+          sendFile(req, res, idx)
+        } else {
+          sendSpaIndex(req, res)
+        }
+      })
+      return
+    }
+    sendSpaIndex(req, res)
+  })
+})
+
+server.on('error', (err) => {
+  console.error('[static] listen error', err)
+  process.exit(1)
+})
+
+if (!fs.existsSync(path.join(dist, 'index.html'))) {
+  console.error('[static] FEHLER: dist/index.html fehlt. Zuerst build ausführen.')
+  console.error('[static] dist=', dist)
   process.exit(1)
 }
 
-const require = createRequire(import.meta.url)
-let serveMain
-try {
-  serveMain = require.resolve('serve/build/main.js', { paths: [clientRoot] })
-} catch {
-  console.error(
-    '[static] Paket "serve" nicht auflösbar. Prüfe dependencies in client/package.json.',
-  )
-  process.exit(1)
-}
-
-console.info(`[static] ${dist} -> http://0.0.0.0:${port}/`)
-
-const child = spawn(
-  process.execPath,
-  [serveMain, dist, '-s', '-l', `tcp://0.0.0.0:${port}`],
-  { stdio: 'inherit', cwd: clientRoot },
-)
-
-child.on('exit', (code) => process.exit(code ?? 0))
+server.listen(port, '0.0.0.0', () => {
+  console.info(`[static] http://0.0.0.0:${port}/  (dist=${dist})`)
+})
