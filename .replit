@@ -9,4 +9,4 @@ channel = "stable-24_05"
 [deployment]
 # Build SPA, dann statischer Server (502 mit "vite preview" auf Replit vermeiden)
 build = ["sh", "-c", "npm install && npm run build:client"]
-run = ["sh", "-c", "npm run serve:client"]
+run = ["sh", "-c", "npm start"]
