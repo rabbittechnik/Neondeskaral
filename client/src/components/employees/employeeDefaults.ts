@@ -24,5 +24,8 @@ export function emptyEmployee(): Employee {
     workAreaIds: ['kasse'],
     startDate: today,
     notes: '',
+    cashRegisterCardNumber: '',
+    terminalEnabled: true,
+    timeTrackingEnabled: true,
   }
 }

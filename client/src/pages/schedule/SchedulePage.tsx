@@ -1,13 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   computeWeeklyHoursByEmployee,
-  dayIndexInWeek,
   mockConflicts,
   mockWeekAbsences,
   resolveShiftsForWeekGrid,
-  seedScheduleWeek,
   STATION_NAME,
-  toISODate,
   toScheduleEmployeeRow,
   type ResolvedShiftBlock,
   type ScheduleShift,
@@ -17,7 +14,6 @@ import { ScheduleToolbar } from '../../components/schedule/ScheduleToolbar'
 import type { ScheduleViewMode } from '../../components/schedule/ScheduleViewTabs'
 import { ScheduleViewTabs } from '../../components/schedule/ScheduleViewTabs'
 import { ScheduleViewPlaceholder } from '../../components/schedule/ScheduleViewPlaceholder'
-import { ShiftLegend } from '../../components/schedule/ShiftLegend'
 import {
   addDays,
   addWeeks,
@@ -33,24 +29,17 @@ import {
   openShiftWarnings,
 } from '../../components/schedule/schedulePanelUtils'
 import { useEmployees } from '../../context/employees-context'
-
-/** Überlebt React StrictMode-Doppelmount ohne doppeltes Seeding. */
-const seededScheduleWeekKeys = new Set<string>()
+import { useScheduleShifts } from '../../context/schedule-shifts-context'
+import { STATION_FEDERAL_STATE } from '../../data/station'
 
 export function SchedulePage() {
   const { employees } = useEmployees()
+  const { shifts, setShifts, ensureWeekSeeded } = useScheduleShifts()
 
   const [weekOffset, setWeekOffset] = useState(0)
   const [workAreaFilter, setWorkAreaFilter] = useState('all')
   const [employeeFilter, setEmployeeFilter] = useState('all')
   const [view, setView] = useState<ScheduleViewMode>('calendar')
-
-  const [shifts, setShifts] = useState<ScheduleShift[]>(() => {
-    const mon = startOfWeekMonday(new Date())
-    const k = toISODate(mon)
-    seededScheduleWeekKeys.add(k)
-    return seedScheduleWeek(mon)
-  })
 
   const [modalOpen, setModalOpen] = useState(false)
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create')
@@ -94,15 +83,8 @@ export function SchedulePage() {
   )
 
   useEffect(() => {
-    const key = toISODate(weekMonday)
-    if (seededScheduleWeekKeys.has(key)) return
-    seededScheduleWeekKeys.add(key)
-    setShifts((prev) => {
-      const has = prev.some((s) => dayIndexInWeek(s.date, weekMonday) !== null)
-      if (has) return prev
-      return [...prev, ...seedScheduleWeek(weekMonday)]
-    })
-  }, [weekMonday])
+    ensureWeekSeeded(weekMonday)
+  }, [weekMonday, ensureWeekSeeded])
 
   const allBlocks = useMemo(
     () => resolveShiftsForWeekGrid(shifts, weekMonday),
@@ -234,7 +216,6 @@ export function SchedulePage() {
 
       {view === 'calendar' ? (
         <>
-          <ShiftLegend />
           <ScheduleEmployeeSummaryBar
             employees={scheduleRows}
             weeklyHoursById={hoursByEmployee}
@@ -244,6 +225,8 @@ export function SchedulePage() {
           <div className="grid gap-6 xl:grid-cols-12">
             <div className="space-y-4 xl:col-span-9">
               <WeeklyScheduleGrid
+                variant="full"
+                stationFederalState={STATION_FEDERAL_STATE}
                 weekMonday={weekMonday}
                 employees={scheduleRows}
                 blocks={gridBlocks}

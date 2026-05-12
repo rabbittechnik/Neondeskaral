@@ -51,6 +51,12 @@ export type Employee = {
   endDate?: string
   notes: string
   planHint?: EmployeePlanHint
+  /** Kassenkartennummer fürs Mitarbeiter-Terminal (Dummy, keine echten Karten). */
+  cashRegisterCardNumber: string
+  /** Terminal-Stempeln erlaubt */
+  terminalEnabled: boolean
+  /** Zeiterfassung aktiv */
+  timeTrackingEnabled: boolean
 }
 
 /** Für Schichtplan-Komponenten (abgeleitet aus Employee) */

@@ -1,5 +1,6 @@
-import { createBrowserRouter, Navigate, useParams } from 'react-router-dom'
+import { createBrowserRouter, Navigate, Outlet, useParams } from 'react-router-dom'
 import { AppLayout } from '../layouts/AppLayout'
+import { TerminalLayout } from '../layouts/TerminalLayout'
 import { AuthLayout } from '../layouts/AuthLayout'
 import { AccountPage } from '../pages/account/AccountPage'
 import { BillingDocumentsPage } from '../pages/account/BillingDocumentsPage'
@@ -16,6 +17,10 @@ import { CountersPage } from '../pages/counters/CountersPage'
 import { DashboardPage } from '../pages/dashboard/DashboardPage'
 import { DocumentsPage } from '../pages/documents/DocumentsPage'
 import { EmployeesProvider } from '../context/employees-context'
+import { ScheduleShiftsProvider } from '../context/schedule-shifts-context'
+import { AbsencesProvider } from '../context/absences-context'
+import { TasksProvider } from '../context/tasks-context'
+import { TimeTrackingProvider } from '../context/time-tracking-context'
 import { EmployeeProfilePage } from '../pages/employees/EmployeeProfilePage'
 import { EmployeesLayout } from '../pages/employees/EmployeesLayout'
 import { EmployeesPage } from '../pages/employees/EmployeesPage'
@@ -34,6 +39,7 @@ import { StationsPage } from '../pages/stations/StationsPage'
 import { TasksPage } from '../pages/tasks/TasksPage'
 import { VacationBlocksPage } from '../pages/vacationBlocks/VacationBlocksPage'
 import { WorkAreasPage } from '../pages/workAreas/WorkAreasPage'
+import { StaffTerminalPage } from '../pages/terminal/StaffTerminalPage'
 import { SidebarProvider } from '../store/sidebar-context'
 
 function MitarbeiterToEmployeesProfile() {
@@ -52,11 +58,22 @@ export const router = createBrowserRouter([
     element: (
       <SidebarProvider>
         <EmployeesProvider>
-          <AppLayout />
+          <ScheduleShiftsProvider>
+            <AbsencesProvider>
+              <TasksProvider>
+                <TimeTrackingProvider>
+                  <Outlet />
+                </TimeTrackingProvider>
+              </TasksProvider>
+            </AbsencesProvider>
+          </ScheduleShiftsProvider>
         </EmployeesProvider>
       </SidebarProvider>
     ),
     children: [
+      {
+        element: <AppLayout />,
+        children: [
       {
         index: true,
         element: <DashboardPage />,
@@ -88,8 +105,18 @@ export const router = createBrowserRouter([
         handle: { title: 'Abwesenheiten' },
       },
       {
+        path: 'abwesenheiten',
+        element: <Navigate to="/absences" replace />,
+        handle: { title: 'Abwesenheiten' },
+      },
+      {
         path: 'tasks',
         element: <TasksPage />,
+        handle: { title: 'Aufgaben' },
+      },
+      {
+        path: 'aufgaben',
+        element: <Navigate to="/tasks" replace />,
         handle: { title: 'Aufgaben' },
       },
       {
@@ -224,6 +251,21 @@ export const router = createBrowserRouter([
         path: 'modules',
         element: <ModulesPage />,
         handle: { title: 'Module verwalten' },
+      },
+        ],
+      },
+      {
+        path: 'tablet',
+        element: <TerminalLayout />,
+        children: [{ index: true, element: <StaffTerminalPage /> }],
+      },
+      {
+        path: 'mitarbeiter-terminal',
+        element: <Navigate to="/tablet" replace />,
+      },
+      {
+        path: 'staff-terminal',
+        element: <Navigate to="/tablet" replace />,
       },
     ],
   },

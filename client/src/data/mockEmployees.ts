@@ -10,6 +10,8 @@ export const WORK_AREA_DEFINITIONS: WorkAreaDefinition[] = [
   { id: 'aussen', name: 'Außenbereich', shortCode: 'A', color: '#4ade80' },
   { id: 'schule', name: 'Schule', shortCode: 'Sch', color: '#2dd4bf' },
   { id: 'reinigung', name: 'Reinigung', shortCode: 'Re', color: '#64748b' },
+  { id: 'laden', name: 'Laden', shortCode: 'Ld', color: '#94a3b8' },
+  { id: 'sonstiges', name: 'Sonstiges', shortCode: 'So', color: '#cbd5e1' },
 ]
 
 /** Kompatibel mit bestehendem Schichtplan `WorkArea`-Shape */
@@ -23,8 +25,27 @@ export function getWorkAreaById(id: string): WorkAreaDefinition | undefined {
   return WORK_AREA_DEFINITIONS.find((w) => w.id === id)
 }
 
-const base = (partial: Omit<Employee, 'id'> & { id: string }): Employee => ({
+const CARD_NUMBERS: Record<string, string> = {
+  e1: '1001',
+  e2: '1002',
+  e3: '1003',
+  e4: '1004',
+  e5: '1005',
+  e6: '1006',
+  e7: '1007',
+  e8: '1008',
+  e9: '1009',
+}
+
+const base = (
+  partial: Omit<Employee, 'id' | 'cashRegisterCardNumber' | 'terminalEnabled' | 'timeTrackingEnabled'> & {
+    id: string
+  },
+): Employee => ({
   ...partial,
+  cashRegisterCardNumber: CARD_NUMBERS[partial.id] ?? '',
+  terminalEnabled: true,
+  timeTrackingEnabled: true,
 })
 
 export const SEED_EMPLOYEES: Employee[] = [
@@ -206,6 +227,28 @@ export const SEED_EMPLOYEES: Employee[] = [
     status: 'urlaub',
     workAreaIds: ['kasse', 'lager'],
     startDate: '2022-08-15',
+    notes: '',
+  }),
+  base({
+    id: 'e9',
+    firstName: 'Ahmet',
+    lastName: 'K.',
+    displayName: 'Ahmet K.',
+    email: 'ahmet.k@station.demo',
+    phone: '+49 170 0000009',
+    birthday: '1999-04-02',
+    role: 'Verkäufer',
+    employmentType: 'teilzeit',
+    hourlyWage: 14,
+    weeklyHours: 30,
+    monthlyHours: 120,
+    vacationDaysTotal: 24,
+    vacationDaysUsed: 4,
+    remainingVacationDays: 20,
+    color: '#e879f9',
+    status: 'aktiv',
+    workAreaIds: ['kasse', 'backshop'],
+    startDate: '2024-03-01',
     notes: '',
   }),
 ]

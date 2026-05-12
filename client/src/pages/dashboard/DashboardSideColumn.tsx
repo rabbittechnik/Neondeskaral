@@ -1,28 +1,61 @@
+import { Link } from 'react-router-dom'
 import { AlertTriangle } from 'lucide-react'
 import { Badge } from '../../components/ui/Badge'
 import { Card } from '../../components/ui/Card'
-import { birthdays, pendingAbsences, unfilledWarnings } from './dashboardData'
+import { AbsenceStatusBadge } from '../../components/absences/AbsenceStatusBadge'
+import { AbsenceTypeBadge } from '../../components/absences/AbsenceTypeBadge'
+import { useAbsences } from '../../context/absences-context'
+import { useEmployees } from '../../context/employees-context'
+import { birthdays, unfilledWarnings } from './dashboardData'
+
+function formatDeRange(start: string, end: string): string {
+  const f = (iso: string) => {
+    const [y, m, d] = iso.split('-')
+    return `${d}.${m}.${y}`
+  }
+  return start === end ? f(start) : `${f(start)} – ${f(end)}`
+}
 
 export function PendingAbsencesCard() {
+  const { absences } = useAbsences()
+  const { employees } = useEmployees()
+  const pending = absences.filter((a) => a.status === 'beantragt')
+
   return (
     <Card>
-      <h3 className="text-base font-semibold text-[var(--text-main)]">
-        Offene Abwesenheitsanträge
-      </h3>
-      <ul className="mt-3 space-y-2">
-        {pendingAbsences.map((a) => (
-          <li
-            key={`${a.name}-${a.range}`}
-            className="rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--bg-elevated)]/35 px-3 py-2"
-          >
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-sm font-medium text-[var(--text-main)]">{a.name}</span>
-              <Badge tone={a.type === 'Krank' ? 'danger' : 'cyan'}>{a.type}</Badge>
-            </div>
-            <p className="mt-1 text-xs text-[var(--text-muted)]">{a.range}</p>
-          </li>
-        ))}
-      </ul>
+      <h3 className="text-base font-semibold text-[var(--text-main)]">Offene Abwesenheitsanträge</h3>
+      {pending.length === 0 ? (
+        <p className="mt-3 text-sm text-[var(--text-faint)]">Keine offenen Anträge.</p>
+      ) : (
+        <ul className="mt-3 space-y-2">
+          {pending.map((a) => {
+            const emp = employees.find((e) => e.id === a.employeeId)
+            return (
+              <li
+                key={a.id}
+                className="rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--bg-elevated)]/35 px-3 py-2"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-sm font-medium text-[var(--text-main)]">
+                    {emp?.displayName ?? a.employeeId}
+                  </span>
+                  <AbsenceTypeBadge type={a.type} />
+                </div>
+                <p className="mt-1 text-xs text-[var(--text-muted)]">{formatDeRange(a.startDate, a.endDate)}</p>
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                  <AbsenceStatusBadge status={a.status} />
+                  <Link
+                    to="/absences?view=requests"
+                    className="text-xs font-medium text-cyan-300/90 underline-offset-2 hover:text-cyan-200 hover:underline"
+                  >
+                    Antrag prüfen
+                  </Link>
+                </div>
+              </li>
+            )
+          })}
+        </ul>
+      )}
     </Card>
   )
 }
@@ -55,9 +88,7 @@ export function UnfilledShiftsCard() {
 export function BirthdaysCard() {
   return (
     <Card>
-      <h3 className="text-base font-semibold text-[var(--text-main)]">
-        Kommende Geburtstage
-      </h3>
+      <h3 className="text-base font-semibold text-[var(--text-main)]">Kommende Geburtstage</h3>
       <ul className="mt-3 space-y-2">
         {birthdays.map((b) => (
           <li
@@ -83,14 +114,10 @@ export function WeatherCard() {
       <p className="mt-1 text-xs text-[var(--text-muted)]">Bodelshausen</p>
       <div className="mt-4 flex items-end justify-between gap-4">
         <div>
-          <p className="text-4xl font-semibold tracking-tight text-[var(--text-main)]">
-            18°
-          </p>
+          <p className="text-4xl font-semibold tracking-tight text-[var(--text-main)]">18°</p>
           <p className="text-sm text-[var(--text-muted)]">Bewölkt</p>
         </div>
-        <div className="text-right text-xs text-[var(--text-faint)]">
-          Aktualisiert 14:02
-        </div>
+        <div className="text-right text-xs text-[var(--text-faint)]">Aktualisiert 14:02</div>
       </div>
       <div className="mt-4 grid grid-cols-3 gap-2 border-t border-[var(--border-subtle)] pt-4 text-center text-[11px] text-[var(--text-muted)]">
         <div>

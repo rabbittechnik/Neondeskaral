@@ -9,6 +9,12 @@ function pathMatches(pathname: string, to: string) {
   if (to === '/schedule') {
     return pathname === '/schedule' || pathname === '/schichtplan'
   }
+  if (to === '/absences') {
+    return pathname === '/absences' || pathname === '/abwesenheiten'
+  }
+  if (to === '/tasks') {
+    return pathname === '/tasks' || pathname === '/aufgaben'
+  }
   return pathname === to || pathname.startsWith(`${to}/`)
 }
 

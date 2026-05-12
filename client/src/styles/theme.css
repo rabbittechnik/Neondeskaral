@@ -46,6 +46,16 @@
   --font-sans: 'Inter', system-ui, sans-serif;
 
   --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.35);
+
+  --holiday-red: #ff1744;
+  --holiday-red-soft: rgba(255, 23, 68, 0.14);
+  --holiday-red-border: rgba(255, 23, 68, 0.7);
+  --holiday-red-glow: 0 0 18px rgba(255, 23, 68, 0.45);
+
+  --holiday-other: #ff9800;
+  --holiday-other-soft: rgba(255, 152, 0, 0.12);
+  --holiday-other-border: rgba(255, 152, 0, 0.5);
+  --holiday-other-glow: 0 0 14px rgba(255, 152, 0, 0.28);
 }
 
 [data-theme='light'] {
@@ -66,4 +76,14 @@
   --glow-amber: none;
   --sidebar-active-bg: rgba(34, 211, 238, 0.12);
   --shadow-card: 0 4px 20px rgba(15, 23, 42, 0.08);
+
+  --holiday-red: #e11d48;
+  --holiday-red-soft: rgba(225, 29, 72, 0.1);
+  --holiday-red-border: rgba(225, 29, 72, 0.45);
+  --holiday-red-glow: 0 0 14px rgba(225, 29, 72, 0.25);
+
+  --holiday-other: #ea580c;
+  --holiday-other-soft: rgba(234, 88, 12, 0.1);
+  --holiday-other-border: rgba(234, 88, 12, 0.4);
+  --holiday-other-glow: 0 0 12px rgba(234, 88, 12, 0.2);
 }

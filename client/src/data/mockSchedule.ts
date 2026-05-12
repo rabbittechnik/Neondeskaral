@@ -1,11 +1,12 @@
 /** Dummy-Daten für das Schichtplan-Frontend (ohne API/DB). */
 
 import { workAreasScheduleCompat } from './mockEmployees'
+import { STATION_NAME } from './station'
 
 export type { Employee, ScheduleEmployeeRow } from '../types/employee'
 export { toScheduleEmployeeRow } from '../types/employee'
 
-export const STATION_NAME = 'Aral Bodelshausen'
+export { STATION_NAME }
 
 export type ShiftTypeId =
   | 'frueh'
