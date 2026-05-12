@@ -77,6 +77,7 @@ export function EmployeeProfilePage() {
     hasPermission('employees.viewSensitive') ||
     hasPermission('payroll.view') ||
     hasPermission('employees.manageSensitive')
+  const canQr = hasPermission('employees.qr')
   const [tab, setTab] = useState<TabId>('overview')
 
   useEffect(() => {
@@ -267,7 +268,16 @@ export function EmployeeProfilePage() {
       ) : tab === 'planning' ? (
         <EmployeeProfilePlanningSection employee={employee} />
       ) : tab === 'employeeApp' ? (
-        <EmployeeAppQrSection employee={employee} />
+        canQr ? (
+          <EmployeeAppQrSection employee={employee} />
+        ) : (
+          <Card padding="md" className="border-[var(--border-subtle)]">
+            <p className="text-sm text-[var(--text-muted)]">
+              Sie haben keine Berechtigung, QR-Codes oder den persönlichen Mitarbeiter-App-Zugang zu verwalten
+              (Berechtigung „QR-Codes verwalten“).
+            </p>
+          </Card>
+        )
       ) : (
         <Card padding="md" className="border-dashed border-[var(--border-strong)] bg-[var(--bg-elevated)]/30">
           <p className="text-sm text-[var(--text-muted)]">

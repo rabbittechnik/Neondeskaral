@@ -214,7 +214,8 @@ function rowToEmployeeApiFull(row: EmployeeRow, workAreaIds: string[], includeAc
     phoneVisibleToTeam: rBool(R, 'phone_visible_to_team', true),
     emailVisibleToTeam: rBool(R, 'email_visible_to_team', true),
     employeeAccessConfigured: configured,
-    employeeAccessEnabled: enabled && configured,
+    /** Roh-Flag aus DB; sinnvoll nur wenn ein Token existiert (Zugang aktiv vs. deaktiviert). */
+    employeeAccessEnabled: enabled,
     employeeAccessCreatedAt: rStr(R, 'employee_access_created_at') || undefined,
     employeeAccessLastUsedAt: rStr(R, 'employee_access_last_used_at') || undefined,
     preferredShiftTypes: parseJsonStringArray(row.preferred_shift_types_json),
@@ -348,7 +349,7 @@ export function rowToEmployeeApi(
 export function listEmployees(
   db: Database,
   stationId = DEFAULT_STATION_ID,
-  opts?: { includeInactive?: boolean; includeSensitive?: boolean },
+  opts?: { includeInactive?: boolean; includeSensitive?: boolean; includeAccessTokens?: boolean },
 ) {
   const sql =
     opts?.includeInactive === true
@@ -882,16 +883,23 @@ export function regenerateEmployeeAccessToken(db: Database, id: string) {
     )
     .run(tok, ts, ts, id)
   if (r.changes === 0) throw new Error('Mitarbeiter nicht gefunden')
-  return getEmployee(db, id, { includeAccessToken: true, includeSensitive: true })
+  return getEmployee(db, id, { includeAccessToken: true, includeSensitive: false })
 }
 
 export function setEmployeeAccessEnabled(db: Database, id: string, enabled: boolean) {
+  const row = getEmployeeRowInternal(db, id)
+  if (!row) throw new Error('Mitarbeiter nicht gefunden')
+  const R = row as Record<string, unknown>
+  const existingTok = rStr(R, 'employee_access_token').trim()
+  if (enabled && !existingTok) {
+    return regenerateEmployeeAccessToken(db, id)
+  }
   const ts = nowIso()
   const r = db
     .prepare(`UPDATE employees SET employee_access_enabled = ?, updated_at = ? WHERE id = ?`)
     .run(enabled ? 1 : 0, ts, id)
   if (r.changes === 0) throw new Error('Mitarbeiter nicht gefunden')
-  return getEmployee(db, id, { includeAccessToken: true, includeSensitive: true })
+  return getEmployee(db, id, { includeAccessToken: true, includeSensitive: false })
 }
 
 export function employeeHistoryCounts(db: Database, employeeId: string) {

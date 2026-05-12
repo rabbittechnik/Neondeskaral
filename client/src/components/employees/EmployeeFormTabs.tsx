@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { Employee, EmploymentType, Salutation } from '../../types/employee'
 import { useStation } from '../../context/station-context'
+import { useEmployees } from '../../context/employees-context'
 import { useWorkAreas } from '../../context/work-areas-context'
 import { inputClass, labelClass, selectClass } from '../schedule/shift/fieldStyles'
 import { ColorPickerField } from './ColorPickerField'
@@ -130,12 +131,28 @@ function chipToggle(
 export function EmployeeFormTabs({ value, onChange, disabled, mode }: Props) {
   const [tab, setTab] = useState('stammdaten')
   const { hasPermission } = useStation()
+  const { getById } = useEmployees()
   const patch = (p: Partial<Employee>) => onChange({ ...value, ...p })
 
   const canSensitive =
     hasPermission('employees.viewSensitive') ||
     hasPermission('payroll.view') ||
     hasPermission('employees.manageSensitive')
+
+  const canQr = hasPermission('employees.qr')
+
+  const ctxEmp = value.id ? getById(value.id) : undefined
+  const employeeForQr = useMemo(() => {
+    if (!ctxEmp) return value
+    return {
+      ...value,
+      employeeAccessToken: ctxEmp.employeeAccessToken ?? value.employeeAccessToken,
+      employeeAccessEnabled: ctxEmp.employeeAccessEnabled ?? value.employeeAccessEnabled,
+      employeeAccessConfigured: ctxEmp.employeeAccessConfigured ?? value.employeeAccessConfigured,
+      employeeAccessCreatedAt: ctxEmp.employeeAccessCreatedAt ?? value.employeeAccessCreatedAt,
+      employeeAccessLastUsedAt: ctxEmp.employeeAccessLastUsedAt ?? value.employeeAccessLastUsedAt,
+    }
+  }, [value, ctxEmp])
 
   const toggleWa = (id: string) => {
     const set = new Set(value.workAreaIds)
@@ -724,7 +741,13 @@ export function EmployeeFormTabs({ value, onChange, disabled, mode }: Props) {
 
         {tab === 'app' ? (
           mode === 'edit' ? (
-            <EmployeeAppQrSection employee={value} />
+            canQr ? (
+              <EmployeeAppQrSection employee={employeeForQr} />
+            ) : (
+              <p className="text-sm text-[var(--text-muted)]">
+                Keine Berechtigung für QR-Codes / Mitarbeiter-App-Zugang.
+              </p>
+            )
           ) : (
             <p className="text-sm text-[var(--text-muted)]">QR-Code und App-Link stehen nach dem Speichern zur Verfügung.</p>
           )

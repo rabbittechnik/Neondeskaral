@@ -37,7 +37,16 @@ employeesRouter.get('/', (req, res) => {
     if (!requirePermission(req, res, stationId, 'employees.view')) return
     const includeInactive = req.query.includeInactive === '1' || req.query.includeInactive === 'true'
     const sens = canViewEmployeeSensitive(req, stationId!)
-    jsonOk(res, employeeService.listEmployees(getDb(), stationId!, { includeInactive, includeSensitive: sens }))
+    const ctx = getAccess(req)
+    const includeAccessTokens = Boolean(ctx && hasPermission(ctx, stationId!, 'employees.qr'))
+    jsonOk(
+      res,
+      employeeService.listEmployees(getDb(), stationId!, {
+        includeInactive,
+        includeSensitive: sens,
+        includeAccessTokens,
+      }),
+    )
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
   }
@@ -115,8 +124,13 @@ employeesRouter.get('/:id', (req, res) => {
     const row = employeeService.getEmployeeRowInternal(getDb(), req.params.id)
     if (!row) return jsonErr(res, 'Mitarbeiter nicht gefunden', 404)
     if (!requirePermission(req, res, row.station_id, 'employees.view')) return
+    const ctx = getAccess(req)
     const sens = canViewEmployeeSensitive(req, row.station_id)
-    jsonOk(res, employeeService.getEmployee(getDb(), req.params.id, { includeSensitive: sens }))
+    const includeAccessToken = Boolean(ctx && hasPermission(ctx, row.station_id, 'employees.qr'))
+    jsonOk(
+      res,
+      employeeService.getEmployee(getDb(), req.params.id, { includeSensitive: sens, includeAccessToken }),
+    )
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
   }
