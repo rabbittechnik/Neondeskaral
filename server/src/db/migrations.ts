@@ -645,9 +645,8 @@ function ensureStationTabletDevicesTable(db: Database.Database) {
   db.exec(`CREATE INDEX IF NOT EXISTS idx_station_tablet_devices_token ON station_tablet_devices(tablet_token)`)
 }
 
-/** Teamleitung mit Geräte-/QR-Bereichen bekommt Tablet-Verwaltung, falls noch nicht gesetzt. */
+/** Stations-Tablets: an Mitarbeiter-App-/Schichtrechten ausrichten (nur fehlende Keys, keine Überschreibung). */
 function mergeStationTabletPermissionsIntoAccess(db: Database.Database) {
-  const keys = ['stationTablets.view', 'stationTablets.manage'] as const
   const rows = db.prepare(`SELECT id, permissions_json FROM user_station_access`).all() as {
     id: string
     permissions_json: string
@@ -660,17 +659,26 @@ function mergeStationTabletPermissionsIntoAccess(db: Database.Database) {
     } catch {
       p = {}
     }
-    const grant =
+    const grantView =
+      p['employees.viewAppAccess'] === true ||
+      p['employees.manageAppAccess'] === true ||
       p['employees.viewDevices'] === true ||
       p['employees.qr'] === true ||
       p['schedule.edit'] === true
-    if (!grant) continue
+    const grantManage =
+      p['employees.manageAppAccess'] === true ||
+      p['employees.revokeDevices'] === true ||
+      p['employees.qr'] === true ||
+      p['schedule.edit'] === true
+    if (!grantView && !grantManage) continue
     let changed = false
-    for (const k of keys) {
-      if (p[k] === undefined) {
-        p[k] = true
-        changed = true
-      }
+    if (grantView && p['stationTablets.view'] === undefined) {
+      p['stationTablets.view'] = true
+      changed = true
+    }
+    if (grantManage && p['stationTablets.manage'] === undefined) {
+      p['stationTablets.manage'] = true
+      changed = true
     }
     if (changed) {
       db.prepare(`UPDATE user_station_access SET permissions_json = ?, updated_at = ? WHERE id = ?`).run(

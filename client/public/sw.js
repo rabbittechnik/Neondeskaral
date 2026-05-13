@@ -2,7 +2,7 @@
    Wichtig: keine App-Logik hier, nur statische Assets.
 */
 
-const CACHE_NAME = 'rt-station-sw-v1'
+const CACHE_NAME = 'rt-station-sw-v2'
 const CORE_ASSETS = [
   '/',
   '/index.html',

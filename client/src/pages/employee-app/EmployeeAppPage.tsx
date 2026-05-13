@@ -38,7 +38,8 @@ export function EmployeeAppPage() {
     return (
       <div className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-6 px-5 py-10 text-slate-200">
         <div className="rounded-2xl border border-cyan-500/25 bg-slate-900/80 p-6 shadow-[0_0_40px_rgba(34,211,238,0.1)]">
-          <h1 className="text-xl font-bold text-white">Mitarbeiter-App einrichten</h1>
+          <p className="text-center text-[11px] font-semibold uppercase tracking-[0.2em] text-cyan-300/80">Rabbit-Technik Station</p>
+          <h1 className="mt-2 text-xl font-bold text-white">Mitarbeiter-App einrichten</h1>
           <p className="mt-3 text-sm text-slate-400">
             Scanne deinen persönlichen QR-Code, um deine Mitarbeiter-App mit deinem Zugang zu verbinden.
           </p>

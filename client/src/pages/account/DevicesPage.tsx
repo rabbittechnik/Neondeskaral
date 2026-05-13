@@ -72,9 +72,22 @@ export function DevicesPage() {
     hasPermission('employees.manageAppAccess') ||
     hasPermission('employees.qr')
 
+  /** Sichtbarkeit wie API: stationTablets.* oder bestehende Mitarbeiter-App-/Schichtrechte. */
   const canViewStationTablets =
-    hasPermission('stationTablets.view') || hasPermission('stationTablets.manage')
-  const canManageStationTablets = hasPermission('stationTablets.manage')
+    hasPermission('stationTablets.view') ||
+    hasPermission('stationTablets.manage') ||
+    hasPermission('employees.viewAppAccess') ||
+    hasPermission('employees.manageAppAccess') ||
+    hasPermission('employees.viewDevices') ||
+    hasPermission('employees.qr') ||
+    hasPermission('schedule.edit')
+
+  const canManageStationTablets =
+    hasPermission('stationTablets.manage') ||
+    hasPermission('employees.manageAppAccess') ||
+    hasPermission('employees.revokeDevices') ||
+    hasPermission('employees.qr') ||
+    hasPermission('schedule.edit')
 
   const canView = canViewEmployeeApps || canViewStationTablets
 
@@ -155,8 +168,9 @@ export function DevicesPage() {
       <div className="space-y-4">
         <PageHeader title="Geräte & Apps" description="Mitarbeiter-App und Stations-Terminals" />
         <p className="text-sm text-[var(--text-muted)]">
-          Sie haben keine Berechtigung. Erforderlich z. B. Geräteübersicht (Mitarbeiter-App), QR-Codes, oder Stations-Tablets
-          anzeigen (<span className="text-cyan-200/85">stationTablets.view</span>).
+          Sie haben keine Berechtigung für diesen Bereich. Üblicherweise sind z. B. Mitarbeiter-App-Zugänge (
+          <span className="text-cyan-200/85">employees.viewAppAccess</span>) oder Schichtplan bearbeiten (
+          <span className="text-cyan-200/85">schedule.edit</span>) nötig — oder explizite Rechte für Stations-Tablets.
         </p>
       </div>
     )
@@ -172,8 +186,10 @@ export function DevicesPage() {
       <PwaInstallPanel />
 
       {canViewEmployeeApps ? (
-      <section className="space-y-3">
-        <h2 className="text-base font-semibold text-[var(--text-main)]">Mitarbeiter-App Zugänge</h2>
+      <section className="space-y-3" aria-labelledby="devices-employee-app-heading">
+        <h2 id="devices-employee-app-heading" className="text-base font-semibold text-[var(--text-main)]">
+          Mitarbeiter-App Zugänge
+        </h2>
         <p className="text-sm text-[var(--text-muted)]">
           Übersicht aller Mitarbeiter der gewählten Station. Token werden nicht vollständig angezeigt. Die Mitarbeiter-App
           ist vom Stations-Tablet getrennt: ein persönlicher Zugang fürs Handy, eigene Aufgaben, Urlaub und Stempeln mit

@@ -14,8 +14,25 @@ import {
 
 export const stationTabletsRouter = Router()
 
-const VIEW_KEYS = ['stationTablets.view', 'stationTablets.manage'] as const
-const MANAGE_KEYS = ['stationTablets.manage'] as const
+/** Sichtbarkeit Geräte & Apps · Stations-Tablets (ergänzend zu expliziten stationTablets.*). */
+const VIEW_KEYS = [
+  'stationTablets.view',
+  'stationTablets.manage',
+  'employees.viewAppAccess',
+  'employees.manageAppAccess',
+  'employees.viewDevices',
+  'employees.qr',
+  'schedule.edit',
+] as const
+
+/** Verwaltung inkl. QR/Token (analog Mitarbeiter-App-Zugänge). */
+const MANAGE_KEYS = [
+  'stationTablets.manage',
+  'employees.manageAppAccess',
+  'employees.revokeDevices',
+  'employees.qr',
+  'schedule.edit',
+] as const
 
 stationTabletsRouter.get('/', (req, res) => {
   try {

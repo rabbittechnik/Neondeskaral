@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Copy, Plus } from 'lucide-react'
+import { Copy } from 'lucide-react'
 import { QRCodeCanvas } from 'qrcode.react'
 import { useAuth } from '../../context/auth-context'
 import { useStation } from '../../context/station-context'
@@ -46,7 +46,7 @@ type Props = {
   canManage: boolean
 }
 
-/** Merkt Tokens nur in dieser Browser-Session (Nachricht bei neuem Gerät nur über „Token neu“). */
+/** Merkt Tokens nur in dieser Browser-Session (Nachricht bei neuem Gerät nur über „Token neu generieren“). */
 const tokenMemory = (): Map<string, string> =>
   typeof window !== 'undefined' &&
   '__stationTabletKnownTokens' in window &&
@@ -178,7 +178,9 @@ export function StationTabletsPanel({ canView, canManage }: Props) {
   const showQrIfKnown = (r: TabletApiRow) => {
     const t = getKnownToken(r.id)
     if (!t || !r.isActive) {
-      window.alert('QR-Link ist nur nach dem Erstellen oder nach „Token neu“ in diesem Browser verfügbar. Bitte „Token neu“ wählen.')
+      window.alert(
+        'QR-Link ist nur nach dem Erstellen oder nach „Token neu generieren“ in diesem Browser verfügbar. Bitte „Token neu generieren“ wählen.',
+      )
       return
     }
     setTokenReveal({ tabletToken: t, label: r.name })
@@ -191,17 +193,16 @@ export function StationTabletsPanel({ canView, canManage }: Props) {
       <div className="space-y-1">
         <h2 className="text-base font-semibold text-[var(--text-main)]">Stations-Tablets</h2>
         <p className="text-sm text-[var(--text-muted)]">
-          Hier werden Tablets verwaltet, die an der Station für Mitarbeiter-Check-in, Check-out, Aufgaben und Schichtplan
-          genutzt werden. Anders als die{' '}
-          <span className="text-[var(--text-main)]">Mitarbeiter-App am Handy</span> ist jedes Stations-Tablet an die
-          Tankstelle gebunden — Mitarbeitende melden sich per Kassennummer, ohne persönlichen App-Login.
+          Hier werden Tablets verwaltet, die an der Station als Mitarbeiter-Terminal genutzt werden. Der Zugang per
+          QR-Code ist{' '}
+          <span className="text-[var(--text-main)]">nicht</span> dasselbe wie ein persönlicher Mitarbeiter-App-Token am
+          Handy.
         </p>
       </div>
 
       {canManage ? (
-        <Button type="button" variant="primary" className="gap-2" onClick={() => setAddOpen(true)}>
-          <Plus className="h-4 w-4" aria-hidden />
-          Stations-Tablet hinzufügen
+        <Button type="button" variant="primary" onClick={() => setAddOpen(true)}>
+          + Stations-Tablet hinzufügen
         </Button>
       ) : null}
 
@@ -239,10 +240,10 @@ export function StationTabletsPanel({ canView, canManage }: Props) {
                   <dt>Zuletzt genutzt</dt>
                   <dd>{r.lastSeenAt ? formatDeDt(r.lastSeenAt) : 'Noch nie'}</dd>
                 </div>
-                {user?.globalAdmin && r.userAgent ? (
-                  <div className="pt-1 text-[10px] text-slate-500">
-                    UA: {r.userAgent.slice(0, 120)}
-                    {r.userAgent.length > 120 ? '…' : ''}
+                {canManage && r.userAgent ? (
+                  <div className="pt-1 text-[10px] text-slate-500" title={r.userAgent}>
+                    Gerät/Browser: {r.userAgent.slice(0, 96)}
+                    {r.userAgent.length > 96 ? '…' : ''}
                   </div>
                 ) : null}
               </dl>
@@ -273,10 +274,29 @@ export function StationTabletsPanel({ canView, canManage }: Props) {
                     type="button"
                     variant="outline"
                     className="text-[10px] px-2 py-1"
+                    disabled={!r.isActive || !getKnownToken(r.id)}
+                    onClick={() => {
+                      const t = getKnownToken(r.id)
+                      if (!t) {
+                        window.alert(
+                          'QR-Link ist nur nach dem Erstellen oder nach „Token neu generieren“ in diesem Browser verfügbar.',
+                        )
+                        return
+                      }
+                      setTokenReveal({ tabletToken: t, label: r.name })
+                      window.setTimeout(() => downloadQrFromCanvas(r.name), 250)
+                    }}
+                  >
+                    QR-Code herunterladen
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="text-[10px] px-2 py-1"
                     disabled={!r.isActive || busyId === r.id}
                     onClick={() => setConfirmRegen(r)}
                   >
-                    Token neu
+                    Token neu generieren
                   </Button>
                   {r.isActive ? (
                     <Button
@@ -338,8 +358,8 @@ export function StationTabletsPanel({ canView, canManage }: Props) {
               ) : null}
               {canManage ? (
                 <p className="mt-2 text-[10px] text-[var(--text-faint)]">
-                  Nach „Token neu“ oder Erstellung speichern wir den Zugangs-Link nur in diesem Browser‑Tab zum
-                  Anzeigen/Speichern des QR-Codes — nicht auf dem Server nachlesbar.
+                  Nach „Token neu generieren“ oder Erstellung speichern wir den Zugangs-Link nur in diesem Browser‑Tab
+                  zum Anzeigen/Speichern des QR-Codes — nicht auf dem Server nachlesbar.
                 </p>
               ) : null}
             </div>
@@ -456,7 +476,7 @@ export function StationTabletsPanel({ canView, canManage }: Props) {
       {tokenReveal ? (
         <div className="fixed inset-0 z-[96] flex items-center justify-center bg-black/75 p-4">
           <div className="w-full max-w-md rounded-xl border border-cyan-500/25 bg-[var(--bg-card)] p-5 text-center">
-            <h3 className="text-lg font-semibold text-[var(--text-main)]">QR-Code &amp; Link</h3>
+            <h3 className="text-lg font-semibold text-[var(--text-main)]">QR-Code für Stations-Tablet</h3>
             <p className="mt-1 text-sm text-[var(--text-muted)]">{tokenReveal.label}</p>
             <p className="mt-3 text-xs text-cyan-200/90">
               Scanne diesen QR-Code mit dem Stations-Tablet, um den Terminal-Modus zu öffnen.
@@ -477,7 +497,7 @@ export function StationTabletsPanel({ canView, canManage }: Props) {
                 Link kopieren
               </Button>
               <Button type="button" variant="outline" onClick={() => downloadQrFromCanvas(tokenReveal.label)}>
-                QR herunterladen
+                QR-Code herunterladen
               </Button>
               <Button type="button" variant="ghost" onClick={() => setTokenReveal(null)}>
                 Schließen
@@ -489,7 +509,7 @@ export function StationTabletsPanel({ canView, canManage }: Props) {
 
       <ConfirmDialog
         open={Boolean(confirmRegen)}
-        title="Tablet-Token neu erzeugen?"
+        title="Tablet-Token neu generieren?"
         message="Der alte QR-Code funktioniert danach nicht mehr. Die Leitung muss den neuen Code erneut auf dem Tablet hinterlegen."
         cancelLabel="Abbrechen"
         confirmLabel="Neu erzeugen"

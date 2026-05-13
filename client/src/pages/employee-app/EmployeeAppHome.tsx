@@ -506,6 +506,7 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
           style={{ background: accent, opacity: 0.22 }}
         />
         <p className="relative text-[11px] font-semibold uppercase tracking-[0.2em] text-cyan-300/90">Mitarbeiter-App</p>
+        <p className="relative mt-0.5 text-[10px] font-medium tracking-wide text-slate-500">Rabbit-Technik Station</p>
         <h1 className="relative mt-1 text-2xl font-bold text-white">Hallo, {employee.displayName}</h1>
         <p className="relative mt-1 text-sm text-slate-300">
           Deine persönliche Schichtübersicht für <span className="font-medium text-cyan-100/95">{station.name}</span>

@@ -62,10 +62,7 @@ export function TabletTokenLayout() {
         if (cancelled) return
         if (!res.ok || json.ok === false || !json.data?.station?.id) {
           const err =
-            json.error ??
-            (res.status === 403
-              ? 'Dieser Stations-Tablet-Zugang wurde deaktiviert. Bitte wende dich an die Stationsleitung.'
-              : 'Dieser Tablet-Zugang ist ungültig oder wurde deaktiviert.')
+            json.error ?? 'Dieser Stations-Tablet-Zugang ist ungültig oder wurde deaktiviert.'
           setSession(null)
           setErrorMsg(err)
           setLoading(false)
@@ -85,6 +82,18 @@ export function TabletTokenLayout() {
       cancelled = true
     }
   }, [tabletToken])
+
+  useEffect(() => {
+    if (loading) {
+      document.title = `Stations-Terminal · Rabbit-Technik Station`
+      return
+    }
+    if (session) {
+      document.title = `${session.tablet.name} · ${session.station.name}`
+      return
+    }
+    document.title = `Stations-Terminal · Rabbit-Technik Station`
+  }, [loading, session])
 
   if (loading) {
     return (

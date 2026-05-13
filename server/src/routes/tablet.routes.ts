@@ -25,25 +25,22 @@ tabletRouter.get('/session/:tabletToken', (req, res) => {
     const raw = db
       .prepare(`SELECT * FROM station_tablet_devices WHERE tablet_token = ?`)
       .get(token) as StationTabletDeviceRow | undefined
+    const invalidMsg = 'Dieser Stations-Tablet-Zugang ist ungültig oder wurde deaktiviert.'
     if (!raw) {
-      return jsonErr(res, 'Dieser Tablet-Zugang ist ungültig oder wurde deaktiviert.', 403)
+      return jsonErr(res, invalidMsg, 403)
     }
     if (raw.is_active !== 1) {
-      return jsonErr(
-        res,
-        'Dieser Stations-Tablet-Zugang wurde deaktiviert. Bitte wende dich an die Stationsleitung.',
-        403,
-      )
+      return jsonErr(res, invalidMsg, 403)
     }
     const st = stationService.getStation(db, raw.station_id) as
       | { id: string; name: string; federal_state?: string | null; active?: number | null }
       | undefined
     if (!st) {
-      return jsonErr(res, 'Dieser Tablet-Zugang ist ungültig oder wurde deaktiviert.', 403)
+      return jsonErr(res, invalidMsg, 403)
     }
     const active = st.active == null || st.active === 1
     if (!active) {
-      return jsonErr(res, 'Dieser Tablet-Zugang ist ungültig oder wurde deaktiviert.', 403)
+      return jsonErr(res, invalidMsg, 403)
     }
     touchTabletByToken(db, token, req)
     const federal = String(st.federal_state ?? 'BW').toUpperCase().slice(0, 2)
