@@ -61,6 +61,15 @@ export type TabletRunningRow = {
   source: string
 }
 
+/** Radio-Konfiguration aus Tablet-Session (pro Station). */
+export type TabletRadioConfig = {
+  enabled: boolean
+  streamName: string | null
+  streamUrl: string | null
+  streamUrlFallback: string | null
+  defaultVolume: number
+}
+
 export type FuelPricesPayload =
   | {
       ok: true
@@ -97,6 +106,8 @@ type TabletTerminalContextValue = {
   error: string | null
   /** Stations-Tablet-Modus: Anfragen laufen über Token statt nur stationId */
   tabletToken: string | null
+  /** Nur gesetzt bei Token-Tablet (nicht /tablet/dev). */
+  tabletRadio: TabletRadioConfig | null
   refetch: () => Promise<void>
   refetchRunning: () => Promise<void>
   refetchTasks: (employeeId?: string | null) => Promise<void>
@@ -110,12 +121,15 @@ const TabletTerminalContext = createContext<TabletTerminalContextValue | null>(n
 export function TabletTerminalProvider({
   children,
   tabletToken: tabletTokenProp,
+  tabletRadio: tabletRadioProp,
 }: {
   children: ReactNode
   tabletToken?: string | null
+  tabletRadio?: TabletRadioConfig | null
 }) {
   const { stationId } = useStation()
   const tabletToken = tabletTokenProp?.trim() ? tabletTokenProp.trim() : null
+  const tabletRadio = tabletRadioProp ?? null
 
   const tabletQuery = useMemo(() => {
     if (tabletToken) return { tabletToken } as Record<string, string>
@@ -300,6 +314,7 @@ export function TabletTerminalProvider({
       loading,
       error,
       tabletToken,
+      tabletRadio,
       refetch,
       refetchRunning,
       refetchTasks,
@@ -318,6 +333,7 @@ export function TabletTerminalProvider({
       loading,
       error,
       tabletToken,
+      tabletRadio,
       refetch,
       refetchRunning,
       refetchTasks,

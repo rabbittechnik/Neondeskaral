@@ -21,12 +21,13 @@ import type { ScheduleShift } from '../../data/mockSchedule'
 import { getTaskStatusForDate, toISODateLocal } from '../../utils/taskUtils'
 import type { Task } from '../../types/task'
 import { TabletFuelPricesTab } from '../../components/terminal/TabletFuelPricesTab'
+import { TabletRadioTab } from '../../components/terminal/TabletRadioTab'
 
 type ModalMode = null | 'check-in' | 'check-out'
 
 type ShiftWarningLite = { id: string; label: string; message: string }
 
-type TabId = 'stamp' | 'schedule' | 'tasks' | 'fuel'
+type TabId = 'stamp' | 'schedule' | 'tasks' | 'fuel' | 'radio'
 
 export function StaffTerminalPage() {
   const { stationId, selectedStation } = useStation()
@@ -45,10 +46,29 @@ export function StaffTerminalPage() {
     completeShiftWithChecklist,
     completeTask,
     fetchFuelPrices,
+    tabletRadio,
   } = useTabletTerminal()
 
   const [nowTick, setNowTick] = useState(() => new Date())
   const [tab, setTab] = useState<TabId>('stamp')
+
+  const showRadioTab = Boolean(tabletToken && tabletRadio?.enabled)
+
+  const terminalTabs = useMemo(() => {
+    const base: [TabId, string][] = [
+      ['stamp', 'Stempeln'],
+      ['schedule', 'Schichtplan'],
+      ['tasks', 'Aufgaben'],
+      ['fuel', 'Spritpreise'],
+    ]
+    if (showRadioTab) base.push(['radio', 'Musik / Radio'])
+    return base
+  }, [showRadioTab])
+
+  useEffect(() => {
+    if (tab === 'radio' && !showRadioTab) setTab('stamp')
+  }, [tab, showRadioTab])
+
   const [weekMonday, setWeekMonday] = useState(() => startOfWeekMonday(new Date()))
   const [taskConfirm, setTaskConfirm] = useState<{ task: Task; comment: string } | null>(null)
 
@@ -439,14 +459,7 @@ export function StaffTerminalPage() {
       </p>
 
       <nav className="mt-8 flex w-full max-w-4xl flex-wrap justify-center gap-3">
-        {(
-          [
-            ['stamp', 'Stempeln'],
-            ['schedule', 'Schichtplan'],
-            ['tasks', 'Aufgaben'],
-            ['fuel', 'Spritpreise'],
-          ] as const
-        ).map(([id, label]) => (
+        {terminalTabs.map(([id, label]) => (
           <Button
             key={id}
             type="button"
@@ -621,6 +634,8 @@ export function StaffTerminalPage() {
       ) : null}
 
       {tab === 'fuel' ? <TabletFuelPricesTab fetchFuelPrices={fetchFuelPrices} /> : null}
+
+      {tab === 'radio' && showRadioTab && tabletRadio ? <TabletRadioTab config={tabletRadio} /> : null}
 
       {taskConfirm ? (
         <div className="fixed inset-0 z-[125] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">

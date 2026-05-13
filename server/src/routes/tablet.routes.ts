@@ -17,6 +17,24 @@ import { touchTabletByToken } from '../services/stationTabletDeviceService.js'
 
 export const tabletRouter = Router()
 
+function stationRadioFromRow(st: Record<string, unknown>) {
+  const enabled = st.radio_enabled == null || Number(st.radio_enabled) === 1
+  const streamName =
+    typeof st.radio_stream_name === 'string' && st.radio_stream_name.trim() ? st.radio_stream_name.trim() : null
+  const streamUrl =
+    typeof st.radio_stream_url === 'string' && st.radio_stream_url.trim() ? st.radio_stream_url.trim() : null
+  const streamUrlFallback =
+    typeof st.radio_stream_url_fallback === 'string' && st.radio_stream_url_fallback.trim()
+      ? st.radio_stream_url_fallback.trim()
+      : null
+  let defaultVolume = 0.5
+  const rv = st.radio_default_volume
+  if (typeof rv === 'number' && !Number.isNaN(rv)) defaultVolume = rv
+  else if (rv != null) defaultVolume = Number(rv) || 0.5
+  defaultVolume = Math.min(1, Math.max(0, defaultVolume))
+  return { enabled, streamName, streamUrl, streamUrlFallback, defaultVolume }
+}
+
 tabletRouter.get('/session/:tabletToken', (req, res) => {
   try {
     const token = decodeURIComponent(String(req.params.tabletToken ?? '').trim())
@@ -32,21 +50,20 @@ tabletRouter.get('/session/:tabletToken', (req, res) => {
     if (raw.is_active !== 1) {
       return jsonErr(res, invalidMsg, 403)
     }
-    const st = stationService.getStation(db, raw.station_id) as
-      | { id: string; name: string; federal_state?: string | null; active?: number | null }
-      | undefined
-    if (!st) {
+    const stRow = stationService.getStation(db, raw.station_id) as Record<string, unknown> | undefined
+    if (!stRow) {
       return jsonErr(res, invalidMsg, 403)
     }
-    const active = st.active == null || st.active === 1
+    const active = stRow.active == null || stRow.active === 1
     if (!active) {
       return jsonErr(res, invalidMsg, 403)
     }
     touchTabletByToken(db, token, req)
-    const federal = String(st.federal_state ?? 'BW').toUpperCase().slice(0, 2)
+    const federal = String(stRow.federal_state ?? 'BW').toUpperCase().slice(0, 2)
     jsonOk(res, {
-      station: { id: st.id, name: st.name, federalState: federal },
+      station: { id: String(stRow.id), name: String(stRow.name ?? ''), federalState: federal },
       tablet: { id: raw.id, name: raw.name },
+      radio: stationRadioFromRow(stRow),
     })
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)

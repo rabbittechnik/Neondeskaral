@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import type { GermanState } from '../../data/germanHolidays'
 import { StationProvider } from '../../context/station-context'
-import { TabletTerminalProvider } from '../../context/tablet-terminal-context'
+import { TabletTerminalProvider, type TabletRadioConfig } from '../../context/tablet-terminal-context'
 import { TerminalLayout } from '../../layouts/TerminalLayout'
 import { API_BASE } from '../../services/api'
 
@@ -32,6 +32,32 @@ function toGermanState(raw: string | undefined): GermanState {
 type SessionOk = {
   station: { id: string; name: string; federalState: string }
   tablet: { id: string; name: string }
+  radio?: TabletRadioConfig
+}
+
+function normalizeRadio(raw: unknown): TabletRadioConfig {
+  if (!raw || typeof raw !== 'object') {
+    return {
+      enabled: false,
+      streamName: null,
+      streamUrl: null,
+      streamUrlFallback: null,
+      defaultVolume: 0.5,
+    }
+  }
+  const o = raw as Record<string, unknown>
+  const dv = o.defaultVolume
+  let defaultVolume = 0.5
+  if (typeof dv === 'number' && !Number.isNaN(dv)) defaultVolume = dv
+  else if (dv != null) defaultVolume = Number(dv) || 0.5
+  defaultVolume = Math.min(1, Math.max(0, defaultVolume))
+  return {
+    enabled: o.enabled !== false && o.enabled !== 0,
+    streamName: typeof o.streamName === 'string' ? o.streamName : null,
+    streamUrl: typeof o.streamUrl === 'string' ? o.streamUrl : null,
+    streamUrlFallback: typeof o.streamUrlFallback === 'string' ? o.streamUrlFallback : null,
+    defaultVolume,
+  }
 }
 
 /**
@@ -68,7 +94,10 @@ export function TabletTokenLayout() {
           setLoading(false)
           return
         }
-        setSession(json.data)
+        setSession({
+          ...json.data,
+          radio: normalizeRadio(json.data.radio),
+        })
       } catch {
         if (!cancelled) {
           setSession(null)
@@ -132,7 +161,7 @@ export function TabletTokenLayout() {
         federalState: toGermanState(session.station.federalState),
       }}
     >
-      <TabletTerminalProvider tabletToken={token}>
+      <TabletTerminalProvider tabletToken={token} tabletRadio={session.radio ?? null}>
         <TerminalLayout />
       </TabletTerminalProvider>
     </StationProvider>

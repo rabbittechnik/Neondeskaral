@@ -3,6 +3,7 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { nowIso } from '../utils/timestamps.js'
 import { TEAMLEAD_PERMISSIONS } from '../constants/permissions.js'
 import { mathiasStationsleiterPermissions } from '../constants/mathiasStationsleiterPermissions.js'
+import { STATION_RADIO_DEFAULTS_ARAL_BODELSHAUSEN } from '../constants/stationRadioDefaults.js'
 import { ensureDefaultUserStationAccess, ensureKnownStationsAndWorkAreas } from '../services/stationAccessService.js'
 import { calculateVacationImpact, normalizeAbsenceDbType } from '../utils/vacationImpactCalculator.js'
 
@@ -154,6 +155,39 @@ export function runMigrations(db: Database.Database) {
   ensureUsersLastLoginAtColumn(db)
   ensureUserAuditLogTable(db)
   syncMathiasRaselowskiAccount(db)
+  ensureStationRadioColumns(db)
+  seedAralBodelshausenStationRadio(db)
+}
+
+function ensureStationRadioColumns(db: Database.Database) {
+  const cols = new Set((db.prepare(`PRAGMA table_info(stations)`).all() as { name: string }[]).map((c) => c.name))
+  const add = (name: string, ddl: string) => {
+    if (!cols.has(name)) {
+      db.exec(`ALTER TABLE stations ADD COLUMN ${ddl}`)
+      cols.add(name)
+    }
+  }
+  add('radio_enabled', 'radio_enabled INTEGER DEFAULT 1')
+  add('radio_stream_name', 'radio_stream_name TEXT')
+  add('radio_stream_url', 'radio_stream_url TEXT')
+  add('radio_stream_url_fallback', 'radio_stream_url_fallback TEXT')
+  add('radio_default_volume', 'radio_default_volume REAL DEFAULT 0.5')
+}
+
+function seedAralBodelshausenStationRadio(db: Database.Database) {
+  const ts = nowIso()
+  const d = STATION_RADIO_DEFAULTS_ARAL_BODELSHAUSEN
+  db.prepare(
+    `UPDATE stations SET
+      radio_enabled = 1,
+      radio_stream_name = ?,
+      radio_stream_url = ?,
+      radio_stream_url_fallback = ?,
+      radio_default_volume = 0.5,
+      updated_at = ?
+    WHERE id = ?
+      AND (radio_stream_url IS NULL OR trim(radio_stream_url) = '')`,
+  ).run(d.streamName, d.streamUrl, d.streamUrlFallback, ts, d.stationId)
 }
 
 function ensureUsersLastLoginAtColumn(db: Database.Database) {
