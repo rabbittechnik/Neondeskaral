@@ -2,8 +2,8 @@
 export const KNOWN_STATIONS = [
   {
     id: 'aral-bodelshausen',
-    name: 'Aral Bodelshausen / Aral Bulle 1000',
-    brand: 'Aral',
+    name: 'Aral Bodelshausen',
+    brand: 'ARAL',
     city: 'Bodelshausen',
     federalState: 'BW',
   },

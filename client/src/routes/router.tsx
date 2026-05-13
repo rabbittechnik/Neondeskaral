@@ -97,9 +97,18 @@ export const router = createBrowserRouter([
     element: <TabletTokenLayout />,
     children: [{ index: true, element: <StaffTerminalPage /> }],
   },
-  { path: '/station-terminal', element: <Navigate to="/tablet/dev" replace /> },
-  { path: '/mitarbeiter-terminal', element: <Navigate to="/tablet/dev" replace /> },
-  { path: '/staff-terminal', element: <Navigate to="/tablet/dev" replace /> },
+  {
+    path: '/station-terminal',
+    element: <Navigate to={import.meta.env.PROD ? '/tablet' : '/tablet/dev'} replace />,
+  },
+  {
+    path: '/mitarbeiter-terminal',
+    element: <Navigate to={import.meta.env.PROD ? '/tablet' : '/tablet/dev'} replace />,
+  },
+  {
+    path: '/staff-terminal',
+    element: <Navigate to={import.meta.env.PROD ? '/tablet' : '/tablet/dev'} replace />,
+  },
   {
     path: '/',
     element: <Outlet />,

@@ -159,6 +159,7 @@ export function runMigrations(db: Database.Database) {
   seedAralBodelshausenStationRadio(db)
   ensureStationStammdatenColumns(db)
   ensureStationCanonicalNamesOnce(db)
+  syncAralBodelshausenStationDisplayName(db)
 }
 
 function ensureStationStammdatenColumns(db: Database.Database) {
@@ -185,7 +186,7 @@ function ensureStationCanonicalNamesOnce(db: Database.Database) {
   if (done) return
   const ts = nowIso()
   const rows: { id: string; name: string }[] = [
-    { id: 'aral-bodelshausen', name: 'Aral Bodelshausen / Aral Bulle 1000' },
+    { id: 'aral-bodelshausen', name: 'Aral Bodelshausen' },
     { id: 'autohof-kehl', name: 'Autohof Kehl' },
     { id: 'shell-ingersheim', name: 'Shell Ingersheim' },
     { id: 'shell-station-marsch', name: 'Shell Station Marsch' },
@@ -197,6 +198,14 @@ function ensureStationCanonicalNamesOnce(db: Database.Database) {
   db.prepare(
     `INSERT INTO settings (id, station_id, key, value, type, created_at, updated_at) VALUES (?, NULL, ?, '1', 'bool', ?, ?)`,
   ).run(randomUUID(), key, ts, ts)
+}
+
+/** Offizieller Anzeigename Aral Bodelshausen (ohne „Bulle 1000“); idempotent bei jedem Start. */
+function syncAralBodelshausenStationDisplayName(db: Database.Database) {
+  const ts = nowIso()
+  db.prepare(
+    `UPDATE stations SET name = ?, brand = ?, updated_at = ? WHERE id = 'aral-bodelshausen'`,
+  ).run('Aral Bodelshausen', 'ARAL', ts)
 }
 
 function ensureStationRadioColumns(db: Database.Database) {

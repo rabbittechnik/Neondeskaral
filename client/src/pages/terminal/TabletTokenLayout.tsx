@@ -5,6 +5,8 @@ import { StationProvider } from '../../context/station-context'
 import { TabletTerminalProvider, type TabletRadioConfig } from '../../context/tablet-terminal-context'
 import { TerminalLayout } from '../../layouts/TerminalLayout'
 import { API_BASE } from '../../services/api'
+import { clearStationTabletToken, writeStationTabletToken } from '../../utils/stationTabletToken'
+import { Button } from '../../components/ui/Button'
 
 function toGermanState(raw: string | undefined): GermanState {
   const s = String(raw ?? 'BW').toUpperCase()
@@ -69,6 +71,8 @@ export function TabletTokenLayout() {
   const [loading, setLoading] = useState(true)
   const [session, setSession] = useState<SessionOk | null>(null)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  /** 403/400 vom Session-Endpunkt — gespeicherter Token ungültig oder deaktiviert. */
+  const [accessInvalid, setAccessInvalid] = useState(false)
 
   useEffect(() => {
     const token = String(tabletToken ?? '').trim()
@@ -82,6 +86,7 @@ export function TabletTokenLayout() {
     void (async () => {
       setLoading(true)
       setErrorMsg(null)
+      setAccessInvalid(false)
       try {
         const res = await fetch(`${API_BASE}/tablet/session/${encodeURIComponent(token)}`)
         const json = (await res.json()) as { ok?: boolean; data?: SessionOk; error?: string }
@@ -91,6 +96,7 @@ export function TabletTokenLayout() {
             json.error ?? 'Dieser Stations-Tablet-Zugang ist ungültig oder wurde deaktiviert.'
           setSession(null)
           setErrorMsg(err)
+          setAccessInvalid(res.status === 403 || res.status === 400)
           setLoading(false)
           return
         }
@@ -98,10 +104,12 @@ export function TabletTokenLayout() {
           ...json.data,
           radio: normalizeRadio(json.data.radio),
         })
+        writeStationTabletToken(token)
       } catch {
         if (!cancelled) {
           setSession(null)
           setErrorMsg('Server nicht erreichbar.')
+          setAccessInvalid(false)
         }
       } finally {
         if (!cancelled) setLoading(false)
@@ -133,6 +141,13 @@ export function TabletTokenLayout() {
   }
 
   if (!session || errorMsg) {
+    const token = String(tabletToken ?? '').trim()
+
+    const clearSaved = () => {
+      clearStationTabletToken()
+      window.location.assign('/tablet')
+    }
+
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center bg-[#070b12] px-6 py-12 text-slate-200">
         <h1 className="text-lg font-semibold text-white">Stations-Terminal</h1>
@@ -141,6 +156,21 @@ export function TabletTokenLayout() {
           Bei Fragen zur Freischaltung bitte die Stationsleitung informieren — es ist keine Administrator-Anmeldung
           nötig.
         </p>
+        {accessInvalid && token ? (
+          <div className="mt-8 flex max-w-md flex-col items-center gap-3">
+            <Button type="button" variant="primary" onClick={clearSaved}>
+              Gespeicherten Zugang löschen
+            </Button>
+            <p className="text-center text-xs text-slate-500">Bitte neuen Stations-QR-Code scannen.</p>
+          </div>
+        ) : token ? (
+          <div className="mt-8 flex max-w-md flex-col items-center gap-2">
+            <Button type="button" variant="outline" onClick={clearSaved}>
+              Gespeicherten Tablet-Zugang löschen
+            </Button>
+            <p className="text-center text-xs text-slate-500">Bei anhaltenden Problemen neuen QR-Code scannen.</p>
+          </div>
+        ) : null}
         <Link
           to="/"
           className="mt-10 text-sm text-cyan-400/90 underline-offset-4 hover:underline hover:text-cyan-300"

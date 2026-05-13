@@ -1,6 +1,8 @@
 import { RefreshCw } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { runTabletAppUpdate } from '../../utils/tabletPwaUpdate'
+import { clearStationTabletToken } from '../../utils/stationTabletToken'
 import { Button } from '../ui/Button'
 
 function formatBuildDe(iso: string): string {
@@ -25,6 +27,7 @@ type Props = {
 }
 
 export function TabletPwaUpdateControls({ enabled }: Props) {
+  const navigate = useNavigate()
   const [updateHint, setUpdateHint] = useState(false)
   const [busy, setBusy] = useState(false)
 
@@ -84,6 +87,14 @@ export function TabletPwaUpdateControls({ enabled }: Props) {
     void runTabletAppUpdate()
   }
 
+  const onResetTabletAccess = () => {
+    if (!window.confirm('Tablet-Zugang auf diesem Gerät zurücksetzen? Anschließend bitte neuen QR-Code scannen.')) {
+      return
+    }
+    clearStationTabletToken()
+    void navigate('/tablet', { replace: true })
+  }
+
   if (!enabled) return null
 
   const versionLine = `v${__APP_VERSION__} · Stand ${formatBuildDe(__BUILD_TIME_ISO__)}`
@@ -119,10 +130,18 @@ export function TabletPwaUpdateControls({ enabled }: Props) {
         </Button>
       </div>
 
-      <div className="pointer-events-none fixed bottom-2 left-0 right-0 z-[198] text-center text-[10px] leading-tight text-[var(--text-faint)]">
+      <div className="fixed bottom-2 left-0 right-0 z-[198] text-center text-[10px] leading-tight text-[var(--text-faint)]">
         <span className="opacity-90">Rabbit-Technik Station</span>
         <span className="mx-1 opacity-50">·</span>
         <span>{versionLine}</span>
+        <span className="mx-1 opacity-50">·</span>
+        <button
+          type="button"
+          className="text-[var(--text-faint)] underline decoration-white/15 underline-offset-2 hover:text-cyan-200/90"
+          onClick={onResetTabletAccess}
+        >
+          Tablet-Zugang zurücksetzen
+        </button>
       </div>
     </>
   )
