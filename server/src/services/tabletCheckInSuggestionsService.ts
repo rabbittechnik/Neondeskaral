@@ -1,10 +1,19 @@
 import type { Database } from 'better-sqlite3'
 import { listEmployeesTabletClock } from './employeeService.js'
 import { listShiftRowsForStationDateRange, type ShiftRow } from './shiftService.js'
+import {
+  addDaysToYmd,
+  berlinWallClockToUtcMs,
+  displayHHMM,
+  formatHmDuration,
+  padHHMM,
+  ymdBerlinFromUtcMs,
+} from '../utils/europeBerlinWallTime.js'
 
-const WINDOW_MS = 60 * 60 * 1000
+const PRE_START_MS = 60 * 60 * 1000
+const POST_END_MS = 15 * 60 * 1000
 
-export type TabletCheckInSuggestionStatus = 'starts_soon' | 'should_have_started' | 'currently_running'
+export type TabletCheckInSuggestionStatus = 'starts_soon' | 'shift_active'
 
 export type TabletCheckInSuggestionApi = {
   employeeId: string
@@ -12,9 +21,12 @@ export type TabletCheckInSuggestionApi = {
   shiftId: string
   plannedStart: string
   plannedEnd: string
+  plannedStartAt: string
+  plannedEndAt: string
   status: TabletCheckInSuggestionStatus
-  /** Minuten relativ zum geplanten Schichtbeginn (negativ = früher). */
+  /** Minuten relativ zum geplanten Schichtbeginn in Berlin (negativ = vor Start). */
   deviationMinutes: number
+  displayText: string
 }
 
 export type TabletCheckInAllEmployeeApi = {
@@ -22,40 +34,26 @@ export type TabletCheckInAllEmployeeApi = {
   employeeName: string
   role: string
   isClockedIn: boolean
+  /** Kurzinfo zur heutigen Schicht (nur Anzeige, nicht für Vorschlag oben). */
+  todayHint?: string
 }
 
-function ymdFromDateLocal(d: Date): string {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
-}
-
-function padHHMM(t: string): string {
-  const s = String(t ?? '').trim()
-  const parts = s.split(':')
-  const h = String(parts[0] ?? '0').padStart(2, '0')
-  const m = String(parts[1] ?? '0').padStart(2, '0')
-  return `${h}:${m}`
-}
-
-function displayHHMM(t: string): string {
-  return padHHMM(t).slice(0, 5)
-}
-
-/** Lokales Schichtfenster; end vor start → Ende am Folgetag. */
-function shiftBoundsLocal(row: ShiftRow): { start: Date; end: Date } | null {
+function shiftBoundsBerlin(row: ShiftRow): { startMs: number; endMs: number } | null {
   const date = String(row.date ?? '').trim()
   const st = String(row.start_time ?? '').trim()
   const en = String(row.end_time ?? '').trim()
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !st || !en) return null
-  const start = new Date(`${date}T${padHHMM(st)}:00`)
-  const end = new Date(`${date}T${padHHMM(en)}:00`)
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null
-  if (end.getTime() <= start.getTime()) {
-    end.setTime(end.getTime() + 24 * 60 * 60 * 1000)
+  try {
+    const startMs = berlinWallClockToUtcMs(date, padHHMM(st))
+    let endMs = berlinWallClockToUtcMs(date, padHHMM(en))
+    if (endMs <= startMs) {
+      const next = addDaysToYmd(date, 1)
+      endMs = berlinWallClockToUtcMs(next, padHHMM(en))
+    }
+    return { startMs, endMs }
+  } catch {
+    return null
   }
-  return { start, end }
 }
 
 function runningEmployeeIds(db: Database, stationId: string): Set<string> {
@@ -68,13 +66,77 @@ function runningEmployeeIds(db: Database, stationId: string): Set<string> {
   return new Set(rows.map((r) => String(r.employee_id ?? '').trim()).filter(Boolean))
 }
 
+function displayTextForSuggestion(nowMs: number, startMs: number, status: TabletCheckInSuggestionStatus): string {
+  if (status === 'starts_soon') {
+    const untilMin = Math.max(0, Math.round((startMs - nowMs) / 60_000))
+    if (untilMin < 1) return 'Start jetzt'
+    return `Start in ${formatHmDuration(untilMin)}`
+  }
+  const sinceMin = Math.max(0, Math.round((nowMs - startMs) / 60_000))
+  if (sinceMin < 1) return 'Geplanter Beginn jetzt'
+  return `Beginn vor ${formatHmDuration(sinceMin)}`
+}
+
+function employeeTodayHint(
+  empId: string,
+  shiftRows: ShiftRow[],
+  nowMs: number,
+  suggestedIds: Set<string>,
+): string | undefined {
+  if (suggestedIds.has(empId)) return undefined
+
+  const todayYmd = ymdBerlinFromUtcMs(nowMs)
+  const mine = shiftRows.filter(
+    (s) =>
+      String(s.employee_id ?? '').trim() === empId &&
+      String(s.date ?? '').trim() === todayYmd &&
+      (s.published ?? 0) === 1 &&
+      String(s.shift_type ?? '').trim().toLowerCase() !== 'frei',
+  )
+  if (mine.length === 0) return 'Heute keine Schicht'
+
+  const bounds = mine
+    .map((r) => ({ row: r, b: shiftBoundsBerlin(r) }))
+    .filter((x): x is { row: ShiftRow; b: { startMs: number; endMs: number } } => x.b != null)
+    .sort((a, b) => a.b.startMs - b.b.startMs)
+
+  if (bounds.length === 0) return 'Heute keine Schicht'
+
+  const endCut = (b: { endMs: number }) => b.endMs + POST_END_MS
+  const startWin = (b: { startMs: number }) => b.startMs - PRE_START_MS
+
+  const eligible = bounds.filter(
+    (x) => nowMs >= startWin(x.b) && nowMs <= endCut(x.b),
+  )
+  if (eligible.length > 0) return undefined
+
+  const ended = bounds.filter((x) => nowMs > endCut(x.b))
+  if (ended.length > 0) {
+    const last = ended.reduce((a, x) => (x.b.endMs > a.b.endMs ? x : a))
+    const a = displayHHMM(String(last.row.start_time))
+    const b = displayHHMM(String(last.row.end_time))
+    return `Schicht heute beendet · geplant ${a}–${b} Uhr`
+  }
+
+  const allFuture = bounds.every((x) => nowMs < startWin(x.b))
+  if (allFuture) {
+    const next = bounds[0]!
+    const a = displayHHMM(String(next.row.start_time))
+    const b = displayHHMM(String(next.row.end_time))
+    return `Heute keine aktuelle Schicht · nächste ${a}–${b} Uhr`
+  }
+
+  return 'Heute keine aktuelle Schicht'
+}
+
 /**
- * Vorschläge für Check-in: Schicht beginnt in ≤60 min, oder Start liegt höchstens 60 min zurück,
- * oder Schicht läuft noch (bis geplantes Ende) — jeweils nur veröffentlichte Schichten, Station,
- * nicht eingestempelte, Terminal+Zeit aktiv.
+ * Check-in-Vorschläge: nur Schichten, die in Europe/Berlin noch nicht länger als 15 Min. nach Planende vorbei sind,
+ * und höchstens 60 Min. vor Planbeginn sichtbar werden.
  */
 export function buildTabletCheckInSuggestions(db: Database, stationId: string, now = new Date()) {
-  const today = ymdFromDateLocal(now)
+  const nowMs = now.getTime()
+  const todayYmd = ymdBerlinFromUtcMs(nowMs)
+
   const clocked = runningEmployeeIds(db, stationId)
   const emps = listEmployeesTabletClock(db, stationId)
   const nameById = new Map(emps.map((e) => [e.id, String(e.displayName ?? '').trim() || 'Mitarbeiter']))
@@ -82,9 +144,8 @@ export function buildTabletCheckInSuggestions(db: Database, stationId: string, n
     emps.filter((e) => e.terminalEnabled && e.timeTrackingEnabled).map((e) => e.id),
   )
 
-  const shiftRows = listShiftRowsForStationDateRange(db, stationId, today, today)
+  const shiftRows = listShiftRowsForStationDateRange(db, stationId, todayYmd, todayYmd)
   const suggestions: TabletCheckInSuggestionApi[] = []
-  const nowMs = now.getTime()
 
   for (const s of shiftRows) {
     if ((s.published ?? 0) !== 1) continue
@@ -93,22 +154,24 @@ export function buildTabletCheckInSuggestions(db: Database, stationId: string, n
     if (!empId || !eligibleEmp.has(empId)) continue
     if (clocked.has(empId)) continue
 
-    const bounds = shiftBoundsLocal(s)
+    const bounds = shiftBoundsBerlin(s)
     if (!bounds) continue
-    const { start: startD, end: endD } = bounds
-    if (nowMs < startD.getTime() - WINDOW_MS) continue
-    if (nowMs >= endD.getTime()) continue
+    const { startMs, endMs } = bounds
+    const endCutMs = endMs + POST_END_MS
+
+    if (nowMs > endCutMs) continue
+    if (nowMs < startMs - PRE_START_MS) continue
 
     let status: TabletCheckInSuggestionStatus
-    if (nowMs < startD.getTime()) {
+    if (nowMs < startMs) {
       status = 'starts_soon'
-    } else if (nowMs <= startD.getTime() + WINDOW_MS) {
-      status = 'should_have_started'
     } else {
-      status = 'currently_running'
+      status = 'shift_active'
     }
 
-    const deviationMinutes = Math.round((nowMs - startD.getTime()) / 60_000)
+    const deviationMinutes = Math.round((nowMs - startMs) / 60_000)
+    const plannedStartAt = new Date(startMs).toISOString()
+    const plannedEndAt = new Date(endMs).toISOString()
 
     suggestions.push({
       employeeId: empId,
@@ -116,8 +179,11 @@ export function buildTabletCheckInSuggestions(db: Database, stationId: string, n
       shiftId: String(s.id),
       plannedStart: displayHHMM(String(s.start_time)),
       plannedEnd: displayHHMM(String(s.end_time)),
+      plannedStartAt,
+      plannedEndAt,
       status,
       deviationMinutes,
+      displayText: displayTextForSuggestion(nowMs, startMs, status),
     })
   }
 
@@ -129,6 +195,8 @@ export function buildTabletCheckInSuggestions(db: Database, stationId: string, n
     return a.shiftId.localeCompare(b.shiftId)
   })
 
+  const suggestedEmp = new Set(suggestions.map((x) => x.employeeId))
+
   const allEmployees: TabletCheckInAllEmployeeApi[] = emps
     .filter((e) => e.terminalEnabled && e.timeTrackingEnabled)
     .map((e) => ({
@@ -136,6 +204,7 @@ export function buildTabletCheckInSuggestions(db: Database, stationId: string, n
       employeeName: String(e.displayName ?? '').trim() || 'Mitarbeiter',
       role: [String(e.role ?? '').trim(), String(e.employmentRole ?? '').trim()].filter(Boolean).join(' · '),
       isClockedIn: clocked.has(e.id),
+      todayHint: employeeTodayHint(e.id, shiftRows, nowMs, suggestedEmp),
     }))
     .sort((a, b) => a.employeeName.localeCompare(b.employeeName, 'de'))
 

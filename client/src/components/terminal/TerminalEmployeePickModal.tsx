@@ -51,15 +51,27 @@ function isClockedIn(runningPresence: TabletRunningRow[], employeeId: string): b
   return runningPresence.some((r) => r.employeeId === employeeId)
 }
 
-function suggestionHint(s: TabletCheckInSuggestion): string {
+function suggestionSubline(s: TabletCheckInSuggestion): string {
+  if (s.displayText?.trim()) return s.displayText.trim()
   if (s.status === 'starts_soon') {
-    return `Start in ${Math.abs(s.deviationMinutes)} Min.`
+    return `Start in ${formatHmDuration(Math.abs(s.deviationMinutes))}`
   }
-  if (s.status === 'should_have_started') {
-    if (s.deviationMinutes <= 0) return 'Geplanter Beginn jetzt'
-    return `${s.deviationMinutes} Min. später als geplant`
-  }
-  return `${s.deviationMinutes} Min. nach geplantem Beginn (Schicht läuft)`
+  if (s.deviationMinutes <= 0) return 'Geplanter Beginn jetzt'
+  return `Beginn vor ${formatHmDuration(s.deviationMinutes)}`
+}
+
+function formatHmDuration(totalMinutes: number): string {
+  const m = Math.max(0, Math.round(totalMinutes))
+  if (m < 60) return `${m} Min.`
+  const h = Math.floor(m / 60)
+  const mm = m % 60
+  if (mm === 0) return `${h} Std.`
+  return `${h} Std. ${mm} Min.`
+}
+
+function suggestionBadgeLabel(s: TabletCheckInSuggestion): string {
+  if (s.status === 'starts_soon') return 'Beginnt bald'
+  return 'Schicht läuft'
 }
 
 export function TerminalEmployeePickModal({
@@ -246,13 +258,13 @@ export function TerminalEmployeePickModal({
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-lg font-semibold text-[var(--text-main)]">{s.employeeName}</span>
                       <span className="rounded-full border border-cyan-400/50 bg-cyan-500/20 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-cyan-100">
-                        Jetzt geplant
+                        {suggestionBadgeLabel(s)}
                       </span>
                     </div>
                     <p className="mt-2 text-xl font-semibold tabular-nums text-cyan-100">
                       {s.plannedStart} – {s.plannedEnd} Uhr
                     </p>
-                    <p className="mt-1 text-sm text-amber-200/95">{suggestionHint(s)}</p>
+                    <p className="mt-1 text-sm text-amber-200/95">{suggestionSubline(s)}</p>
                     <div className="mt-auto pt-4">
                       <Button
                         type="button"
@@ -290,6 +302,7 @@ export function TerminalEmployeePickModal({
         <ul className="mt-4 grid max-h-[min(42vh,360px)] gap-3 overflow-y-auto sm:grid-cols-2">
           {listAllFiltered.map((row) => {
             const planned = todayShiftLine(shifts, row.employeeId, todayIso)
+            const subline = row.todayHint?.trim() || planned
             const active = selectedId === row.employeeId
             const disabled = row.isClockedIn
             return (
@@ -312,7 +325,7 @@ export function TerminalEmployeePickModal({
                 >
                   <span className="text-lg font-semibold text-[var(--text-main)]">{row.employeeName}</span>
                   {row.role ? <span className="mt-0.5 text-sm text-[var(--text-muted)]">{row.role}</span> : null}
-                  <span className="mt-2 text-sm text-cyan-100/85">{planned}</span>
+                  <span className="mt-2 text-sm text-cyan-100/85">{subline}</span>
                   {row.isClockedIn ? (
                     <span className="mt-1 text-xs font-semibold uppercase tracking-wide text-amber-300">Bereits eingestempelt</span>
                   ) : (

@@ -1,4 +1,4 @@
-export type TabletCheckInSuggestionStatus = 'starts_soon' | 'should_have_started' | 'currently_running'
+export type TabletCheckInSuggestionStatus = 'starts_soon' | 'shift_active'
 
 export type TabletCheckInSuggestion = {
   employeeId: string
@@ -6,8 +6,13 @@ export type TabletCheckInSuggestion = {
   shiftId: string
   plannedStart: string
   plannedEnd: string
+  plannedStartAt?: string
+  plannedEndAt?: string
   status: TabletCheckInSuggestionStatus
+  /** Minuten relativ zum geplanten Schichtbeginn (negativ = vor Start). */
   deviationMinutes: number
+  /** Vom Server berechneter Anzeigetext (Europe/Berlin). */
+  displayText?: string
 }
 
 export type TabletCheckInAllEmployeeRow = {
@@ -15,6 +20,8 @@ export type TabletCheckInAllEmployeeRow = {
   employeeName: string
   role: string
   isClockedIn: boolean
+  /** Kurzinfo zur heutigen Schicht (Server, Europe/Berlin). */
+  todayHint?: string
 }
 
 export type TabletCheckInSuggestionsPayload = {
