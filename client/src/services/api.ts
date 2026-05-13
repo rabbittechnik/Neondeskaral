@@ -137,6 +137,30 @@ export async function employeeAccessGetWeekSchedule<T>(
   return { ...(json as ApiEnvelope<T> & { ok: true }), httpStatus }
 }
 
+/** GET /employee-access/:token/:subPath?query (nur Token). */
+export async function employeeAccessGetQuery<T>(
+  token: string,
+  subPath: string,
+  query?: Record<string, string>,
+): Promise<ApiEnvelope<T> & EmployeeAccessFetchMeta> {
+  const params = new URLSearchParams()
+  if (query) {
+    for (const [k, v] of Object.entries(query)) {
+      if (v != null && v !== '') params.set(k, v)
+    }
+  }
+  const qs = params.toString() ? `?${params}` : ''
+  const url = `${API_BASE}/employee-access/${encodeURIComponent(token)}/${subPath.replace(/^\//, '')}${qs}`
+  const res = await fetch(url, { headers: { ...getEmployeeAppDeviceHeaders() } })
+  const httpStatus = res.status
+  const json = (await res.json()) as ApiEnvelope<T>
+  if (!res.ok && json && typeof json === 'object' && 'ok' in json && json.ok === false) {
+    return { ...(json as ApiEnvelope<T>), httpStatus }
+  }
+  if (!res.ok) return { ok: false, error: `HTTP ${res.status}`, httpStatus }
+  return { ...(json as ApiEnvelope<T> & { ok: true }), httpStatus }
+}
+
 export async function employeeAccessGetTasks<T>(
   token: string,
 ): Promise<ApiEnvelope<T> & EmployeeAccessFetchMeta> {

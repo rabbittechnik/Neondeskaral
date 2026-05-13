@@ -2,7 +2,7 @@ import type { Database } from 'better-sqlite3'
 import { randomBytes } from 'node:crypto'
 import { nowIso } from '../utils/timestamps.js'
 import type { EmployeeRow } from './employeeService.js'
-import { listShifts } from './shiftService.js'
+import { getShift, listShifts } from './shiftService.js'
 import {
   assertPaidVacationCreateAllowed,
   buildVacationSnapshotForEmployee,
@@ -11,7 +11,7 @@ import {
   VacationAckRequiredError,
 } from './absenceService.js'
 import { confirmTaskFromEmployeeApp, listTaskLogsByTaskIds, listTasks, rowToTaskApi } from './taskService.js'
-import { listTimeEntries } from './timeTrackingService.js'
+import { listTimeEntries, rowToTimeEntryApi } from './timeTrackingService.js'
 import { getStation } from './stationService.js'
 import { listWorkAreas } from './workAreaService.js'
 import { listActiveShiftWarningsForEmployee, acknowledgeShiftWarning } from './employeeShiftWarningService.js'
@@ -24,6 +24,18 @@ import { isDeviceRequestBlocked, recordEmployeeAppDeviceVisit } from './employee
 
 export const EMPLOYEE_APP_ACCESS_DENIED_MESSAGE =
   'Dein Mitarbeiterzugang wurde deaktiviert. Bitte wende dich an die Stationsleitung.'
+
+/** Keine internen Import-/System-Hinweise in der Mitarbeiter-App anzeigen. */
+export function sanitizeAbsenceCommentForEmployeeApp(comment: string | null | undefined): string | undefined {
+  const c = String(comment ?? '').trim()
+  if (!c) return undefined
+  const lower = c.toLowerCase()
+  if (lower.includes('stationguide_import')) return undefined
+  if (lower.includes('grauem balken')) return undefined
+  if (lower.includes('stationguide') && (lower.includes('übernommen') || lower.includes('uebernommen'))) return undefined
+  if (/\[stationguide[\w_-]*\]/i.test(c)) return undefined
+  return c
+}
 
 export type EmployeeAccessRequestMeta = {
   deviceId: string
@@ -276,7 +288,7 @@ export function buildEmployeeAccessPayload(db: Database, token: string, meta?: E
     endDate: a.endDate,
     halfDay: a.halfDay,
     status: a.status,
-    comment: a.comment,
+    comment: sanitizeAbsenceCommentForEmployeeApp(a.comment),
     requestedAt: a.requestedAt,
     approvedAt: a.approvedAt,
     rejectedReason: a.rejectedReason,
@@ -548,7 +560,10 @@ export function employeeAccessListAbsences(db: Database, token: string, meta?: E
     return { ok: false as const, error: 'invalid_token' as const }
   }
   const row = ctx.row
-  const data = listAbsences(db, { stationId: row.station_id, employeeId: row.id })
+  const data = listAbsences(db, { stationId: row.station_id, employeeId: row.id }).map((a) => ({
+    ...a,
+    comment: sanitizeAbsenceCommentForEmployeeApp(a.comment) ?? '',
+  }))
   return { ok: true as const, data }
 }
 
@@ -638,4 +653,179 @@ export function employeeAccessConfirmTask(
     comment: body.comment,
   })
   return { ok: true as const, data: { saved: true } }
+}
+
+const YMD_RE = /^\d{4}-\d{2}-\d{2}$/
+
+function daysInclusive(fromYmd: string, toYmd: string): number {
+  const [y1, m1, d1] = fromYmd.split('-').map(Number)
+  const [y2, m2, d2] = toYmd.split('-').map(Number)
+  const a = new Date(y1, m1 - 1, d1).getTime()
+  const b = new Date(y2, m2 - 1, d2).getTime()
+  return Math.floor((b - a) / 86400000) + 1
+}
+
+function workedMinutesEntry(startAt: string, endAt: string | undefined, breakMinutes: number, nowMs: number): number {
+  const s = new Date(startAt).getTime()
+  const e = endAt ? new Date(endAt).getTime() : nowMs
+  const raw = Math.max(0, Math.round((e - s) / 60000))
+  return Math.max(0, raw - Math.max(0, Math.round(breakMinutes || 0)))
+}
+
+function hoursFromWorkedMinutes(mins: number): number {
+  return Math.round((mins / 60) * 100) / 100
+}
+
+function mapEmployeeTimeEntryReadStatus(
+  te: ReturnType<typeof rowToTimeEntryApi>,
+): 'running' | 'pending_approval' | 'approved' | 'correction_required' | 'rejected' {
+  if (te.status === 'running') return 'running'
+  if (te.approvalStatus === 'approved') return 'approved'
+  if (te.approvalStatus === 'rejected') return 'rejected'
+  if (te.approvalStatus === 'correction_required') return 'correction_required'
+  return 'pending_approval'
+}
+
+export type EmployeeAccessTimeEntryRead = {
+  id: string
+  date: string
+  plannedStart?: string
+  plannedEnd?: string
+  clockInAt: string
+  clockOutAt?: string
+  pauseMinutes: number
+  totalHours: number
+  status: 'running' | 'pending_approval' | 'approved' | 'correction_required' | 'rejected'
+}
+
+export type EmployeeAccessMyShiftRow = {
+  id: string
+  date: string
+  startTime: string
+  endTime: string
+  workAreaId?: string
+  shiftType?: string
+  status?: string
+}
+
+export function employeeAccessListMyShiftsForRange(
+  db: Database,
+  token: string,
+  fromYmd: string,
+  toYmd: string,
+  meta?: EmployeeAccessRequestMeta,
+):
+  | { ok: true; data: { from: string; to: string; shifts: EmployeeAccessMyShiftRow[] } }
+  | { ok: false; error: 'invalid_token' | 'bad_range' } {
+  const ctx = resolveEmployeeAccessContext(db, token, meta)
+  if (!ctx.ok) return { ok: false as const, error: 'invalid_token' as const }
+  const f = String(fromYmd ?? '').trim()
+  const t = String(toYmd ?? '').trim()
+  if (!YMD_RE.test(f) || !YMD_RE.test(t) || f > t) return { ok: false as const, error: 'bad_range' as const }
+  if (daysInclusive(f, t) > 62) return { ok: false as const, error: 'bad_range' as const }
+  const row = ctx.row
+  const shifts = listShifts(db, {
+    stationId: row.station_id,
+    employeeId: row.id,
+    from: f,
+    to: t,
+  }).map((s) => ({
+    id: s.id,
+    date: s.date,
+    startTime: s.startTime,
+    endTime: s.endTime,
+    workAreaId: s.workAreaId,
+    shiftType: s.shiftType,
+    status: s.status,
+  }))
+  return { ok: true as const, data: { from: f, to: t, shifts } }
+}
+
+export function employeeAccessListTimeEntriesReadModel(
+  db: Database,
+  token: string,
+  fromYmd: string,
+  toYmd: string,
+  meta?: EmployeeAccessRequestMeta,
+):
+  | {
+      ok: true
+      data: {
+        month: string
+        from: string
+        to: string
+        summary: { entryCount: number; totalHours: number; approvedHours: number; pendingHours: number }
+        entries: EmployeeAccessTimeEntryRead[]
+      }
+    }
+  | { ok: false; error: 'invalid_token' | 'bad_range' } {
+  const ctx = resolveEmployeeAccessContext(db, token, meta)
+  if (!ctx.ok) return { ok: false as const, error: 'invalid_token' as const }
+  const f = String(fromYmd ?? '').trim()
+  const t = String(toYmd ?? '').trim()
+  if (!YMD_RE.test(f) || !YMD_RE.test(t) || f > t) return { ok: false as const, error: 'bad_range' as const }
+  if (daysInclusive(f, t) > 93) return { ok: false as const, error: 'bad_range' as const }
+  const row = ctx.row
+  const fromIso = `${f}T00:00:00.000Z`
+  const toIso = `${t}T23:59:59.999Z`
+  const rows = listTimeEntries(db, {
+    stationId: row.station_id,
+    employeeId: row.id,
+    from: fromIso,
+    to: toIso,
+  })
+  const nowMs = Date.now()
+  const shiftCache = new Map<string, { plannedStart?: string; plannedEnd?: string }>()
+  const entriesOut: EmployeeAccessTimeEntryRead[] = []
+  let totalMins = 0
+  let approvedMins = 0
+  for (const te of rows) {
+    const mins = workedMinutesEntry(te.startAt, te.endAt, te.breakMinutes ?? 0, nowMs)
+    totalMins += mins
+    const st = mapEmployeeTimeEntryReadStatus(te)
+    if (st === 'approved') approvedMins += mins
+
+    let plannedStart: string | undefined
+    let plannedEnd: string | undefined
+    if (te.shiftId) {
+      let cached = shiftCache.get(te.shiftId)
+      if (cached === undefined) {
+        const sh = getShift(db, te.shiftId)
+        cached = sh ? { plannedStart: sh.startTime, plannedEnd: sh.endTime } : {}
+        shiftCache.set(te.shiftId, cached)
+      }
+      plannedStart = cached.plannedStart
+      plannedEnd = cached.plannedEnd
+    }
+    const dateKey = te.startAt.slice(0, 10)
+    entriesOut.push({
+      id: te.id,
+      date: dateKey,
+      plannedStart,
+      plannedEnd,
+      clockInAt: te.startAt,
+      clockOutAt: te.endAt,
+      pauseMinutes: te.breakMinutes ?? 0,
+      totalHours: hoursFromWorkedMinutes(mins),
+      status: st,
+    })
+  }
+  entriesOut.sort((a, b) => (a.date === b.date ? b.clockInAt.localeCompare(a.clockInAt) : b.date.localeCompare(a.date)))
+  const month = f.slice(0, 7)
+  const pendingMins = Math.max(0, totalMins - approvedMins)
+  return {
+    ok: true as const,
+    data: {
+      month,
+      from: f,
+      to: t,
+      summary: {
+        entryCount: entriesOut.length,
+        totalHours: hoursFromWorkedMinutes(totalMins),
+        approvedHours: hoursFromWorkedMinutes(approvedMins),
+        pendingHours: hoursFromWorkedMinutes(pendingMins),
+      },
+      entries: entriesOut,
+    },
+  }
 }

@@ -4,13 +4,15 @@ import {
   CalendarDays,
   CalendarRange,
   CheckSquare,
+  ChevronLeft,
+  ChevronRight,
   Home,
   Info,
   LogOut,
   Palmtree,
   Timer,
 } from 'lucide-react'
-import { employeeAccessGet, employeeAccessPost } from '../../services/api'
+import { employeeAccessGet, employeeAccessGetQuery, employeeAccessPost } from '../../services/api'
 import type { Task, TaskLog } from '../../types/task'
 import type { ShiftCloseChecklist, TimeEntry } from '../../types/timeTracking'
 import { ShiftCloseChecklistModal } from '../../components/terminal/ShiftCloseChecklistModal'
@@ -24,6 +26,7 @@ import {
   formatTimeDE,
   formatWeekdayDateDE,
   formatWeekdayLongDE,
+  formatWeekRangeKwDE,
   getMondayOfWeekContaining,
   localTodayYmd,
 } from '../../utils/dateFormat'
@@ -33,6 +36,7 @@ import { EmployeeWeekPlanTab } from './EmployeeWeekPlanTab'
 import type { EmployeeAbsenceRow } from './EmployeeUrlaubTab'
 import { EmployeeUrlaubTab } from './EmployeeUrlaubTab'
 import { EmployeeTasksTab } from './EmployeeTasksTab'
+import { EmployeeZeitenTab } from './EmployeeZeitenTab'
 import {
   computeTodayEmployeeStatus,
   findNextFutureShift,
@@ -100,7 +104,7 @@ export type TabId =
   | 'wochenplan'
   | 'aufgaben'
   | 'urlaub'
-  | 'arbeitszeiten'
+  | 'zeiten'
   | 'info'
 
 type Props = {
@@ -134,6 +138,9 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
   const [payload, setPayload] = useState<Payload | null>(null)
   const [tab, setTab] = useState<TabId>('heute')
   const [busy, setBusy] = useState(false)
+  const [schichtenWeekMon, setSchichtenWeekMon] = useState(() => getMondayOfWeekContaining())
+  const [weekShiftsLoaded, setWeekShiftsLoaded] = useState<PubShift[]>([])
+  const [weekShiftsLoading, setWeekShiftsLoading] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [inOk, setInOk] = useState<string | null>(null)
 
@@ -176,6 +183,30 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    if (tab !== 'meine-schichten' || !t) return
+    let cancelled = false
+    ;(async () => {
+      setWeekShiftsLoading(true)
+      const from = schichtenWeekMon
+      const to = addDaysYmd(schichtenWeekMon, 6)
+      const res = await employeeAccessGetQuery<{ shifts: PubShift[] }>(t, 'shifts', { from, to })
+      if (cancelled) return
+      if (res.ok && res.data && Array.isArray(res.data.shifts)) {
+        const list = [...res.data.shifts].sort(
+          (x, y) => x.date.localeCompare(y.date) || x.startTime.localeCompare(y.startTime),
+        )
+        setWeekShiftsLoaded(list)
+      } else {
+        setWeekShiftsLoaded([])
+      }
+      setWeekShiftsLoading(false)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [tab, t, schichtenWeekMon])
 
   useEffect(() => {
     if (loadState !== 'ok' || !payload || !persistSession || sessionWritten.current) return
@@ -234,22 +265,6 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
     }
     return out
   }, [payload, todayStr, tick])
-
-  const recentTimeEntries = useMemo(() => {
-    if (!payload) return []
-    const mine = payload.timeEntries.filter((e) => e.employeeId === payload.employee.id && e.status === 'completed')
-    mine.sort((a, b) => String(b.endAt ?? b.startAt).localeCompare(String(a.endAt ?? a.startAt)))
-    return mine.slice(0, 12)
-  }, [payload])
-
-  const weekShiftsMine = useMemo(() => {
-    if (!payload) return []
-    const mon = getMondayOfWeekContaining()
-    const sun = addDaysYmd(mon, 6)
-    return payload.shifts
-      .filter((s) => s.date >= mon && s.date <= sun)
-      .sort((x, y) => x.date.localeCompare(y.date) || x.startTime.localeCompare(y.startTime))
-  }, [payload, todayStr])
 
   const acknowledgeShiftWarningsAndRetry = async () => {
     if (!shiftWarningsGate) return
@@ -477,11 +492,11 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
 
   const navItems = [
     { id: 'heute' as const, label: 'Heute', Icon: Home },
-    { id: 'meine-schichten' as const, label: 'Meine Schichten', Icon: CalendarDays },
+    { id: 'meine-schichten' as const, label: 'Schichten', Icon: CalendarDays },
     { id: 'wochenplan' as const, label: 'Wochenplan', Icon: CalendarRange },
     { id: 'aufgaben' as const, label: 'Aufgaben', Icon: CheckSquare },
     { id: 'urlaub' as const, label: 'Urlaub', Icon: Palmtree },
-    { id: 'arbeitszeiten' as const, label: 'Arbeitszeiten', Icon: Timer },
+    { id: 'zeiten' as const, label: 'Zeiten', Icon: Timer },
     { id: 'info' as const, label: 'Info', Icon: Info },
   ]
 
@@ -730,16 +745,51 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
       ) : null}
 
       {tab === 'meine-schichten' ? (
-        <section className="mt-5 space-y-3">
-          <h2 className="text-sm font-semibold text-cyan-200">Meine Schichten (Kalenderwoche)</h2>
-          <p className="text-xs text-slate-500">
-            {formatWeekdayDateDE(getMondayOfWeekContaining())} bis {formatWeekdayDateDE(addDaysYmd(getMondayOfWeekContaining(), 6))}
-          </p>
-          {weekShiftsMine.length === 0 ? (
-            <p className="text-slate-400">Keine Schichten in dieser Woche.</p>
+        <section className="mt-5 space-y-4">
+          <div className="rounded-2xl border border-cyan-500/25 bg-slate-900/55 p-4">
+            <h2 className="text-sm font-semibold text-cyan-200">Meine Schichten</h2>
+            <p className="mt-1 text-center text-xs text-slate-400 sm:text-left">
+              {formatWeekRangeKwDE(schichtenWeekMon, addDaysYmd(schichtenWeekMon, 6))}
+            </p>
+            <p className="mt-1 text-center text-[11px] text-slate-500 sm:hidden">
+              {formatDateDE(schichtenWeekMon)} – {formatDateDE(addDaysYmd(schichtenWeekMon, 6))}
+            </p>
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+              <div className="flex items-center justify-center gap-1 sm:justify-start">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="min-h-[44px] px-2 sm:px-3"
+                  aria-label="Vorherige Woche"
+                  onClick={() => setSchichtenWeekMon((w) => addDaysYmd(w, -7))}
+                >
+                  <ChevronLeft className="h-5 w-5 sm:mr-1" aria-hidden />
+                  <span className="hidden sm:inline">Vorherige Woche</span>
+                </Button>
+                <Button type="button" variant="outline" className="min-h-[44px] text-xs sm:text-sm" onClick={() => setSchichtenWeekMon(getMondayOfWeekContaining())}>
+                  Heute
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="min-h-[44px] px-2 sm:px-3"
+                  aria-label="Nächste Woche"
+                  onClick={() => setSchichtenWeekMon((w) => addDaysYmd(w, 7))}
+                >
+                  <span className="hidden sm:inline">Nächste Woche</span>
+                  <ChevronRight className="h-5 w-5 sm:ml-1" aria-hidden />
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {weekShiftsLoading ? (
+            <p className="text-sm text-slate-400">Schichten werden geladen…</p>
+          ) : weekShiftsLoaded.length === 0 ? (
+            <p className="text-sm text-slate-400">Für diese Woche sind keine Schichten eingetragen.</p>
           ) : (
             <ul className="space-y-3">
-              {weekShiftsMine.map((s) => (
+              {weekShiftsLoaded.map((s) => (
                 <li
                   key={s.id}
                   className="rounded-xl border border-white/10 bg-slate-900/50 px-4 py-3 text-sm text-slate-100"
@@ -784,26 +834,7 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
         />
       ) : null}
 
-      {tab === 'arbeitszeiten' ? (
-        <section className="mt-5 space-y-2">
-          <h2 className="text-sm font-semibold text-cyan-200">Arbeitszeiten</h2>
-          {recentTimeEntries.length === 0 ? (
-            <p className="text-slate-400">Noch keine erfassten Zeiten.</p>
-          ) : (
-            <ul className="space-y-3">
-              {recentTimeEntries.map((e) => (
-                <li key={e.id} className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-sm">
-                  <p className="font-medium text-white">{formatWeekdayDateDE((e.startAt ?? '').slice(0, 10))}</p>
-                  <p className="text-slate-300">
-                    {formatTimeDE(e.startAt)} – {e.endAt ? formatTimeDE(e.endAt) : '—'}
-                  </p>
-                  <p className="mt-1 text-xs text-slate-400">{timeEntryApprovalHint(e)}</p>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      ) : null}
+      {tab === 'zeiten' ? <EmployeeZeitenTab accessToken={t} /> : null}
 
       {tab === 'info' ? (
         <section className="mt-5 space-y-4 text-sm text-slate-300">

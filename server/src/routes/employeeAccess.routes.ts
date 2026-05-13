@@ -20,6 +20,38 @@ employeeAccessRouter.get('/:token/week-schedule', (req, res) => {
   }
 })
 
+employeeAccessRouter.get('/:token/shifts', (req, res) => {
+  try {
+    const meta = access.parseEmployeeAccessRequestMeta(req)
+    const from = typeof req.query.from === 'string' ? req.query.from : ''
+    const to = typeof req.query.to === 'string' ? req.query.to : ''
+    const out = access.employeeAccessListMyShiftsForRange(getDb(), req.params.token, from, to, meta)
+    if (!out.ok) {
+      if (out.error === 'invalid_token') return jsonErr(res, denied(), 403)
+      return jsonErr(res, 'Ungültiger Zeitraum: from und to als YYYY-MM-DD angeben.', 400)
+    }
+    jsonOk(res, out.data)
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
+  }
+})
+
+employeeAccessRouter.get('/:token/time-entries', (req, res) => {
+  try {
+    const meta = access.parseEmployeeAccessRequestMeta(req)
+    const from = typeof req.query.from === 'string' ? req.query.from : ''
+    const to = typeof req.query.to === 'string' ? req.query.to : ''
+    const out = access.employeeAccessListTimeEntriesReadModel(getDb(), req.params.token, from, to, meta)
+    if (!out.ok) {
+      if (out.error === 'invalid_token') return jsonErr(res, denied(), 403)
+      return jsonErr(res, 'Ungültiger Zeitraum: from und to als YYYY-MM-DD angeben.', 400)
+    }
+    jsonOk(res, out.data)
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
+  }
+})
+
 employeeAccessRouter.get('/:token/absences', (req, res) => {
   try {
     const meta = access.parseEmployeeAccessRequestMeta(req)

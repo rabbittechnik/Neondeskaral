@@ -4,7 +4,7 @@ import { ABSENCE_TYPE_LABELS, ABSENCE_STATUS_LABELS } from '../../components/abs
 import { Button } from '../../components/ui/Button'
 import { employeeAccessPostJson } from '../../services/api'
 import { countAbsenceDays } from '../../utils/absenceQueries'
-import { formatDateDE } from '../../utils/dateFormat'
+import { formatDateDE, formatDateTimeDE } from '../../utils/dateFormat'
 import type { Absence } from '../../types/absence'
 
 export type EmployeeAbsenceRow = {
@@ -33,6 +33,27 @@ const REQUEST_TYPES: { value: string; label: string }[] = [
   { value: 'child_sick', label: 'Kind krank' },
   { value: 'other', label: 'Sonstiges' },
 ]
+
+function employeeVisibleAbsenceComment(c?: string): string | undefined {
+  const raw = String(c ?? '').trim()
+  if (!raw) return undefined
+  const lower = raw.toLowerCase()
+  if (lower.includes('stationguide_import')) return undefined
+  if (lower.includes('grauem balken')) return undefined
+  if (lower.includes('stationguide') && (lower.includes('übernommen') || lower.includes('uebernommen'))) return undefined
+  if (/\[stationguide[\w_-]*\]/i.test(raw)) return undefined
+  return raw
+}
+
+function formatRequestedAtDe(iso: string): string {
+  const s = String(iso).trim()
+  if (!s) return '—'
+  const datePart = s.slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return s
+  const hm = /^(\d{4}-\d{2}-\d{2})[T\s](\d{2}:\d{2})/.exec(s)
+  if (hm) return `${formatDateDE(hm[1])} · ${hm[2]}`
+  return formatDateDE(datePart)
+}
 
 function typeLabelDe(t: string): string {
   const map = ABSENCE_TYPE_LABELS as Record<string, string>
@@ -214,6 +235,7 @@ export function EmployeeUrlaubTab({
           <ul className="mt-3 space-y-3">
             {sorted.map((a) => {
               const st = statusPresentation(a.status)
+              const visComment = employeeVisibleAbsenceComment(a.comment)
               return (
                 <li key={a.id} className={`rounded-xl border px-4 py-3 text-sm ${st.className}`}>
                   <div className="flex items-start gap-2">
@@ -228,12 +250,12 @@ export function EmployeeUrlaubTab({
                       {a.type === 'unpaid_vacation' ? (
                         <p className="mt-1 text-[11px] text-slate-400">Unbezahlt · zählt nicht gegen Urlaubsanspruch</p>
                       ) : null}
-                      {a.comment ? <p className="mt-2 text-xs text-slate-300">„{a.comment}“</p> : null}
+                      {visComment ? <p className="mt-2 text-xs text-slate-300">„{visComment}“</p> : null}
                       {a.requestedAt ? (
-                        <p className="mt-2 text-[11px] text-slate-400">
-                          Beantragt: {formatDateDE(a.requestedAt.slice(0, 10))}
-                          {a.requestedAt.length > 10 ? ` · ${a.requestedAt.slice(11, 16)}` : ''}
-                        </p>
+                        <p className="mt-2 text-[11px] text-slate-400">Beantragt: {formatRequestedAtDe(a.requestedAt)}</p>
+                      ) : null}
+                      {(a.status === 'genehmigt' || a.status === 'erfasst') && a.approvedAt ? (
+                        <p className="mt-1 text-[11px] text-slate-400">Genehmigt: {formatDateTimeDE(a.approvedAt)}</p>
                       ) : null}
                       {a.status === 'abgelehnt' && a.rejectedReason ? (
                         <p className="mt-2 text-xs text-rose-200/95">Abgelehnt: {a.rejectedReason}</p>
