@@ -35,6 +35,13 @@ export type TimeEntry = {
   rejectionReason?: string
   correctionNote?: string
   payrollRelevant?: boolean
+  /** Stations-Tablet / Planabweichung (Server) */
+  plannedStartAt?: string
+  startDeviationMinutes?: number
+  startDeviationType?: 'early' | 'late' | 'no_planned_shift' | 'on_time'
+  plannedEndAt?: string
+  endDeviationMinutes?: number
+  endDeviationType?: 'early' | 'late' | 'no_planned_shift' | 'on_time'
 }
 
 export type ShiftCloseChecklist = {

@@ -11,6 +11,9 @@ export type ClockCardEmployee = Pick<
   | 'cashRegisterCardNumber'
   | 'terminalEnabled'
   | 'timeTrackingEnabled'
+  | 'role'
+  | 'employmentRole'
+  | 'color'
 >
 
 export function findEmployeeByCashRegisterCardNumber(

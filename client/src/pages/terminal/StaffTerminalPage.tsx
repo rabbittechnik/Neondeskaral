@@ -1,15 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useStation } from '../../context/station-context'
 import { useTabletTerminal } from '../../context/tablet-terminal-context'
-import type { CheckInEvaluation, CheckOutEvaluation } from '../../utils/timeTrackingUtils'
-import { calculateWorkedMinutes, evaluateCheckIn, evaluateCheckOut, formatWorkedDuration } from '../../utils/timeTrackingUtils'
+import { calculateWorkedMinutes, formatWorkedDuration } from '../../utils/timeTrackingUtils'
 import type { TimeEntry } from '../../types/timeTracking'
 import type { CashRegisterCardEvent } from '../../types/timeTracking'
 import { API_BASE } from '../../services/api'
 import { DEFAULT_TABLET_STATION_ID } from '../../data/station'
 import { notifyRunningEntriesRefresh } from '../../utils/runningEntriesSync'
 import { TerminalActionButtons } from '../../components/terminal/TerminalActionButtons'
-import { CashRegisterNumberModal } from '../../components/terminal/CashRegisterNumberModal'
+import { TerminalEmployeePickModal } from '../../components/terminal/TerminalEmployeePickModal'
 import { TerminalResultMessage } from '../../components/terminal/TerminalResultMessage'
 import { RunningStaffPanel } from '../../components/terminal/RunningStaffPanel'
 import { ShiftCloseChecklistModal, type ShiftCloseCatalogItem, type ShiftCloseWizardGroup } from '../../components/terminal/ShiftCloseChecklistModal'
@@ -30,13 +29,34 @@ type ModalMode = null | 'check-in' | 'check-out'
 
 type ShiftWarningLite = { id: string; label: string; message: string }
 
+type CheckInApiConfirm = {
+  employeeId: string
+  result: string
+  reason?: string
+  message: string
+  plannedStart?: string | null
+  actualStart?: string
+  deviationMinutes?: number | null
+}
+
+type CheckoutEndConfirm = {
+  timeEntryId: string
+  employeeId: string
+  displayName: string
+  startAt: string
+  checklist: Record<string, unknown>
+  plannedEnd: string
+  actualEnd: string
+  deviationMinutes: number
+  message: string
+}
+
 type TabId = 'stamp' | 'schedule' | 'tasks' | 'fuel' | 'radio'
 
 export function StaffTerminalPage() {
   const { stationId, selectedStation } = useStation()
   const {
     employees,
-    timeEntries,
     shifts,
     workAreas,
     runningPresence,
@@ -76,14 +96,9 @@ export function StaffTerminalPage() {
   const [taskConfirm, setTaskConfirm] = useState<{ task: Task; comment: string } | null>(null)
 
   const [modal, setModal] = useState<ModalMode>(null)
-  const [checkInStep, setCheckInStep] = useState<CheckInEvaluation | null>(null)
+  const [checkInApiConfirm, setCheckInApiConfirm] = useState<CheckInApiConfirm | null>(null)
   const lastCheckInCardRef = useRef('')
-  const lastCheckOutCardRef = useRef('')
-  const [checkoutSecurity, setCheckoutSecurity] = useState<{
-    entry: TimeEntry
-    displayName: string
-  } | null>(null)
-  const [checkOutMsg, setCheckOutMsg] = useState<CheckOutEvaluation | null>(null)
+  const [checkOutErr, setCheckOutErr] = useState<string | null>(null)
   const [checkOutEntry, setCheckOutEntry] = useState<TimeEntry | null>(null)
   const [checkoutCatalog, setCheckoutCatalog] = useState<{
     checklistType: 'handover' | 'closing'
@@ -92,6 +107,7 @@ export function StaffTerminalPage() {
   } | null>(null)
   const [inSuccess, setInSuccess] = useState<{ name: string; time: string } | null>(null)
   const [outSuccess, setOutSuccess] = useState<{ name: string; end: string; dur: string } | null>(null)
+  const [checkoutEndConfirm, setCheckoutEndConfirm] = useState<CheckoutEndConfirm | null>(null)
   const [checkoutStartBusy, setCheckoutStartBusy] = useState(false)
   const [pendingShiftWarnings, setPendingShiftWarnings] = useState<{
     employeeId: string
@@ -105,8 +121,8 @@ export function StaffTerminalPage() {
     return () => window.clearInterval(id)
   }, [])
 
-  const startShiftForEmployee = useCallback(
-    async (cardNumber: string, options?: { force?: boolean; startNote?: string }) => {
+  const startShiftByEmployeeId = useCallback(
+    async (employeeId: string, force: boolean) => {
       const sid = stationId ?? DEFAULT_TABLET_STATION_ID
       let res: Response
       try {
@@ -114,45 +130,61 @@ export function StaffTerminalPage() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            cardNumber: cardNumber.trim(),
+            employeeId,
             stationId: sid,
-            force: Boolean(options?.force),
+            force,
             ...(tabletToken ? { tabletToken } : {}),
           }),
         })
       } catch {
         throw new Error('Server nicht erreichbar. Bitte Verbindung prüfen.')
       }
-      let json: {
-        ok?: boolean
-        data?: { timeEntry?: TimeEntry }
-        error?: string
-        timeEntry?: TimeEntry
-        result?: string
-        warnings?: unknown
-      } = {}
+      let json: Record<string, unknown> = {}
       try {
-        json = (await res.json()) as typeof json
+        json = (await res.json()) as Record<string, unknown>
       } catch {
         throw new Error('Server nicht erreichbar. Bitte Verbindung prüfen.')
       }
       if (!res.ok) {
-        throw new Error(json.error ?? `Serverfehler (${res.status})`)
+        throw new Error(String(json.error ?? `Serverfehler (${res.status})`))
       }
-      if (!json.ok) {
+      if (json.ok === false) {
         if (json.result === 'shift_warnings_pending') {
-          const err = new Error(json.error ?? 'Hinweis aus deiner letzten Schicht: Bitte zuerst bestätigen.')
-          ;(err as Error & { code: string; warnings?: unknown }).code = 'shift_warnings_pending'
-          ;(err as Error & { code: string; warnings?: unknown }).warnings = json.warnings
+          const err = new Error(String(json.error ?? 'Hinweis aus deiner letzten Schicht: Bitte zuerst bestätigen.')) as Error & {
+            code: string
+            warnings?: unknown
+          }
+          err.code = 'shift_warnings_pending'
+          err.warnings = json.warnings
           throw err
         }
-        throw new Error(json.error ?? 'Fehler beim Starten der Schicht.')
+        if (json.requiresConfirmation === true) {
+          return {
+            needsConfirm: true as const,
+            employeeId,
+            result: String(json.result ?? ''),
+            reason: typeof json.reason === 'string' ? json.reason : undefined,
+            message: String(json.error ?? json.message ?? ''),
+            plannedStart: json.plannedStart as string | null | undefined,
+            actualStart: typeof json.actualStart === 'string' ? json.actualStart : undefined,
+            deviationMinutes:
+              typeof json.deviationMinutes === 'number'
+                ? json.deviationMinutes
+                : json.deviationMinutes === null
+                  ? null
+                  : undefined,
+          }
+        }
+        throw new Error(String(json.error ?? 'Fehler beim Starten der Schicht.'))
       }
-      const entry = json.data?.timeEntry ?? json.timeEntry
-      if (!entry) throw new Error('Keine Zeiterfassung in der Antwort')
-      await refetch()
-      notifyRunningEntriesRefresh()
-      return entry
+      if (json.ok === true && json.data && typeof json.data === 'object') {
+        const entry = (json.data as { timeEntry?: TimeEntry }).timeEntry
+        if (!entry) throw new Error('Keine Zeiterfassung in der Antwort')
+        await refetch()
+        notifyRunningEntriesRefresh()
+        return { ok: true as const, entry }
+      }
+      throw new Error(String(json.error ?? 'Ungültige Server-Antwort'))
     },
     [refetch, stationId, tabletToken],
   )
@@ -183,31 +215,28 @@ export function StaffTerminalPage() {
 
   const closeModal = () => {
     setModal(null)
-    setCheckInStep(null)
-    setCheckOutMsg(null)
-    setCheckoutSecurity(null)
+    setCheckInApiConfirm(null)
+    setCheckOutErr(null)
     setCheckOutEntry(null)
     setCheckoutCatalog(null)
     setPendingShiftWarnings(null)
+    setCheckoutEndConfirm(null)
   }
 
   const acknowledgeShiftWarningsAndRetry = async () => {
     if (!pendingShiftWarnings) return
     const sid = stationId ?? DEFAULT_TABLET_STATION_ID
+    const empId = pendingShiftWarnings.employeeId.trim()
     const card = lastCheckInCardRef.current.trim()
-    if (!card) {
-      window.alert('Kartennummer fehlt. Bitte erneut scannen.')
-      return
-    }
     for (const w of pendingShiftWarnings.warnings) {
       const res = await fetch(`${API_BASE}/terminal/shift-warnings/acknowledge`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          cardNumber: card,
           stationId: sid,
           warningId: w.id,
           ...(tabletToken ? { tabletToken } : {}),
+          ...(card ? { cardNumber: card } : { employeeId: empId }),
         }),
       })
       const json = (await res.json()) as { ok?: boolean; error?: string }
@@ -216,29 +245,37 @@ export function StaffTerminalPage() {
         return
       }
     }
-    const { employeeId, note, force } = pendingShiftWarnings
+    const { employeeId, force } = pendingShiftWarnings
     setPendingShiftWarnings(null)
-    await finalizeCheckIn(employeeId, note, force)
+    await finalizeCheckInByEmployee(employeeId, force)
   }
 
-  const finalizeCheckIn = async (employeeId: string, note?: string, force = false) => {
-    const card = lastCheckInCardRef.current.trim()
-    if (!card) {
-      window.alert('Kartennummer fehlt. Bitte erneut scannen.')
-      return
-    }
+  const finalizeCheckInByEmployee = async (employeeId: string, force = false) => {
     try {
-      const entry = await startShiftForEmployee(card, { force, startNote: note })
+      const out = await startShiftByEmployeeId(employeeId, force)
+      if ('needsConfirm' in out && out.needsConfirm) {
+        setCheckInApiConfirm({
+          employeeId: out.employeeId,
+          result: out.result,
+          reason: out.reason,
+          message: out.message,
+          plannedStart: out.plannedStart ?? null,
+          actualStart: out.actualStart,
+          deviationMinutes: out.deviationMinutes ?? null,
+        })
+        return
+      }
+      const entry = out.entry
       const emp = employees.find((e) => e.id === employeeId)
       const t = new Date(entry.startAt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
-      setCheckInStep(null)
+      setCheckInApiConfirm(null)
       setModal(null)
       setInSuccess({ name: emp?.displayName ?? 'Mitarbeiter', time: t })
       void refetchTasks(employeeId)
       setTab('tasks')
       window.setTimeout(() => setInSuccess(null), 28_000)
       log({
-        cardNumber: emp?.cashRegisterCardNumber ?? card,
+        cardNumber: String(emp?.cashRegisterCardNumber ?? '').trim(),
         employeeId,
         actionType: 'check_in',
         result: 'success',
@@ -257,215 +294,134 @@ export function StaffTerminalPage() {
               }))
               .filter((w) => w.id)
           : []
-        setPendingShiftWarnings({ employeeId, note, force, warnings })
+        setPendingShiftWarnings({ employeeId, force, warnings })
         return
       }
       window.alert(err instanceof Error ? err.message : 'Check-in fehlgeschlagen')
     }
   }
 
-  const handleCashCardSubmit = async (card: string) => {
-    const digits = card.replace(/\D/g, '').trim()
-    const currentModal = modal
-    console.log('terminal submit', {
-      mode: currentModal,
-      cashCardNumber: digits,
-      tabletStationId: stationId ?? null,
-      tabletTokenPresent: Boolean(tabletToken),
-    })
-
-    if (currentModal === 'check-in') {
-      setCheckOutMsg(null)
-      lastCheckInCardRef.current = digits
-      const ev = evaluateCheckIn(digits, employees, shifts, timeEntries, new Date())
+  const startCheckoutChecklistForEmployee = async (employeeId: string) => {
+    const sid = stationId ?? DEFAULT_TABLET_STATION_ID
+    setCheckoutStartBusy(true)
+    setCheckOutErr(null)
+    try {
+      const res = await fetch(`${API_BASE}/terminal/check-out-start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          employeeId,
+          stationId: sid,
+          ...(tabletToken ? { tabletToken } : {}),
+        }),
+      })
+      const json = (await res.json()) as {
+        ok?: boolean
+        data?: {
+          timeEntry?: TimeEntry
+          checklistType?: string
+          items?: unknown[]
+          wizardGroups?: unknown
+        }
+        error?: string
+      }
+      if (!json.ok || !json.data?.timeEntry) {
+        setCheckOutErr(json.error ?? 'Auscheck konnte nicht gestartet werden.')
+        return
+      }
+      const { checklistType, items, wizardGroups } = json.data
+      if (!checklistType || !Array.isArray(items) || items.length === 0) {
+        setCheckOutErr('Ungültige Server-Antwort für die Schichtende-Checkliste.')
+        return
+      }
+      const ct = checklistType === 'closing' ? 'closing' : 'handover'
+      setCheckOutEntry(json.data.timeEntry)
+      setCheckoutCatalog({
+        checklistType: ct,
+        items: normalizeShiftCloseCatalogItems(items),
+        wizardGroups: parseShiftCloseWizardGroups(wizardGroups),
+      })
       setModal(null)
-      if (ev.kind === 'unknown_card') {
-        log({ cardNumber: digits, actionType: 'check_in', result: 'unknown_card', message: 'Kassenkarte unbekannt' })
-        setCheckInStep(ev)
-        return
-      }
-      if (ev.kind === 'already_checked_in') {
-        log({
-          cardNumber: digits,
-          employeeId: ev.employee.id,
-          actionType: 'check_in',
-          result: 'already_checked_in',
-          message: 'Bereits eingestempelt',
-        })
-        setCheckInStep(ev)
-        return
-      }
-      if (ev.kind === 'not_scheduled') {
-        log({
-          cardNumber: digits,
-          employeeId: ev.employee.id,
-          actionType: 'check_in',
-          result: 'not_scheduled',
-          message: 'Nicht geplant',
-        })
-        setCheckInStep(ev)
-        return
-      }
-      if (ev.kind === 'too_early') {
-        log({
-          cardNumber: digits,
-          employeeId: ev.employee.id,
-          actionType: 'check_in',
-          result: 'too_early',
-          message: `${ev.minutesEarly} Min. zu früh`,
-        })
-        setCheckInStep(ev)
-        return
-      }
-      if (ev.kind === 'ready') {
-        log({
-          cardNumber: digits,
-          employeeId: ev.employee.id,
-          actionType: 'check_in',
-          result: 'success',
-          message: 'Check-in',
-        })
-        setCheckInStep(null)
-        await finalizeCheckIn(ev.employee.id, undefined, false)
-        return
-      }
-      if (ev.kind === 'too_late') {
-        log({
-          cardNumber: digits,
-          employeeId: ev.employee.id,
-          actionType: 'check_in',
-          result: 'too_late',
-          message: `${ev.minutesLate} Min. zu spät`,
-        })
-        setCheckInStep(ev)
-        return
-      }
+    } catch (e) {
+      setCheckOutErr(e instanceof Error ? e.message : 'Netzwerkfehler')
+    } finally {
+      setCheckoutStartBusy(false)
+    }
+  }
+
+  const renderCheckInApiConfirm = () => {
+    if (!checkInApiConfirm) return null
+    const p = checkInApiConfirm
+    const emp = employees.find((e) => e.id === p.employeeId)
+    const name = emp?.displayName ?? 'Mitarbeiter'
+    const planned = p.plannedStart ? `${p.plannedStart} Uhr` : '—'
+    const actual = p.actualStart ? `${p.actualStart} Uhr` : '—'
+    const diff =
+      typeof p.deviationMinutes === 'number'
+        ? `${p.deviationMinutes} Minuten`
+        : p.reason === 'no_planned_shift'
+          ? ''
+          : '—'
+    let title = 'Schicht starten'
+    let body = p.message
+    if (p.reason === 'early') {
+      title = 'Du beginnst deine Schicht früher als geplant.'
+      body = `Geplant: ${planned}\nAktuell: ${actual}\nDifferenz: ${diff} früher`
+    } else if (p.reason === 'late') {
+      title = 'Du beginnst deine Schicht später als geplant.'
+      body = `Geplant: ${planned}\nAktuell: ${actual}\nDifferenz: ${diff} später`
+    } else if (p.reason === 'no_planned_shift') {
+      title = 'Keine Schicht geplant'
+      body = 'Für dich ist aktuell keine Schicht geplant.'
+    }
+    return (
+      <TerminalResultMessage variant="warning" title={title} message={`${name}\n\n${body}`}>
+        <Button variant="primary" type="button" onClick={() => void finalizeCheckInByEmployee(p.employeeId, true)}>
+          Schicht trotzdem beginnen
+        </Button>
+        <Button variant="ghost" type="button" onClick={() => setCheckInApiConfirm(null)}>
+          Abbrechen
+        </Button>
+      </TerminalResultMessage>
+    )
+  }
+
+  const finalizeCheckoutSuccess = (p: { employeeId: string; startAt: string; displayName: string }) => {
+    const end = new Date().toISOString()
+    const mins = calculateWorkedMinutes(p.startAt, end, new Date())
+    const name = employees.find((e) => e.id === p.employeeId)?.displayName ?? p.displayName ?? ''
+    const endLabel = new Date(end).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+    setCheckOutEntry(null)
+    setCheckoutCatalog(null)
+    setCheckoutEndConfirm(null)
+    setOutSuccess({ name, end: endLabel, dur: formatWorkedDuration(mins) })
+    log({
+      cardNumber: String(employees.find((e) => e.id === p.employeeId)?.cashRegisterCardNumber ?? '').trim(),
+      employeeId: p.employeeId,
+      actionType: 'check_out',
+      result: 'success',
+      message: 'Schicht beendet',
+    })
+  }
+
+  const submitCheckoutWithForce = async () => {
+    if (!checkoutEndConfirm) return
+    try {
+      await completeShiftWithChecklist(
+        checkoutEndConfirm.timeEntryId,
+        checkoutEndConfirm.checklist,
+        undefined,
+        true,
+      )
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Ausstempeln fehlgeschlagen')
       return
     }
-
-    if (currentModal === 'check-out') {
-      const ev = evaluateCheckOut(digits, employees, timeEntries)
-      setModal(null)
-      if (ev.kind === 'unknown_card') {
-        log({ cardNumber: digits, actionType: 'check_out', result: 'unknown_card', message: 'Kassenkarte unbekannt' })
-        setCheckOutMsg(ev)
-        return
-      }
-      if (ev.kind === 'not_checked_in') {
-        log({
-          cardNumber: digits,
-          employeeId: ev.employee.id,
-          actionType: 'check_out',
-          result: 'not_checked_in',
-          message: 'Keine laufende Schicht (Ausstempeln)',
-        })
-        setCheckOutMsg(ev)
-        return
-      }
-      lastCheckOutCardRef.current = digits
-      setCheckoutSecurity({
-        entry: ev.entry,
-        displayName: ev.employee.displayName,
-      })
-      log({
-        cardNumber: digits,
-        employeeId: ev.employee.id,
-        actionType: 'check_out',
-        result: 'checklist_required',
-        message: 'Checkliste',
-      })
-    }
-  }
-
-  const renderCheckInFollowUp = () => {
-    if (!checkInStep) return null
-    if (checkInStep.kind === 'unknown_card') {
-      return (
-        <TerminalResultMessage
-          variant="error"
-          title="Kassenkartennummer unbekannt"
-          message="Diese Kassenkartennummer wurde keinem aktiven Mitarbeiter dieser Station zugeordnet."
-        />
-      )
-    }
-    if (checkInStep.kind === 'already_checked_in') {
-      const t = new Date(checkInStep.entry.startAt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
-      return (
-        <TerminalResultMessage
-          variant="warning"
-          title="Du bist bereits eingestempelt."
-          message={`Deine Schicht läuft seit ${t} Uhr.`}
-        />
-      )
-    }
-    if (checkInStep.kind === 'not_scheduled') {
-      return (
-        <TerminalResultMessage
-          variant="warning"
-          title="Für dich ist heute keine Schicht geplant."
-          message={`${checkInStep.employee.displayName} — du kannst trotzdem starten oder abbrechen.`}
-        >
-          <Button variant="primary" type="button" onClick={() => void finalizeCheckIn(checkInStep.employee.id, 'Nicht geplant — trotzdem gestartet', true)}>
-            Trotzdem Schicht starten
-          </Button>
-          <Button variant="ghost" type="button" onClick={() => setCheckInStep(null)}>
-            Abbrechen
-          </Button>
-        </TerminalResultMessage>
-      )
-    }
-    if (checkInStep.kind === 'too_early') {
-      return (
-        <TerminalResultMessage
-          variant="warning"
-          title="Zu früh"
-          message={`Deine geplante Schicht beginnt erst um ${checkInStep.plannedStart} Uhr. Du bist ${checkInStep.minutesEarly} Minuten zu früh.`}
-        >
-          <Button variant="primary" type="button" onClick={() => void finalizeCheckIn(checkInStep.employee.id, 'Zu früh — trotzdem gestartet', true)}>
-            Trotzdem Schicht starten
-          </Button>
-          <Button variant="ghost" type="button" onClick={() => setCheckInStep(null)}>
-            Abbrechen
-          </Button>
-        </TerminalResultMessage>
-      )
-    }
-    if (checkInStep.kind === 'too_late') {
-      return (
-        <TerminalResultMessage
-          variant="warning"
-          title="Verspäteter Start"
-          message={`Deine geplante Schicht hat um ${checkInStep.planned.startTime} Uhr begonnen. Du startest ${checkInStep.minutesLate} Minuten später.`}
-        >
-          <Button variant="primary" type="button" onClick={() => void finalizeCheckIn(checkInStep.employee.id, `Zu spät: ${checkInStep.minutesLate} Min.`, true)}>
-            Schicht trotzdem starten
-          </Button>
-          <Button variant="ghost" type="button" onClick={() => setCheckInStep(null)}>
-            Abbrechen
-          </Button>
-        </TerminalResultMessage>
-      )
-    }
-    return null
-  }
-
-  const renderCheckOutMsg = () => {
-    if (!checkOutMsg) return null
-    if (checkOutMsg.kind === 'unknown_card') {
-      return (
-        <TerminalResultMessage variant="error" title="Kassenkartennummer unbekannt" message="Diese Kassenkartennummer wurde keinem aktiven Mitarbeiter dieser Station zugeordnet." />
-      )
-    }
-    if (checkOutMsg.kind === 'not_checked_in') {
-      return (
-        <TerminalResultMessage
-          variant="error"
-          title="Keine laufende Schicht"
-          message="Für diesen Mitarbeiter ist aktuell keine laufende Schicht vorhanden."
-        />
-      )
-    }
-    return null
+    finalizeCheckoutSuccess({
+      employeeId: checkoutEndConfirm.employeeId,
+      startAt: checkoutEndConfirm.startAt,
+      displayName: checkoutEndConfirm.displayName,
+    })
   }
 
   return (
@@ -513,17 +469,15 @@ export function StaffTerminalPage() {
           <div className="mt-8 flex w-full max-w-4xl justify-center">
             <TerminalActionButtons
               onCheckIn={() => {
-                setCheckInStep(null)
-                setCheckOutMsg(null)
+                setCheckInApiConfirm(null)
+                setCheckOutErr(null)
                 setInSuccess(null)
-                setCheckoutSecurity(null)
                 setPendingShiftWarnings(null)
                 setModal('check-in')
               }}
               onCheckOut={() => {
-                setCheckInStep(null)
-                setCheckOutMsg(null)
-                setCheckoutSecurity(null)
+                setCheckInApiConfirm(null)
+                setCheckOutErr(null)
                 setPendingShiftWarnings(null)
                 setModal('check-out')
               }}
@@ -559,8 +513,7 @@ export function StaffTerminalPage() {
                 </Button>
               </TerminalResultMessage>
             ) : null}
-            {renderCheckInFollowUp()}
-            {renderCheckOutMsg()}
+            {renderCheckInApiConfirm()}
           </div>
         </>
       ) : null}
@@ -715,96 +668,28 @@ export function StaffTerminalPage() {
         </div>
       ) : null}
 
-      {checkoutSecurity ? (
-        <div className="fixed inset-0 z-[135] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-orange-400/35 bg-[var(--bg-card)] p-6 shadow-[0_0_40px_rgba(251,146,60,0.12)]">
-            <h2 className="text-lg font-semibold text-[var(--text-main)]">Schicht wirklich beenden?</h2>
-            <p className="mt-2 text-sm text-[var(--text-muted)]">Möchtest du deine Schicht jetzt wirklich beenden?</p>
+      {checkoutEndConfirm ? (
+        <div className="fixed inset-0 z-[136] flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-2xl border border-amber-400/35 bg-[var(--bg-card)] p-6 shadow-xl">
+            <h2 className="text-lg font-semibold text-[var(--text-main)]">Schichtende außerhalb der Toleranz</h2>
+            <p className="mt-2 text-sm text-[var(--text-muted)]">{checkoutEndConfirm.message}</p>
             <div className="mt-4 space-y-1 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-[var(--text-main)]">
               <p>
-                <span className="text-[var(--text-faint)]">Mitarbeiter:</span> {checkoutSecurity.displayName}
+                <span className="text-[var(--text-faint)]">Geplant (Ende):</span> {checkoutEndConfirm.plannedEnd} Uhr
               </p>
               <p>
-                <span className="text-[var(--text-faint)]">Startzeit:</span>{' '}
-                {new Date(checkoutSecurity.entry.startAt).toLocaleTimeString('de-DE', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}{' '}
-                Uhr
+                <span className="text-[var(--text-faint)]">Aktuell:</span> {checkoutEndConfirm.actualEnd} Uhr
               </p>
               <p>
-                <span className="text-[var(--text-faint)]">Bisherige Arbeitszeit:</span>{' '}
-                {formatWorkedDuration(calculateWorkedMinutes(checkoutSecurity.entry.startAt, undefined, new Date()))}
-              </p>
-              <p>
-                <span className="text-[var(--text-faint)]">Aktuelle Uhrzeit:</span>{' '}
-                {nowTick.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
+                <span className="text-[var(--text-faint)]">Differenz:</span> {checkoutEndConfirm.deviationMinutes} Minuten
               </p>
             </div>
             <div className="mt-5 flex flex-wrap gap-2">
-              <Button type="button" variant="ghost" className="flex-1" onClick={() => setCheckoutSecurity(null)}>
+              <Button type="button" variant="ghost" className="flex-1" onClick={() => setCheckoutEndConfirm(null)}>
                 Abbrechen
               </Button>
-              <Button
-                type="button"
-                variant="primary"
-                className="flex-1"
-                disabled={checkoutStartBusy}
-                onClick={() => {
-                  void (async () => {
-                    const sid = stationId ?? DEFAULT_TABLET_STATION_ID
-                    const card = lastCheckOutCardRef.current.trim()
-                    if (!card) {
-                      window.alert('Kartennummer fehlt. Bitte erneut scannen.')
-                      return
-                    }
-                    setCheckoutStartBusy(true)
-                    try {
-                      const res = await fetch(`${API_BASE}/terminal/check-out-start`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          cardNumber: card,
-                          stationId: sid,
-                          ...(tabletToken ? { tabletToken } : {}),
-                        }),
-                      })
-                      const json = (await res.json()) as {
-                        ok?: boolean
-                        data?: {
-                          timeEntry?: TimeEntry
-                          checklistType?: string
-                          items?: unknown[]
-                          wizardGroups?: unknown
-                        }
-                        error?: string
-                      }
-                      if (!json.ok || !json.data?.timeEntry) {
-                        window.alert(json.error ?? 'Auscheck konnte nicht gestartet werden.')
-                        return
-                      }
-                      const { checklistType, items, wizardGroups } = json.data
-                      if (!checklistType || !Array.isArray(items) || items.length === 0) {
-                        window.alert('Ungültige Server-Antwort für die Schichtende-Checkliste.')
-                        return
-                      }
-                      const ct = checklistType === 'closing' ? 'closing' : 'handover'
-                      setCheckOutEntry(json.data.timeEntry)
-                      setCheckoutCatalog({
-                        checklistType: ct,
-                        items: normalizeShiftCloseCatalogItems(items),
-                        wizardGroups: parseShiftCloseWizardGroups(wizardGroups),
-                      })
-                      setCheckoutSecurity(null)
-                    } catch (e) {
-                      window.alert(e instanceof Error ? e.message : 'Netzwerkfehler')
-                    } finally {
-                      setCheckoutStartBusy(false)
-                    }
-                  })()
-                }}
-              >
-                {checkoutStartBusy ? 'Lade…' : 'Ja, Schicht beenden'}
+              <Button type="button" variant="primary" className="flex-1" onClick={() => void submitCheckoutWithForce()}>
+                Schicht trotzdem beenden
               </Button>
             </div>
           </div>
@@ -838,16 +723,23 @@ export function StaffTerminalPage() {
         </div>
       ) : null}
 
-      <CashRegisterNumberModal
+      <TerminalEmployeePickModal
         open={modal !== null}
         mode={modal === 'check-out' ? 'check-out' : 'check-in'}
+        employees={employees}
+        runningPresence={runningPresence}
+        shifts={shifts}
+        checkoutBusy={modal === 'check-out' ? checkoutStartBusy : false}
+        checkoutError={modal === 'check-out' ? checkOutErr : null}
         onClose={closeModal}
-        onSubmit={handleCashCardSubmit}
+        onConfirmCheckIn={(employeeId) => void finalizeCheckInByEmployee(employeeId, false)}
+        onPickCheckOut={(row) => void startCheckoutChecklistForEmployee(row.employeeId)}
       />
 
       {checkOutEntry && checkoutCatalog ? (
         <ShiftCloseChecklistModal
           open
+          layout="tablet"
           employeeName={employees.find((e) => e.id === checkOutEntry.employeeId)?.displayName ?? 'Mitarbeiter'}
           timeEntryId={checkOutEntry.id}
           employeeId={checkOutEntry.employeeId}
@@ -859,29 +751,34 @@ export function StaffTerminalPage() {
             setCheckoutCatalog(null)
           }}
           onComplete={async (checklist) => {
-            const end = new Date().toISOString()
+            const entry = checkOutEntry
+            const displayName = employees.find((e) => e.id === entry.employeeId)?.displayName ?? 'Mitarbeiter'
             try {
-              await completeShiftWithChecklist(
-                checkOutEntry.id,
-                checklist,
-                lastCheckOutCardRef.current.trim() || undefined,
-              )
+              await completeShiftWithChecklist(entry.id, checklist, undefined, false)
             } catch (err) {
+              const e = err as Error & { code?: string; detail?: Record<string, unknown> }
+              if (e.code === 'checkout_requires_confirmation' && e.detail) {
+                const d = e.detail
+                setCheckoutEndConfirm({
+                  timeEntryId: entry.id,
+                  employeeId: entry.employeeId,
+                  displayName,
+                  startAt: entry.startAt,
+                  checklist,
+                  plannedEnd: String(d.plannedEnd ?? ''),
+                  actualEnd: String(d.actualEnd ?? ''),
+                  deviationMinutes: Number(d.deviationMinutes ?? 0),
+                  message: String(d.message ?? ''),
+                })
+                return
+              }
               window.alert(err instanceof Error ? err.message : 'Ausstempeln fehlgeschlagen')
               return
             }
-            const mins = calculateWorkedMinutes(checkOutEntry.startAt, end, new Date())
-            const name = employees.find((e) => e.id === checkOutEntry.employeeId)?.displayName ?? ''
-            const endLabel = new Date(end).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
-            setCheckOutEntry(null)
-            setCheckoutCatalog(null)
-            setOutSuccess({ name, end: endLabel, dur: formatWorkedDuration(mins) })
-            log({
-              cardNumber: employees.find((e) => e.id === checkOutEntry.employeeId)?.cashRegisterCardNumber ?? '',
-              employeeId: checkOutEntry.employeeId,
-              actionType: 'check_out',
-              result: 'success',
-              message: 'Schicht beendet',
+            finalizeCheckoutSuccess({
+              employeeId: entry.employeeId,
+              startAt: entry.startAt,
+              displayName,
             })
           }}
         />

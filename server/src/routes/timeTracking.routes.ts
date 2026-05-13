@@ -212,9 +212,15 @@ function terminalCheckInErrorBody(out: Record<string, unknown>) {
     ok: false,
     error: out.message,
     result: out.result,
+    ...(out.requiresConfirmation === true ? { requiresConfirmation: true } : {}),
+    ...(typeof out.reason === 'string' ? { reason: out.reason } : {}),
+    ...(typeof out.actualStart === 'string' ? { actualStart: out.actualStart } : {}),
+    ...(typeof out.deviationMinutes === 'number' || out.deviationMinutes === null
+      ? { deviationMinutes: out.deviationMinutes }
+      : {}),
+    ...('plannedStart' in out ? { plannedStart: out.plannedStart } : {}),
     ...('employee' in out ? { employee: out.employee } : {}),
     ...('timeEntry' in out ? { timeEntry: out.timeEntry } : {}),
-    ...('plannedStart' in out ? { plannedStart: out.plannedStart } : {}),
     ...('minutesLate' in out ? { minutesLate: out.minutesLate } : {}),
     ...('warnings' in out ? { warnings: out.warnings } : {}),
     ...('requiresWarningAcknowledgement' in out
@@ -232,8 +238,12 @@ terminalRouter.post('/check-in', (req, res) => {
     }
     raw.stationId = stationFromToken
     const card = String((raw as { cardNumber?: string }).cardNumber ?? '').trim()
-    console.log('terminal check-in request', { stationId: stationFromToken, cashCardNumber: card })
-    const out = terminal.terminalCheckIn(getDb(), raw as { cardNumber: string; stationId: string; force?: boolean })
+    const empId = String((raw as { employeeId?: string }).employeeId ?? '').trim()
+    console.log('terminal check-in request', { stationId: stationFromToken, cashCardNumber: card, employeeId: empId || undefined })
+    const out = terminal.terminalCheckIn(
+      getDb(),
+      raw as { cardNumber?: string; employeeId?: string; stationId: string; force?: boolean },
+    )
     if (!out.ok) {
       console.log('terminal check-in rejected', { stationId: stationFromToken, result: (out as { result?: string }).result })
       return res.status(200).json(terminalCheckInErrorBody(out as unknown as Record<string, unknown>))
@@ -254,7 +264,10 @@ terminalRouter.post('/check-out-start', (req, res) => {
     const stationFromToken = resolveTerminalStationIdFromBody(getDb(), raw, req)
     if (!stationFromToken) return jsonErr(res, 'stationId oder gültiger tabletToken erforderlich', 400)
     raw.stationId = stationFromToken
-    const out = terminal.terminalCheckOutStart(getDb(), raw as { cardNumber: string; stationId: string })
+    const out = terminal.terminalCheckOutStart(
+      getDb(),
+      raw as { cardNumber?: string; employeeId?: string; stationId: string },
+    )
     if (!out.ok) {
       return res.status(200).json({
         ok: false,
@@ -278,6 +291,53 @@ terminalRouter.post('/check-out-start', (req, res) => {
   }
 })
 
+terminalRouter.post('/check-out', (req, res) => {
+  try {
+    const raw = { ...(req.body ?? {}) } as Record<string, unknown>
+    const stationFromToken = resolveTerminalStationIdFromBody(getDb(), raw, req)
+    if (!stationFromToken) return jsonErr(res, 'stationId oder gültiger tabletToken erforderlich', 400)
+    raw.stationId = stationFromToken
+    const tt = typeof raw.tabletToken === 'string' ? raw.tabletToken.trim() : ''
+    if (tt) touchTabletByToken(getDb(), tt, req)
+    const out = terminal.terminalCheckOutFull(
+      getDb(),
+      raw as {
+        stationId: string
+        employeeId: string
+        timeEntryId?: string
+        confirmedAllDone: boolean
+        notDoneItems?: { itemKey: string; reason: string }[]
+        cashDifference?: number
+        force?: boolean
+      },
+    )
+    if (!out.ok) {
+      if ('requiresConfirmation' in out && out.requiresConfirmation) {
+        return res.status(200).json({
+          ok: false,
+          requiresConfirmation: true,
+          reason: out.reason,
+          plannedEnd: out.plannedEnd,
+          actualEnd: out.actualEnd,
+          deviationMinutes: out.deviationMinutes,
+          message: out.message,
+        })
+      }
+      if ('result' in out && (out as { result?: string }).result === 'not_checked_in') {
+        return res.status(200).json({
+          ok: false,
+          error: (out as { message?: string }).message,
+          result: 'not_checked_in',
+        })
+      }
+      return jsonErr(res, 'error' in out ? out.error : 'Auscheck fehlgeschlagen', 400)
+    }
+    jsonOk(res, out.data)
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
+  }
+})
+
 terminalRouter.post('/check-out-complete', (req, res) => {
   try {
     const raw = { ...(req.body ?? {}) } as Record<string, unknown>
@@ -285,9 +345,22 @@ terminalRouter.post('/check-out-complete', (req, res) => {
     if (tt) touchTabletByToken(getDb(), tt, req)
     const out = terminal.terminalCheckOutComplete(
       getDb(),
-      raw as { timeEntryId: string; checklist: Record<string, unknown>; cardNumber?: string },
+      raw as { timeEntryId: string; checklist: Record<string, unknown>; cardNumber?: string; force?: boolean },
     )
-    if (!out.ok) return jsonErr(res, out.error, 400)
+    if (!out.ok) {
+      if ('requiresConfirmation' in out && out.requiresConfirmation) {
+        return res.status(200).json({
+          ok: false,
+          requiresConfirmation: true,
+          reason: out.reason,
+          plannedEnd: out.plannedEnd,
+          actualEnd: out.actualEnd,
+          deviationMinutes: out.deviationMinutes,
+          message: out.message,
+        })
+      }
+      return jsonErr(res, 'error' in out ? out.error : 'Ausstempeln fehlgeschlagen', 400)
+    }
     jsonOk(res, out.data)
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
@@ -300,12 +373,19 @@ terminalRouter.post('/shift-warnings/acknowledge', (req, res) => {
     const stationResolved = resolveTerminalStationIdFromBody(getDb(), raw, req)
     if (!stationResolved) return jsonErr(res, 'stationId oder gültiger tabletToken erforderlich', 400)
     raw.stationId = stationResolved
-    const body = raw as { cardNumber?: string; stationId?: string; warningId?: string }
+    const body = raw as { cardNumber?: string; employeeId?: string; stationId?: string; warningId?: string }
     const card = String(body.cardNumber ?? '').trim()
+    const employeeId = String(body.employeeId ?? '').trim()
     const stationId = String(body.stationId ?? '').trim()
     const warningId = String(body.warningId ?? '').trim()
-    if (!card || !stationId || !warningId) return jsonErr(res, 'cardNumber, stationId und warningId erforderlich', 400)
-    const out = terminal.terminalAcknowledgeShiftWarning(getDb(), { cardNumber: card, stationId, warningId })
+    if (!stationId || !warningId) return jsonErr(res, 'stationId und warningId erforderlich', 400)
+    if (!card && !employeeId) return jsonErr(res, 'cardNumber oder employeeId erforderlich', 400)
+    const out = terminal.terminalAcknowledgeShiftWarning(getDb(), {
+      cardNumber: card || undefined,
+      employeeId: employeeId || undefined,
+      stationId,
+      warningId,
+    })
     if (!out.ok) return jsonErr(res, out.message, 400)
     jsonOk(res, { ok: true })
   } catch (e) {

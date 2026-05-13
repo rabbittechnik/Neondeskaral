@@ -323,21 +323,33 @@ employeeAccessRouter.post('/:token/check-out-start', (req, res) => {
 employeeAccessRouter.post('/:token/check-out-complete', (req, res) => {
   try {
     const meta = access.parseEmployeeAccessRequestMeta(req)
-    const body = req.body as { timeEntryId?: string; checklist?: Record<string, unknown> }
+    const body = req.body as { timeEntryId?: string; checklist?: Record<string, unknown>; force?: boolean }
     const out = access.employeeAccessCheckOutComplete(
       getDb(),
       req.params.token,
       {
         timeEntryId: String(body.timeEntryId ?? ''),
         checklist: body.checklist ?? {},
+        force: Boolean(body.force),
       },
       meta,
     )
     if (!out.ok) {
-      if (out.error === access.EMPLOYEE_APP_ACCESS_DENIED_MESSAGE) {
+      if ('requiresConfirmation' in out && out.requiresConfirmation) {
+        return res.status(200).json({
+          ok: false,
+          requiresConfirmation: true,
+          reason: out.reason,
+          plannedEnd: out.plannedEnd,
+          actualEnd: out.actualEnd,
+          deviationMinutes: out.deviationMinutes,
+          message: out.message,
+        })
+      }
+      if ('error' in out && out.error === access.EMPLOYEE_APP_ACCESS_DENIED_MESSAGE) {
         return jsonErr(res, out.error, 403)
       }
-      return jsonErr(res, out.error, 400)
+      return jsonErr(res, 'error' in out ? out.error : 'Fehler', 400)
     }
     jsonOk(res, out.data)
   } catch (e) {

@@ -29,6 +29,12 @@ export type TimeEntryRow = {
   rejection_reason: string | null
   correction_note: string | null
   payroll_relevant: number | null
+  planned_start_at: string | null
+  start_deviation_minutes: number | null
+  start_deviation_type: string | null
+  planned_end_at: string | null
+  end_deviation_minutes: number | null
+  end_deviation_type: string | null
   created_at: string | null
   updated_at: string | null
 }
@@ -62,6 +68,28 @@ export function rowToTimeEntryApi(r: TimeEntryRow) {
     rejectionReason: r.rejection_reason ?? undefined,
     correctionNote: r.correction_note ?? undefined,
     payrollRelevant: (r.payroll_relevant ?? 0) === 1,
+    plannedStartAt: r.planned_start_at ?? undefined,
+    startDeviationMinutes:
+      r.start_deviation_minutes == null || Number.isNaN(Number(r.start_deviation_minutes))
+        ? undefined
+        : Number(r.start_deviation_minutes),
+    startDeviationType: (r.start_deviation_type ?? undefined) as
+      | 'early'
+      | 'late'
+      | 'no_planned_shift'
+      | 'on_time'
+      | undefined,
+    plannedEndAt: r.planned_end_at ?? undefined,
+    endDeviationMinutes:
+      r.end_deviation_minutes == null || Number.isNaN(Number(r.end_deviation_minutes))
+        ? undefined
+        : Number(r.end_deviation_minutes),
+    endDeviationType: (r.end_deviation_type ?? undefined) as
+      | 'early'
+      | 'late'
+      | 'no_planned_shift'
+      | 'on_time'
+      | undefined,
     createdAt: r.created_at ?? nowIso(),
     updatedAt: r.updated_at ?? nowIso(),
   }
@@ -192,8 +220,8 @@ export function updateTimeEntry(db: Database, id: string, body: Record<string, u
   return getTimeEntry(db, id)
 }
 
-export function closeTimeEntry(db: Database, id: string, endedBy?: string) {
-  const ts = nowIso()
+export function closeTimeEntry(db: Database, id: string, endedBy?: string, opts?: { endAt?: string }) {
+  const ts = opts?.endAt ?? nowIso()
   const r = db
     .prepare(
       `UPDATE time_entries SET

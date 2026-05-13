@@ -319,6 +319,26 @@ export function TimeApprovalsPage() {
                     : '—'}
                 </dd>
               </div>
+              {detail.timeEntry.startDeviationType && detail.timeEntry.startDeviationType !== 'on_time' ? (
+                <div className="flex justify-between gap-2">
+                  <dt className="text-[var(--text-faint)]">Start vs. Plan</dt>
+                  <dd className="text-right text-[var(--text-main)]">
+                    {detail.timeEntry.startDeviationType === 'no_planned_shift'
+                      ? 'Keine Plan-Schicht'
+                      : `${detail.timeEntry.startDeviationType === 'early' ? 'Früher' : 'Später'}: ${detail.timeEntry.startDeviationMinutes ?? '—'} Min.`}
+                  </dd>
+                </div>
+              ) : null}
+              {detail.timeEntry.endDeviationType && detail.timeEntry.endDeviationType !== 'on_time' ? (
+                <div className="flex justify-between gap-2">
+                  <dt className="text-[var(--text-faint)]">Ende vs. Plan</dt>
+                  <dd className="text-right text-[var(--text-main)]">
+                    {detail.timeEntry.endDeviationType === 'no_planned_shift'
+                      ? '—'
+                      : `${detail.timeEntry.endDeviationType === 'early' ? 'Früher' : 'Später'}: ${detail.timeEntry.endDeviationMinutes ?? '—'} Min.`}
+                  </dd>
+                </div>
+              ) : null}
               <div className="flex justify-between gap-2">
                 <dt className="text-[var(--text-faint)]">Quelle</dt>
                 <dd className="text-[var(--text-main)]">{sourceLabel(detail.timeEntry.source)}</dd>
@@ -336,6 +356,15 @@ export function TimeApprovalsPage() {
                     {detail.shiftCloseStructured.checklistType === 'closing' ? 'Ladenschluss' : 'Übergabe ca. 14:00'})
                   </p>
                 </div>
+                {detail.shiftCloseStructured.items.some((i) => i.answer === 'no') ? (
+                  <p className="mt-1.5 text-[11px] font-medium text-amber-100/95">
+                    Nicht alle Punkte als erledigt markiert — Details siehe Liste.
+                  </p>
+                ) : (
+                  <p className="mt-1.5 text-[11px] text-emerald-200/90">
+                    Checkliste bestätigt (alle Punkte erledigt, wahrheitsgemäß bestätigt).
+                  </p>
+                )}
                 <ul className="mt-2 max-h-[40vh] space-y-1.5 overflow-y-auto">
                   {detail.shiftCloseStructured.items.map((it) => {
                     const ans =

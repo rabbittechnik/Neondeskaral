@@ -71,6 +71,12 @@ export function runMigrations(db: Database.Database) {
   addTe('rejection_reason', 'rejection_reason TEXT')
   addTe('correction_note', 'correction_note TEXT')
   addTe('payroll_relevant', 'payroll_relevant INTEGER DEFAULT 0')
+  addTe('planned_start_at', 'planned_start_at TEXT')
+  addTe('start_deviation_minutes', 'start_deviation_minutes INTEGER')
+  addTe('start_deviation_type', 'start_deviation_type TEXT')
+  addTe('planned_end_at', 'planned_end_at TEXT')
+  addTe('end_deviation_minutes', 'end_deviation_minutes INTEGER')
+  addTe('end_deviation_type', 'end_deviation_type TEXT')
 
   db.prepare(
     `UPDATE time_entries SET approval_status = 'pending', payroll_relevant = 0

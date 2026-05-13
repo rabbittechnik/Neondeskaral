@@ -10,6 +10,7 @@ import {
   insertChecklist,
   insertShiftCloseChecklistParsed,
   logCardEvent,
+  type TimeEntryRow,
 } from './timeTrackingService.js'
 import { syncReviewItemsFromCloseChecklist } from './shiftChecklistReviewService.js'
 import { listActiveShiftWarningsForEmployee } from './employeeShiftWarningService.js'
@@ -45,6 +46,74 @@ function getPlannedShiftToday(
   if (list.length === 0) return null
   list.sort((a, b) => parseHHMM(a.start_time) - parseHHMM(b.start_time))
   return list[0] ?? null
+}
+
+/** Gleiche Fensterlogik wie Stations-Tablet: ±15 Min um geplanten Start/Ende. */
+const SHIFT_CLOCK_TOLERANCE_MIN = 15
+
+function minutesOfDayLocal(d: Date): number {
+  return d.getHours() * 60 + d.getMinutes()
+}
+
+function formatHM(d: Date): string {
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+function plannedShiftForTimeEntry(
+  db: Database,
+  stationId: string,
+  employeeId: string,
+  dateIso: string,
+  shiftId: string | null | undefined,
+): ShiftRow | null {
+  const rows = listShiftRowsForStationDateRange(db, stationId, dateIso, dateIso)
+  if (shiftId) {
+    const hit = rows.find((s) => s.id === shiftId)
+    if (hit && hit.shift_type !== 'frei' && Boolean(hit.start_time) && Boolean(hit.end_time)) return hit
+  }
+  return getPlannedShiftToday(rows, employeeId, dateIso)
+}
+
+function computeStartDeviationPersist(now: Date, planned: ShiftRow | null): {
+  plannedStartAt: string | null
+  minutes: number | null
+  type: string
+} {
+  if (!planned?.start_time) {
+    return { plannedStartAt: null, minutes: null, type: 'no_planned_shift' }
+  }
+  const plannedStartAt = `${planned.date}T${String(planned.start_time).trim()}:00`
+  const nowM = minutesOfDayLocal(now)
+  const startM = parseHHMM(String(planned.start_time).trim())
+  const diff = nowM - startM
+  if (Math.abs(diff) <= SHIFT_CLOCK_TOLERANCE_MIN) {
+    return { plannedStartAt, minutes: 0, type: 'on_time' }
+  }
+  if (diff < 0) {
+    return { plannedStartAt, minutes: Math.abs(diff), type: 'early' }
+  }
+  return { plannedStartAt, minutes: diff, type: 'late' }
+}
+
+function computeEndDeviationPersist(now: Date, planned: ShiftRow | null): {
+  plannedEndAt: string | null
+  minutes: number | null
+  type: string
+} {
+  if (!planned?.end_time) {
+    return { plannedEndAt: null, minutes: null, type: 'no_planned_shift' }
+  }
+  const plannedEndAt = `${planned.date}T${String(planned.end_time).trim()}:00`
+  const nowM = minutesOfDayLocal(now)
+  const endM = parseHHMM(String(planned.end_time).trim())
+  const diff = nowM - endM
+  if (Math.abs(diff) <= SHIFT_CLOCK_TOLERANCE_MIN) {
+    return { plannedEndAt, minutes: 0, type: 'on_time' }
+  }
+  if (diff < 0) {
+    return { plannedEndAt, minutes: Math.abs(diff), type: 'early' }
+  }
+  return { plannedEndAt, minutes: diff, type: 'late' }
 }
 
 function allChecklistDone(c: Record<string, unknown>): boolean {
@@ -180,15 +249,23 @@ export function clockCheckInByEmployeeId(
     return {
       ok: false as const,
       result: 'not_scheduled' as const,
-      message: 'Heute keine Schicht geplant',
+      requiresConfirmation: true as const,
+      reason: 'no_planned_shift' as const,
+      plannedStart: null as null,
+      actualStart: formatHM(now),
+      deviationMinutes: null as null,
+      message: 'Für dich ist aktuell keine Schicht geplant.',
       employee: emp,
     }
   }
 
   if (planned && !force) {
-    const nowM = now.getHours() * 60 + now.getMinutes()
-    const startM = parseHHMM(planned.start_time)
-    if (nowM < startM) {
+    const nowM = minutesOfDayLocal(now)
+    const startM = parseHHMM(String(planned.start_time).trim())
+    const lower = startM - SHIFT_CLOCK_TOLERANCE_MIN
+    const upper = startM + SHIFT_CLOCK_TOLERANCE_MIN
+    if (nowM < lower) {
+      const deviationMinutes = startM - nowM
       if (card)
         logCardEvent(db, {
           cardNumber: card,
@@ -201,12 +278,17 @@ export function clockCheckInByEmployeeId(
       return {
         ok: false as const,
         result: 'too_early' as const,
-        message: `Zu früh (ab ${planned.start_time} Uhr)`,
-        employee: emp,
+        requiresConfirmation: true as const,
+        reason: 'early' as const,
         plannedStart: planned.start_time,
+        actualStart: formatHM(now),
+        deviationMinutes,
+        message: `Du beginnst deine Schicht früher als geplant.`,
+        employee: emp,
       }
     }
-    if (nowM > startM) {
+    if (nowM > upper) {
+      const deviationMinutes = nowM - startM
       if (card)
         logCardEvent(db, {
           cardNumber: card,
@@ -219,10 +301,14 @@ export function clockCheckInByEmployeeId(
       return {
         ok: false as const,
         result: 'too_late' as const,
-        message: `Deine geplante Schicht hat um ${planned.start_time} Uhr begonnen.`,
-        employee: emp,
+        requiresConfirmation: true as const,
+        reason: 'late' as const,
         plannedStart: planned.start_time,
-        minutesLate: nowM - startM,
+        actualStart: formatHM(now),
+        deviationMinutes,
+        message: `Du beginnst deine Schicht später als geplant.`,
+        employee: emp,
+        minutesLate: deviationMinutes,
       }
     }
   }
@@ -233,6 +319,11 @@ export function clockCheckInByEmployeeId(
     `INSERT INTO time_entries (id, station_id, employee_id, shift_id, start_at, end_at, break_minutes, status, source, started_by, ended_by, start_note, end_note, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, NULL, 0, 'running', ?, ?, NULL, NULL, NULL, ?, ?)`,
   ).run(id, stationId, employeeId, planned?.id ?? null, ts, source, startedBy, ts, ts)
+
+  const startMeta = computeStartDeviationPersist(now, planned)
+  db.prepare(
+    `UPDATE time_entries SET planned_start_at = ?, start_deviation_minutes = ?, start_deviation_type = ? WHERE id = ?`,
+  ).run(startMeta.plannedStartAt, startMeta.minutes, startMeta.type, id)
 
   if (card) {
     logCardEvent(db, {
@@ -326,19 +417,58 @@ export function clockCheckOutStartByEmployeeId(
 
 export function clockCheckOutComplete(
   db: Database,
-  body: { timeEntryId: string; checklist: Record<string, unknown>; endedBy: string },
+  body: { timeEntryId: string; checklist: Record<string, unknown>; endedBy: string; force?: boolean },
   options?: { logCardOnSuccess?: { cardNumber: string; stationId: string; employeeId: string } },
-) {
+):
+  | { ok: true; data: NonNullable<ReturnType<typeof getTimeEntry>> }
+  | { ok: false; error: string }
+  | {
+      ok: false
+      requiresConfirmation: true
+      reason: 'early_end' | 'late_end'
+      plannedEnd: string
+      actualEnd: string
+      deviationMinutes: number
+      message: string
+    } {
   const timeEntryId = String(body.timeEntryId ?? '').trim()
   const checklist = body.checklist ?? {}
   const endedBy = String(body.endedBy ?? 'System').trim() || 'System'
+  const force = Boolean(body.force)
   if (!timeEntryId) throw new Error('timeEntryId erforderlich')
 
-  const row = db.prepare(`SELECT * FROM time_entries WHERE id = ?`).get(timeEntryId) as
-    | { id: string; employee_id: string; station_id: string; status: string | null }
-    | undefined
+  const row = db.prepare(`SELECT * FROM time_entries WHERE id = ?`).get(timeEntryId) as TimeEntryRow | undefined
   if (!row || row.status !== 'running') {
     return { ok: false as const, error: 'Kein laufender Zeiteintrag' }
+  }
+
+  const endTs = nowIso()
+  const endNow = new Date(endTs)
+  if (!force) {
+    const dateIso = row.start_at.slice(0, 10)
+    const pForEnd = plannedShiftForTimeEntry(db, row.station_id, row.employee_id, dateIso, row.shift_id)
+    if (pForEnd?.end_time) {
+      const endM = parseHHMM(String(pForEnd.end_time).trim())
+      const nowM = minutesOfDayLocal(endNow)
+      const diff = nowM - endM
+      if (Math.abs(diff) > SHIFT_CLOCK_TOLERANCE_MIN) {
+        const plannedEnd = String(pForEnd.end_time).trim()
+        const actualEnd = formatHM(endNow)
+        const deviationMinutes = Math.abs(diff)
+        const isEarly = diff < 0
+        return {
+          ok: false as const,
+          requiresConfirmation: true as const,
+          reason: isEarly ? ('early_end' as const) : ('late_end' as const),
+          plannedEnd,
+          actualEnd,
+          deviationMinutes,
+          message: isEarly
+            ? 'Du beendest deine Schicht früher als geplant.'
+            : 'Du beendest deine Schicht später als geplant.',
+        }
+      }
+    }
   }
 
   if (isStructuredShiftClosePayload(checklist as Record<string, unknown>)) {
@@ -357,7 +487,14 @@ export function clockCheckOutComplete(
     })
   }
 
-  closeTimeEntry(db, timeEntryId, endedBy)
+  const dateIso = row.start_at.slice(0, 10)
+  const pshift = plannedShiftForTimeEntry(db, row.station_id, row.employee_id, dateIso, row.shift_id)
+  const endMeta = computeEndDeviationPersist(endNow, pshift)
+  db.prepare(
+    `UPDATE time_entries SET planned_end_at = ?, end_deviation_minutes = ?, end_deviation_type = ? WHERE id = ? AND status = 'running'`,
+  ).run(endMeta.plannedEndAt, endMeta.minutes, endMeta.type, timeEntryId)
+
+  closeTimeEntry(db, timeEntryId, endedBy, { endAt: endTs })
 
   if (options?.logCardOnSuccess) {
     logCardEvent(db, {
@@ -370,5 +507,5 @@ export function clockCheckOutComplete(
     })
   }
 
-  return { ok: true as const, data: getTimeEntry(db, timeEntryId) }
+  return { ok: true as const, data: getTimeEntry(db, timeEntryId)! }
 }

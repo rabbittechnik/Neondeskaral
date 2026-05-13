@@ -556,7 +556,7 @@ export function employeeAccessCheckOutStart(db: Database, token: string, meta?: 
 export function employeeAccessCheckOutComplete(
   db: Database,
   token: string,
-  body: { timeEntryId: string; checklist: Record<string, unknown> },
+  body: { timeEntryId: string; checklist: Record<string, unknown>; force?: boolean },
   meta?: EmployeeAccessRequestMeta,
 ) {
   const ctx = resolveEmployeeAccessContext(db, token, meta)
@@ -576,6 +576,7 @@ export function employeeAccessCheckOutComplete(
     timeEntryId: body.timeEntryId,
     checklist: body.checklist,
     endedBy: row.display_name ?? 'Mitarbeiter-App',
+    force: Boolean(body.force),
   })
 }
 

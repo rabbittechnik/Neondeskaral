@@ -37,6 +37,8 @@ type Props = {
   catalogItems: ShiftCloseCatalogItem[]
   /** Wizard-Schritte für Ladenschluss — vom Server vorberechnet, optional */
   wizardGroups?: ShiftCloseWizardGroup[] | null
+  /** Stations-Tablet: eine Seite, schnelle Bestätigung, optional „nicht erledigt“ */
+  layout?: 'wizard' | 'tablet'
   onClose: () => void
   onComplete: (checklist: Record<string, unknown>) => void
 }
@@ -88,6 +90,7 @@ export function ShiftCloseChecklistModal({
   checklistType,
   catalogItems,
   wizardGroups,
+  layout = 'wizard',
   onClose,
   onComplete,
 }: Props) {
@@ -96,6 +99,10 @@ export function ShiftCloseChecklistModal({
   const [cashInput, setCashInput] = useState('')
   const [error, setError] = useState('')
   const [step, setStep] = useState(0)
+  const [tabletMasterDone, setTabletMasterDone] = useState(false)
+  const [tabletException, setTabletException] = useState(false)
+  const [tabletNotDoneKeys, setTabletNotDoneKeys] = useState<Set<string>>(() => new Set())
+  const [tabletReasonByKey, setTabletReasonByKey] = useState<Record<string, string>>({})
 
   const isClosing = checklistType === 'closing'
 
@@ -114,6 +121,10 @@ export function ShiftCloseChecklistModal({
       setCashInput('')
       setError('')
       setStep(0)
+      setTabletMasterDone(false)
+      setTabletException(false)
+      setTabletNotDoneKeys(new Set())
+      setTabletReasonByKey({})
     }
   }, [open, _timeEntryId, catalogItems])
 
@@ -221,6 +232,212 @@ export function ShiftCloseChecklistModal({
   }, [catalogItems, isClosing, itemsForCurrentStep, itemsState])
 
   if (!open) return null
+
+  if (layout === 'tablet') {
+    const titleT = checklistType === 'handover' ? 'Schichtübergabe' : 'Ladenschluss'
+    const descT =
+      checklistType === 'handover'
+        ? 'Bitte prüfe, ob die Übergabe für die nächste Schicht vorbereitet ist. Unten bestätigst du den Abschluss.'
+        : 'Bitte bestätige, dass die Tankstelle ordnungsgemäß abgeschlossen wurde. Unten bestätigst du den Abschluss.'
+
+    const submitTablet = () => {
+      setError('')
+      const cash = parseCashEuro(cashInput)
+      if (!cash.ok) {
+        setError(cash.error)
+        return
+      }
+      if (!tabletException) {
+        if (!tabletMasterDone) {
+          setError('Bitte bestätigen, dass alle oben genannten Punkte erledigt wurden.')
+          return
+        }
+        onComplete({
+          checklistType,
+          confirmTruth: true,
+          cashDifference: cash.value,
+          items: catalogItems.map((it) => ({
+            itemKey: it.key,
+            itemLabel: it.label,
+            answer: 'yes',
+          })),
+        })
+        return
+      }
+      if (tabletNotDoneKeys.size === 0) {
+        setError('Bitte mindestens einen nicht erledigten Punkt auswählen oder zur Schnellbestätigung zurückkehren.')
+        return
+      }
+      for (const k of tabletNotDoneKeys) {
+        const r = (tabletReasonByKey[k] ?? '').trim()
+        if (!r) {
+          setError(`Begründung erforderlich: ${catalogItems.find((x) => x.key === k)?.label ?? k}`)
+          return
+        }
+      }
+      onComplete({
+        checklistType,
+        confirmTruth: true,
+        cashDifference: cash.value,
+        items: catalogItems.map((it) => ({
+          itemKey: it.key,
+          itemLabel: it.label,
+          answer: tabletNotDoneKeys.has(it.key) ? 'no' : 'yes',
+          reason: tabletNotDoneKeys.has(it.key) ? tabletReasonByKey[it.key]?.trim() : undefined,
+        })),
+      })
+    }
+
+    const tabletSectionList =
+      checklistType === 'handover'
+        ? [{ id: '_ho', label: 'Übergabe vorbereiten', items: catalogItems }]
+        : (() => {
+            const wiz =
+              wizardGroups && wizardGroups.length > 0 ? wizardGroups : fallbackWizardFromItems(catalogItems)
+            return wiz.map((g) => ({
+              id: g.id,
+              label: g.label,
+              items: catalogItems.filter((i) => g.itemKeys.includes(i.key)),
+            }))
+          })()
+
+    const toggleNotDone = (key: string) => {
+      setTabletNotDoneKeys((prev) => {
+        const n = new Set(prev)
+        if (n.has(key)) n.delete(key)
+        else n.add(key)
+        return n
+      })
+    }
+
+    return (
+      <div className="fixed inset-0 z-[110] flex items-center justify-center overflow-y-auto p-4">
+        <button type="button" className="absolute inset-0 bg-black/80 backdrop-blur-sm" aria-label="Schließen" onClick={onClose} />
+        <div className="relative my-4 w-full max-w-3xl rounded-2xl border border-orange-400/30 bg-[var(--bg-card)] p-5 shadow-[0_0_40px_rgba(251,146,60,0.12)] sm:p-6">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-bold text-[var(--text-main)] sm:text-2xl">
+                {titleT} — {employeeName}
+              </h2>
+              <p className="mt-2 text-sm text-[var(--text-muted)]">{descT}</p>
+            </div>
+            <button type="button" onClick={onClose} className="rounded-lg p-2 text-[var(--text-muted)] hover:bg-white/10" aria-label="Schließen">
+              <X className="h-6 w-6" />
+            </button>
+          </div>
+
+          <div className="mt-4 max-h-[min(52vh,480px)] overflow-y-auto pr-1">
+            {tabletSectionList.map((sec) => (
+              <div key={sec.id} className="mb-6 last:mb-2">
+                <p className="mb-2 text-sm font-semibold uppercase tracking-wide text-cyan-200/90">{sec.label}</p>
+                <ul className="space-y-2 rounded-xl border border-white/10 bg-black/20 p-3">
+                  {sec.items.map((it) => (
+                    <li
+                      key={it.key}
+                      className="flex flex-col gap-2 rounded-lg border border-white/5 bg-black/25 px-3 py-3 sm:flex-row sm:items-start sm:justify-between"
+                    >
+                      <span className="text-base font-medium leading-snug text-[var(--text-main)]">{it.label}</span>
+                      {tabletException ? (
+                        <label className="flex shrink-0 cursor-pointer items-center gap-2 text-sm text-amber-100">
+                          <input
+                            type="checkbox"
+                            className="h-5 w-5 rounded border-white/25"
+                            checked={tabletNotDoneKeys.has(it.key)}
+                            onChange={() => toggleNotDone(it.key)}
+                          />
+                          <span>Nicht erledigt</span>
+                        </label>
+                      ) : null}
+                      {tabletException && tabletNotDoneKeys.has(it.key) ? (
+                        <label className="mt-1 block w-full text-sm text-[var(--text-muted)] sm:col-span-2">
+                          Grund <span className="text-rose-300">*</span>
+                          <textarea
+                            value={tabletReasonByKey[it.key] ?? ''}
+                            onChange={(e) =>
+                              setTabletReasonByKey((prev) => ({ ...prev, [it.key]: e.target.value }))
+                            }
+                            rows={2}
+                            className="mt-1 w-full rounded-lg border border-amber-400/30 bg-black/40 px-3 py-2 text-base text-[var(--text-main)]"
+                          />
+                        </label>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
+            {!tabletException ? (
+              <label className="flex cursor-pointer items-start gap-3 text-base text-[var(--text-main)]">
+                <input
+                  type="checkbox"
+                  className="mt-1 h-6 w-6 shrink-0 rounded border-white/25"
+                  checked={tabletMasterDone}
+                  onChange={(e) => setTabletMasterDone(e.target.checked)}
+                />
+                <span>Ich bestätige, dass alle oben genannten Punkte erledigt wurden.</span>
+              </label>
+            ) : (
+              <button
+                type="button"
+                className="text-sm font-medium text-cyan-300 underline-offset-2 hover:underline"
+                onClick={() => {
+                  setTabletException(false)
+                  setTabletNotDoneKeys(new Set())
+                  setTabletReasonByKey({})
+                }}
+              >
+                Zurück zur Schnellbestätigung
+              </button>
+            )}
+            {!tabletException ? (
+              <button
+                type="button"
+                className="text-sm font-medium text-amber-200/95 underline-offset-2 hover:underline"
+                onClick={() => {
+                  setTabletException(true)
+                  setTabletMasterDone(false)
+                }}
+              >
+                Etwas wurde nicht erledigt
+              </button>
+            ) : null}
+            <label className="block text-sm text-[var(--text-muted)]">
+              Kassendifferenz (€){' '}
+              <span className="font-normal text-[var(--text-faint)]">— optional</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
+                placeholder="0,00"
+                value={cashInput}
+                onChange={(e) => setCashInput(e.target.value)}
+                className="mt-1 w-full max-w-xs rounded-xl border border-[var(--border-subtle)] bg-black/30 px-3 py-2 font-mono text-base text-[var(--text-main)] tabular-nums"
+              />
+            </label>
+          </div>
+
+          {error ? <p className="mt-3 text-sm text-amber-300">{error}</p> : null}
+
+          <div className="mt-5 flex flex-wrap justify-end gap-3">
+            <Button variant="ghost" type="button" onClick={onClose}>
+              Abbrechen
+            </Button>
+            <Button
+              variant="primary"
+              type="button"
+              className="min-h-[52px] min-w-[200px] text-lg font-semibold"
+              onClick={submitTablet}
+            >
+              Schicht beenden
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   const showSummaryPanel = !isClosing || step === maxStep
   const stepTitle = isClosing && effectiveWizard?.[step] ? effectiveWizard[step]!.label : ''

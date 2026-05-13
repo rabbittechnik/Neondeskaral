@@ -109,7 +109,12 @@ type TabletTerminalContextValue = {
   refetch: () => Promise<void>
   refetchRunning: () => Promise<void>
   refetchTasks: (employeeId?: string | null) => Promise<void>
-  completeShiftWithChecklist: (timeEntryId: string, checklist: Record<string, unknown>, cardNumber?: string) => Promise<void>
+  completeShiftWithChecklist: (
+    timeEntryId: string,
+    checklist: Record<string, unknown>,
+    cardNumber?: string,
+    force?: boolean,
+  ) => Promise<void>
   completeTask: (taskId: string, body: { date: string; employeeId: string; displayName: string; comment?: string }) => Promise<void>
   fetchFuelPrices: (opts?: { forceRefresh?: boolean }) => Promise<FuelPricesPayload>
 }
@@ -231,7 +236,7 @@ export function TabletTerminalProvider({
   }, [hasTabletSource, refetchRunning])
 
   const completeShiftWithChecklist = useCallback(
-    async (timeEntryId: string, checklist: Record<string, unknown>, cardNumber?: string) => {
+    async (timeEntryId: string, checklist: Record<string, unknown>, cardNumber?: string, force?: boolean) => {
       const url = `${API_BASE}/terminal/check-out-complete`
       let res: Response
       try {
@@ -241,6 +246,7 @@ export function TabletTerminalProvider({
           body: JSON.stringify({
             timeEntryId,
             checklist,
+            force: Boolean(force),
             ...(cardNumber?.trim() ? { cardNumber: cardNumber.trim() } : {}),
             ...(tabletToken ? { tabletToken } : {}),
           }),
@@ -248,7 +254,25 @@ export function TabletTerminalProvider({
       } catch {
         throw new Error('Server nicht erreichbar. Bitte Verbindung prüfen.')
       }
-      const json = (await res.json()) as { ok?: boolean; error?: string; data?: unknown }
+      const json = (await res.json()) as {
+        ok?: boolean
+        error?: string
+        requiresConfirmation?: boolean
+        reason?: string
+        plannedEnd?: string
+        actualEnd?: string
+        deviationMinutes?: number
+        message?: string
+      }
+      if (res.ok && json.ok === false && json.requiresConfirmation) {
+        const err = new Error(String(json.message ?? 'Bitte bestätigen.')) as Error & {
+          code?: string
+          detail?: typeof json
+        }
+        err.code = 'checkout_requires_confirmation'
+        err.detail = json
+        throw err
+      }
       if (!res.ok || json.ok === false) {
         throw new Error(json.error ?? 'Ausstempeln fehlgeschlagen')
       }
