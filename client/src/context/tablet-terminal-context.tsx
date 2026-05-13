@@ -95,6 +95,8 @@ type TabletTerminalContextValue = {
   taskLogs: TaskLog[]
   loading: boolean
   error: string | null
+  /** Stations-Tablet-Modus: Anfragen laufen über Token statt nur stationId */
+  tabletToken: string | null
   refetch: () => Promise<void>
   refetchRunning: () => Promise<void>
   refetchTasks: (employeeId?: string | null) => Promise<void>
@@ -105,8 +107,23 @@ type TabletTerminalContextValue = {
 
 const TabletTerminalContext = createContext<TabletTerminalContextValue | null>(null)
 
-export function TabletTerminalProvider({ children }: { children: ReactNode }) {
+export function TabletTerminalProvider({
+  children,
+  tabletToken: tabletTokenProp,
+}: {
+  children: ReactNode
+  tabletToken?: string | null
+}) {
   const { stationId } = useStation()
+  const tabletToken = tabletTokenProp?.trim() ? tabletTokenProp.trim() : null
+
+  const tabletQuery = useMemo(() => {
+    if (tabletToken) return { tabletToken } as Record<string, string>
+    if (stationId) return { stationId } as Record<string, string>
+    return {} as Record<string, string>
+  }, [tabletToken, stationId])
+
+  const hasTabletSource = Boolean(tabletToken || stationId)
   const [employees, setEmployees] = useState<ClockCardEmployee[]>([])
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([])
   const [shifts, setShifts] = useState<ScheduleShift[]>([])
@@ -118,16 +135,16 @@ export function TabletTerminalProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null)
 
   const refetchRunning = useCallback(async () => {
-    if (!stationId) {
+    if (!hasTabletSource) {
       setRunningPresence([])
       return
     }
-    const res = await tabletGet<TabletRunningRow[]>('/tablet/running-presence', { stationId })
+    const res = await tabletGet<TabletRunningRow[]>('/tablet/running-presence', tabletQuery)
     if (res.ok) setRunningPresence(res.data)
-  }, [stationId])
+  }, [hasTabletSource, tabletQuery])
 
   const refetch = useCallback(async () => {
-    if (!stationId) {
+    if (!hasTabletSource) {
       setEmployees([])
       setTimeEntries([])
       setShifts([])
@@ -148,11 +165,11 @@ export function TabletTerminalProvider({ children }: { children: ReactNode }) {
     const toY = to.toISOString().slice(0, 10)
 
     const [eRes, tRes, sRes, wRes, rRes] = await Promise.all([
-      tabletGet<ClockCardEmployee[]>('/tablet/employees', { stationId }),
-      tabletGet<TimeEntry[]>('/tablet/time-entries', { stationId }),
-      tabletGet<ScheduleShift[]>('/tablet/shifts-range', { stationId, from: fromY, to: toY }),
-      tabletGet<WorkAreaDefinition[]>('/tablet/work-areas', { stationId }),
-      tabletGet<TabletRunningRow[]>('/tablet/running-presence', { stationId }),
+      tabletGet<ClockCardEmployee[]>('/tablet/employees', { ...tabletQuery }),
+      tabletGet<TimeEntry[]>('/tablet/time-entries', { ...tabletQuery }),
+      tabletGet<ScheduleShift[]>('/tablet/shifts-range', { ...tabletQuery, from: fromY, to: toY }),
+      tabletGet<WorkAreaDefinition[]>('/tablet/work-areas', { ...tabletQuery }),
+      tabletGet<TabletRunningRow[]>('/tablet/running-presence', { ...tabletQuery }),
     ])
     if (!eRes.ok) setError(eRes.error)
     else setEmployees(eRes.data)
@@ -166,7 +183,7 @@ export function TabletTerminalProvider({ children }: { children: ReactNode }) {
     else setRunningPresence(rRes.data)
 
     const taskRes = await tabletGet<{ tasks: Task[]; taskLogs: TaskLog[] }>('/tablet/tasks-today', {
-      stationId,
+      ...tabletQuery,
     })
     if (!taskRes.ok) setError((p) => (p ? `${p}; ${taskRes.error}` : taskRes.error))
     else {
@@ -174,13 +191,13 @@ export function TabletTerminalProvider({ children }: { children: ReactNode }) {
       setTaskLogs(taskRes.data.taskLogs)
     }
     setLoading(false)
-  }, [stationId])
+  }, [hasTabletSource, tabletQuery])
 
   const refetchTasks = useCallback(
     async (employeeId?: string | null) => {
-      if (!stationId) return
+      if (!hasTabletSource) return
       const taskRes = await tabletGet<{ tasks: Task[]; taskLogs: TaskLog[] }>('/tablet/tasks-today', {
-        stationId,
+        ...tabletQuery,
         employeeId: employeeId ?? undefined,
       })
       if (taskRes.ok) {
@@ -188,7 +205,7 @@ export function TabletTerminalProvider({ children }: { children: ReactNode }) {
         setTaskLogs(taskRes.data.taskLogs)
       }
     },
-    [stationId],
+    [hasTabletSource, tabletQuery],
   )
 
   useEffect(() => {
@@ -196,10 +213,10 @@ export function TabletTerminalProvider({ children }: { children: ReactNode }) {
   }, [refetch])
 
   useEffect(() => {
-    if (!stationId) return
+    if (!hasTabletSource) return
     const id = window.setInterval(() => void refetchRunning(), 30_000)
     return () => window.clearInterval(id)
-  }, [stationId, refetchRunning])
+  }, [hasTabletSource, refetchRunning])
 
   const completeShiftWithChecklist = useCallback(
     async (timeEntryId: string, checklist: Record<string, unknown>) => {
@@ -209,7 +226,11 @@ export function TabletTerminalProvider({ children }: { children: ReactNode }) {
         res = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ timeEntryId, checklist }),
+          body: JSON.stringify({
+            timeEntryId,
+            checklist,
+            ...(tabletToken ? { tabletToken } : {}),
+          }),
         })
       } catch {
         throw new Error('Server nicht erreichbar. Bitte Verbindung prüfen.')
@@ -221,13 +242,13 @@ export function TabletTerminalProvider({ children }: { children: ReactNode }) {
       await refetch()
       notifyRunningEntriesRefresh()
     },
-    [refetch],
+    [refetch, tabletToken],
   )
 
   const completeTask = useCallback(
     async (taskId: string, body: { date: string; employeeId: string; displayName: string; comment?: string }) => {
-      if (!stationId) throw new Error('Keine Station')
-      const url = `${API_BASE}/tablet/tasks/${encodeURIComponent(taskId)}/complete${buildQuery({ stationId })}`
+      if (!hasTabletSource) throw new Error('Keine Station')
+      const url = `${API_BASE}/tablet/tasks/${encodeURIComponent(taskId)}/complete${buildQuery({ ...tabletQuery })}`
       let res: Response
       try {
         res = await fetch(url, {
@@ -244,16 +265,16 @@ export function TabletTerminalProvider({ children }: { children: ReactNode }) {
       }
       await refetch()
     },
-    [stationId, refetch],
+    [hasTabletSource, tabletQuery, refetch],
   )
 
   const fetchFuelPrices = useCallback(
     async (opts?: { forceRefresh?: boolean }) => {
-      if (!stationId) {
+      if (!hasTabletSource) {
         return { ok: false, configured: false, message: 'Keine Station.' } as FuelPricesPayload
       }
       const q = buildQuery({
-        stationId,
+        ...tabletQuery,
         forceRefresh: opts?.forceRefresh ? 'true' : undefined,
       })
       let res: Response
@@ -264,7 +285,7 @@ export function TabletTerminalProvider({ children }: { children: ReactNode }) {
       }
       return (await res.json()) as FuelPricesPayload
     },
-    [stationId],
+    [hasTabletSource, tabletQuery],
   )
 
   const value = useMemo(
@@ -278,6 +299,7 @@ export function TabletTerminalProvider({ children }: { children: ReactNode }) {
       taskLogs,
       loading,
       error,
+      tabletToken,
       refetch,
       refetchRunning,
       refetchTasks,
@@ -295,6 +317,7 @@ export function TabletTerminalProvider({ children }: { children: ReactNode }) {
       taskLogs,
       loading,
       error,
+      tabletToken,
       refetch,
       refetchRunning,
       refetchTasks,

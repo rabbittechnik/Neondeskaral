@@ -1,18 +1,31 @@
 {
-  "name": "NeonShift Station",
-  "short_name": "NeonShift",
-  "description": "Schichten und Aufgaben für Tankstellen-Teams",
+  "name": "Rabbit-Technik Station",
+  "short_name": "RT Station",
+  "description": "Schichtplanung, Zeiterfassung und Stationsverwaltung für Tankstellen.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#070b12",
   "theme_color": "#0a1628",
   "lang": "de",
   "icons": [
     {
+      "src": "/pwa-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/pwa-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
       "src": "/favicon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "purpose": "any"
     }
   ]
 }

@@ -30,7 +30,7 @@ export function Topbar() {
       const h = matches[i]?.handle as { title?: string } | undefined
       if (h?.title) return h.title
     }
-    return 'NeonShift Station'
+    return 'Rabbit-Technik Station'
   }, [matches])
 
   useEffect(() => {

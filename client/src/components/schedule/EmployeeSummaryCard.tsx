@@ -92,6 +92,7 @@ export function EmployeeSummaryCard({
   const badgeWrapCls = cramped ? 'mt-1' : tight ? 'mt-1 sm:mt-1.5' : 'mt-1.5'
 
   const nameShown = tight ? compactDisplayName(employee.name) : employee.name
+  const monthHoursShown = monthPlannedHours ?? employee.monthlyHours
 
   return (
     <button

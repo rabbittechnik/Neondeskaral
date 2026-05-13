@@ -257,11 +257,11 @@ export function Sidebar() {
         >
           <LogoMark />
           {collapsed ? (
-            <span className="sr-only">NeonShift Station</span>
+            <span className="sr-only">Rabbit-Technik Station</span>
           ) : (
             <div className="min-w-0">
               <div className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-300/90">
-                NeonShift
+                Rabbit-Technik
               </div>
               <div className="truncate text-sm font-semibold text-[var(--text-main)]">
                 Station

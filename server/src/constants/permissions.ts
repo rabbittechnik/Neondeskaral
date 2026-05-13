@@ -17,6 +17,9 @@ export const PERMISSION_KEYS = [
   'employees.manageAppAccess',
   'employees.viewDevices',
   'employees.revokeDevices',
+  /** Stations-Tablets: Terminal-QR / Geräte unter „Mein Konto“ */
+  'stationTablets.view',
+  'stationTablets.manage',
   'employees.viewSensitive',
   'payroll.view',
   'payroll.export',
@@ -66,4 +69,6 @@ export const TEAMLEAD_PERMISSIONS: Record<string, boolean> = {
   'employees.manageSensitive': false,
   'employees.delete': false,
   'employees.viewDeleted': false,
+  'stationTablets.view': true,
+  'stationTablets.manage': true,
 }

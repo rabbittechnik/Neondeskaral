@@ -20,6 +20,7 @@ import { accessRouter } from './routes/access.routes.js'
 import { tuvReportsRouter } from './routes/tuvReports.routes.js'
 import { notificationsRouter } from './routes/notifications.routes.js'
 import { reportsRouter } from './routes/reports.routes.js'
+import { stationTabletsRouter } from './routes/stationTablets.routes.js'
 
 function parseCorsOrigins(): boolean | string[] {
   const raw = process.env.CLIENT_ORIGIN?.trim()
@@ -64,6 +65,7 @@ export function createApp() {
   app.use('/api/task-logs', taskLogsRouter)
   app.use('/api/time-entries', timeEntriesRouter)
   app.use('/api/reports', reportsRouter)
+  app.use('/api/station-tablets', stationTabletsRouter)
   app.use('/api/dev', devRouter)
 
   app.use((_req, res) => {

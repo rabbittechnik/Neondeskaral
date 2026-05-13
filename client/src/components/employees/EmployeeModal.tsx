@@ -109,7 +109,7 @@ export function EmployeeModal({
               {mode === 'create' ? 'Neuer Mitarbeiter' : 'Mitarbeiter bearbeiten'}
             </h2>
             <p className="mt-1 text-xs text-[var(--text-muted)]">
-              Stammdaten, Entgelt, Zeiterfassung und Schichtwünsche · NeonShift
+              Stammdaten, Entgelt, Zeiterfassung und Schichtwünsche · Rabbit-Technik Station
             </p>
           </div>
           <button

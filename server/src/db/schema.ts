@@ -476,6 +476,26 @@ const statements = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_payroll_adj_station_date ON payroll_adjustments(station_id, date)`,
   `CREATE INDEX IF NOT EXISTS idx_payroll_adj_employee ON payroll_adjustments(employee_id)`,
+  `CREATE TABLE IF NOT EXISTS station_tablet_devices (
+    id TEXT PRIMARY KEY,
+    station_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    tablet_token TEXT NOT NULL UNIQUE,
+    is_active INTEGER DEFAULT 1,
+    first_seen_at TEXT,
+    last_seen_at TEXT,
+    last_ip TEXT,
+    user_agent TEXT,
+    created_by TEXT,
+    created_at TEXT,
+    updated_at TEXT,
+    revoked_at TEXT,
+    revoked_by TEXT,
+    FOREIGN KEY (station_id) REFERENCES stations(id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_station_tablet_devices_station ON station_tablet_devices(station_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_station_tablet_devices_token ON station_tablet_devices(tablet_token)`,
 ]
 
 export function runSchema(db: Database.Database) {

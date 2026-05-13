@@ -6,6 +6,8 @@ import { apiGet, apiSend } from '../../services/api'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { Button } from '../../components/ui/Button'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
+import { StationTabletsPanel } from './StationTabletsPanel'
+import { PwaInstallPanel } from '../../components/pwa/PwaInstallPanel'
 
 type DeviceRow = {
   id: string
@@ -61,14 +63,20 @@ export function DevicesPage() {
     revokeAllEmployeeAppDevices,
   } = useEmployees()
 
-  const canView =
+  const canViewEmployeeApps =
     hasPermission('employees.viewAppAccess') ||
     hasPermission('employees.viewDevices') ||
     hasPermission('employees.qr')
-  const canMutate =
+  const canMutateEmployeeApps =
     hasPermission('employees.revokeDevices') ||
     hasPermission('employees.manageAppAccess') ||
     hasPermission('employees.qr')
+
+  const canViewStationTablets =
+    hasPermission('stationTablets.view') || hasPermission('stationTablets.manage')
+  const canManageStationTablets = hasPermission('stationTablets.manage')
+
+  const canView = canViewEmployeeApps || canViewStationTablets
 
   const [rows, setRows] = useState<OverviewRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -80,7 +88,7 @@ export function DevicesPage() {
   const [confirmRevokeAll, setConfirmRevokeAll] = useState<OverviewRow | null>(null)
 
   const load = useCallback(async () => {
-    if (!stationId || !canView) {
+    if (!stationId || !canViewEmployeeApps) {
       setRows([])
       setLoading(false)
       return
@@ -91,7 +99,7 @@ export function DevicesPage() {
     if (res.ok && Array.isArray(res.data)) setRows(res.data)
     else setErr(res.ok === false ? res.error : 'Daten konnten nicht geladen werden.')
     setLoading(false)
-  }, [stationId, canView])
+  }, [stationId, canViewEmployeeApps])
 
   useEffect(() => {
     void load()
@@ -145,10 +153,10 @@ export function DevicesPage() {
   if (!canView) {
     return (
       <div className="space-y-4">
-        <PageHeader title="Geräte & Apps" description="Mitarbeiter-App und Gerätezuordnung" />
+        <PageHeader title="Geräte & Apps" description="Mitarbeiter-App und Stations-Terminals" />
         <p className="text-sm text-[var(--text-muted)]">
-          Sie haben keine Berechtigung, diese Übersicht zu sehen (z. B. „Mitarbeiter-App Zugänge ansehen“ oder
-          „QR-Codes verwalten“).
+          Sie haben keine Berechtigung. Erforderlich z. B. Geräteübersicht (Mitarbeiter-App), QR-Codes, oder Stations-Tablets
+          anzeigen (<span className="text-cyan-200/85">stationTablets.view</span>).
         </p>
       </div>
     )
@@ -156,12 +164,20 @@ export function DevicesPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Geräte & Apps" description="Verbundene Geräte und Mitarbeiter-App-Zugänge" />
+      <PageHeader
+        title="Geräte & Apps"
+        description="Persönliche Mitarbeiter-App (Handy mit QR je Person) · Stations-Terminals (ein QR pro Tablet an der Tankstelle)"
+      />
 
+      <PwaInstallPanel />
+
+      {canViewEmployeeApps ? (
       <section className="space-y-3">
         <h2 className="text-base font-semibold text-[var(--text-main)]">Mitarbeiter-App Zugänge</h2>
         <p className="text-sm text-[var(--text-muted)]">
-          Übersicht aller Mitarbeiter der gewählten Station. Token werden nicht vollständig angezeigt.
+          Übersicht aller Mitarbeiter der gewählten Station. Token werden nicht vollständig angezeigt. Die Mitarbeiter-App
+          ist vom Stations-Tablet getrennt: ein persönlicher Zugang fürs Handy, eigene Aufgaben, Urlaub und Stempeln mit
+          Mitarbeitenden-Profil — nicht dasselbe wie das Terminal ohne persönlichen Login.
         </p>
 
         <div className="flex flex-wrap gap-2">
@@ -241,7 +257,7 @@ export function DevicesPage() {
                       {r.lastUsedAt ? formatDeDt(r.lastUsedAt) : 'Noch nie genutzt'}
                     </td>
                     <td className="px-3 py-2">
-                      {canMutate ? (
+                      {canMutateEmployeeApps ? (
                         <div className="flex flex-wrap gap-1">
                           {r.accessEnabled ? (
                             <Button
@@ -310,6 +326,13 @@ export function DevicesPage() {
           </div>
         )}
       </section>
+      ) : null}
+
+      {canViewStationTablets ? (
+        <div className="border-t border-[var(--border-subtle)] pt-8 mt-8">
+          <StationTabletsPanel canView={canViewStationTablets} canManage={canManageStationTablets} />
+        </div>
+      ) : null}
 
       {detail ? (
         <div className="fixed inset-0 z-[90] flex justify-end">
@@ -379,7 +402,7 @@ export function DevicesPage() {
                           {d.isActive ? 'Aktiv' : 'Deaktiviert'}
                         </p>
                         {d.lastIp ? <p className="text-[10px] text-slate-500">IP: {d.lastIp}</p> : null}
-                        {canMutate && d.isActive ? (
+                        {canMutateEmployeeApps && d.isActive ? (
                           <Button
                             type="button"
                             variant="outline"

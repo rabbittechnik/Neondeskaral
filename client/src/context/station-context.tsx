@@ -19,6 +19,13 @@ export type StationSummary = {
   city?: string
 }
 
+/** Station fest aus Stations-Tablet-Token — kein Admin-Benutzer, kein Stationswechsel, keine Rechte. */
+export type FixedTabletStationBinding = {
+  stationId: string
+  stationName: string
+  federalState: GermanState
+}
+
 type StationContextValue = {
   selectedStation: StationSummary | null
   availableStations: StationSummary[]
@@ -77,14 +84,41 @@ function mapStations(user: ReturnType<typeof useAuth>['user']): StationSummary[]
   ]
 }
 
-export function StationProvider({ children }: { children: ReactNode }) {
+export function StationProvider({
+  children,
+  fixedTabletStation,
+}: {
+  children: ReactNode
+  fixedTabletStation?: FixedTabletStationBinding | null
+}) {
   const { user } = useAuth()
-  const availableStations = useMemo(() => mapStations(user), [user])
-  const canSwitchStation = Boolean(user && user.canSwitchStation && availableStations.length > 1)
+  const tabletBound =
+    fixedTabletStation?.stationId && fixedTabletStation.stationName ? fixedTabletStation : null
+
+  const availableStations = useMemo(() => {
+    if (tabletBound) {
+      return [
+        {
+          id: tabletBound.stationId,
+          name: tabletBound.stationName,
+          federalState: tabletBound.federalState,
+        },
+      ]
+    }
+    return mapStations(user)
+  }, [user, tabletBound])
+
+  const canSwitchStation = tabletBound
+    ? false
+    : Boolean(user && user.canSwitchStation && availableStations.length > 1)
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
   useEffect(() => {
+    if (tabletBound) {
+      setSelectedId(tabletBound.stationId)
+      return
+    }
     if (availableStations.length === 0) {
       setSelectedId(null)
       return
@@ -99,10 +133,11 @@ export function StationProvider({ children }: { children: ReactNode }) {
     } else {
       setSelectedId(availableStations[0]!.id)
     }
-  }, [user, availableStations])
+  }, [user, availableStations, tabletBound])
 
   const setSelectedStationId = useCallback(
     (id: string) => {
+      if (tabletBound) return
       if (!availableStations.some((s) => s.id === id)) return
       if (user) {
         if (!user.globalAdmin && !user.canSwitchStation) return
@@ -115,7 +150,7 @@ export function StationProvider({ children }: { children: ReactNode }) {
       }
       setSelectedId(id)
     },
-    [user, availableStations],
+    [user, availableStations, tabletBound],
   )
 
   const selectedStation = useMemo(
@@ -125,13 +160,14 @@ export function StationProvider({ children }: { children: ReactNode }) {
 
   const hasPermission = useCallback(
     (key: string) => {
+      if (tabletBound) return false
       if (!selectedStation) return false
       if (!user) return true
       if (user.globalAdmin) return true
       const row = user.stationAccess?.find((a) => a.stationId === selectedStation.id)
       return row?.permissions[key] === true
     },
-    [user, selectedStation],
+    [user, selectedStation, tabletBound],
   )
 
   const value = useMemo<StationContextValue>(

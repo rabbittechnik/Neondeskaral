@@ -148,6 +148,8 @@ export function runMigrations(db: Database.Database) {
   mergePayrollExportPermission(db)
   ensureShiftCloseChecklistCashDifferenceColumn(db)
   ensurePayrollAdjustmentsUpdatedAtColumn(db)
+  ensureStationTabletDevicesTable(db)
+  mergeStationTabletPermissionsIntoAccess(db)
 }
 
 /** Stammdaten-Anzeige-Rollen für Bodelshausen (bestehende DBs, Railway-Deploy). */
@@ -607,6 +609,66 @@ function mergeTuvPermissionsIntoAccess(db: Database.Database) {
     for (const [k, v] of Object.entries(tuvDefaults)) {
       if (p[k] === undefined) {
         p[k] = Boolean(v)
+        changed = true
+      }
+    }
+    if (changed) {
+      db.prepare(`UPDATE user_station_access SET permissions_json = ?, updated_at = ? WHERE id = ?`).run(
+        JSON.stringify(p),
+        ts,
+        r.id,
+      )
+    }
+  }
+}
+
+function ensureStationTabletDevicesTable(db: Database.Database) {
+  db.exec(`CREATE TABLE IF NOT EXISTS station_tablet_devices (
+    id TEXT PRIMARY KEY,
+    station_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    tablet_token TEXT NOT NULL UNIQUE,
+    is_active INTEGER DEFAULT 1,
+    first_seen_at TEXT,
+    last_seen_at TEXT,
+    last_ip TEXT,
+    user_agent TEXT,
+    created_by TEXT,
+    created_at TEXT,
+    updated_at TEXT,
+    revoked_at TEXT,
+    revoked_by TEXT,
+    FOREIGN KEY (station_id) REFERENCES stations(id)
+  )`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_station_tablet_devices_station ON station_tablet_devices(station_id)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_station_tablet_devices_token ON station_tablet_devices(tablet_token)`)
+}
+
+/** Teamleitung mit Geräte-/QR-Bereichen bekommt Tablet-Verwaltung, falls noch nicht gesetzt. */
+function mergeStationTabletPermissionsIntoAccess(db: Database.Database) {
+  const keys = ['stationTablets.view', 'stationTablets.manage'] as const
+  const rows = db.prepare(`SELECT id, permissions_json FROM user_station_access`).all() as {
+    id: string
+    permissions_json: string
+  }[]
+  const ts = nowIso()
+  for (const r of rows) {
+    let p: Record<string, boolean> = {}
+    try {
+      p = JSON.parse(r.permissions_json || '{}') as Record<string, boolean>
+    } catch {
+      p = {}
+    }
+    const grant =
+      p['employees.viewDevices'] === true ||
+      p['employees.qr'] === true ||
+      p['schedule.edit'] === true
+    if (!grant) continue
+    let changed = false
+    for (const k of keys) {
+      if (p[k] === undefined) {
+        p[k] = true
         changed = true
       }
     }

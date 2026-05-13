@@ -43,6 +43,8 @@ import { TasksPage } from '../pages/tasks/TasksPage'
 import { VacationBlocksPage } from '../pages/vacationBlocks/VacationBlocksPage'
 import { WorkAreasPage } from '../pages/workAreas/WorkAreasPage'
 import { StaffTerminalPage } from '../pages/terminal/StaffTerminalPage'
+import { TabletLandingPage } from '../pages/terminal/TabletLandingPage'
+import { TabletTokenLayout } from '../pages/terminal/TabletTokenLayout'
 import { SidebarProvider } from '../store/sidebar-context'
 import { RequireAuth } from '../components/auth/RequireAuth'
 import { EmployeeAppLayout } from '../layouts/EmployeeAppLayout'
@@ -77,6 +79,10 @@ export const router = createBrowserRouter([
   },
   {
     path: '/tablet',
+    element: <TabletLandingPage />,
+  },
+  {
+    path: '/tablet/dev',
     element: (
       <StationProvider>
         <TabletTerminalProvider>
@@ -87,18 +93,13 @@ export const router = createBrowserRouter([
     children: [{ index: true, element: <StaffTerminalPage /> }],
   },
   {
-    path: '/station-terminal',
-    element: (
-      <StationProvider>
-        <TabletTerminalProvider>
-          <TerminalLayout />
-        </TabletTerminalProvider>
-      </StationProvider>
-    ),
+    path: '/tablet/:tabletToken',
+    element: <TabletTokenLayout />,
     children: [{ index: true, element: <StaffTerminalPage /> }],
   },
-  { path: '/mitarbeiter-terminal', element: <Navigate to="/tablet" replace /> },
-  { path: '/staff-terminal', element: <Navigate to="/tablet" replace /> },
+  { path: '/station-terminal', element: <Navigate to="/tablet/dev" replace /> },
+  { path: '/mitarbeiter-terminal', element: <Navigate to="/tablet/dev" replace /> },
+  { path: '/staff-terminal', element: <Navigate to="/tablet/dev" replace /> },
   {
     path: '/',
     element: <Outlet />,

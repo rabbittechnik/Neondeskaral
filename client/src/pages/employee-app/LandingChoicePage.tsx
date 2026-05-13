@@ -13,7 +13,7 @@ export function LandingChoicePage() {
   return (
     <div className="flex min-h-dvh flex-col items-center justify-center bg-[#070b12] px-5 py-12 text-slate-200">
       <div className="w-full max-w-md rounded-2xl border border-cyan-500/20 bg-slate-900/85 p-8 shadow-[0_0_48px_rgba(34,211,238,0.12)]">
-        <p className="text-center text-xs font-semibold uppercase tracking-[0.2em] text-cyan-300/80">NeonShift</p>
+        <p className="text-center text-xs font-semibold uppercase tracking-[0.2em] text-cyan-300/80">Rabbit-Technik</p>
         <h1 className="mt-3 text-center text-2xl font-bold text-white">Wie möchtest du fortfahren?</h1>
         <p className="mt-2 text-center text-sm text-slate-400">Wähle deinen Bereich – Mitarbeiter-App und Terminal benötigen kein Leitungs-Login.</p>
 
@@ -37,8 +37,11 @@ export function LandingChoicePage() {
             className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-transparent px-4 py-3 text-base font-semibold text-slate-100 transition hover:bg-white/5"
           >
             <Tablet className="h-5 w-5" aria-hidden />
-            Tablet-Terminal
+            Stations-Terminal (QR von der Leitung)
           </Link>
+          <p className="text-center text-[11px] text-slate-500">
+            Ohne QR-Code: Terminal für Tests unter <span className="text-slate-400">/tablet/dev</span>
+          </p>
         </div>
       </div>
     </div>

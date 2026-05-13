@@ -5,6 +5,10 @@ import { requirePermission } from '../middleware/stationAuth.js'
 import * as timeTracking from '../services/timeTrackingService.js'
 import * as terminal from '../services/terminalService.js'
 import { updateShiftChecklistReviewItems } from '../services/shiftChecklistReviewService.js'
+import {
+  resolveTerminalStationIdFromBody,
+  touchTabletByToken,
+} from '../services/stationTabletDeviceService.js'
 
 export const timeEntriesRouter = Router()
 
@@ -221,7 +225,13 @@ function terminalCheckInErrorBody(out: Record<string, unknown>) {
 
 terminalRouter.post('/check-in', (req, res) => {
   try {
-    const out = terminal.terminalCheckIn(getDb(), (req.body ?? {}) as { cardNumber: string; stationId: string; force?: boolean })
+    const raw = { ...(req.body ?? {}) } as Record<string, unknown>
+    const stationFromToken = resolveTerminalStationIdFromBody(getDb(), raw, req)
+    if (!stationFromToken) {
+      return jsonErr(res, 'stationId oder gültiger tabletToken erforderlich', 400)
+    }
+    raw.stationId = stationFromToken
+    const out = terminal.terminalCheckIn(getDb(), raw as { cardNumber: string; stationId: string; force?: boolean })
     if (!out.ok) {
       return res.status(200).json(terminalCheckInErrorBody(out as unknown as Record<string, unknown>))
     }
@@ -233,7 +243,11 @@ terminalRouter.post('/check-in', (req, res) => {
 
 terminalRouter.post('/check-out-start', (req, res) => {
   try {
-    const out = terminal.terminalCheckOutStart(getDb(), (req.body ?? {}) as { cardNumber: string; stationId: string })
+    const raw = { ...(req.body ?? {}) } as Record<string, unknown>
+    const stationFromToken = resolveTerminalStationIdFromBody(getDb(), raw, req)
+    if (!stationFromToken) return jsonErr(res, 'stationId oder gültiger tabletToken erforderlich', 400)
+    raw.stationId = stationFromToken
+    const out = terminal.terminalCheckOutStart(getDb(), raw as { cardNumber: string; stationId: string })
     if (!out.ok) {
       return res.status(200).json({
         ok: false,
@@ -251,7 +265,13 @@ terminalRouter.post('/check-out-start', (req, res) => {
 
 terminalRouter.post('/check-out-complete', (req, res) => {
   try {
-    const out = terminal.terminalCheckOutComplete(getDb(), (req.body ?? {}) as { timeEntryId: string; checklist: Record<string, unknown> })
+    const raw = { ...(req.body ?? {}) } as Record<string, unknown>
+    const tt = typeof raw.tabletToken === 'string' ? raw.tabletToken.trim() : ''
+    if (tt) touchTabletByToken(getDb(), tt, req)
+    const out = terminal.terminalCheckOutComplete(
+      getDb(),
+      raw as { timeEntryId: string; checklist: Record<string, unknown> },
+    )
     if (!out.ok) return jsonErr(res, out.error, 400)
     jsonOk(res, out.data)
   } catch (e) {
@@ -261,7 +281,11 @@ terminalRouter.post('/check-out-complete', (req, res) => {
 
 terminalRouter.post('/shift-warnings/acknowledge', (req, res) => {
   try {
-    const body = (req.body ?? {}) as { cardNumber?: string; stationId?: string; warningId?: string }
+    const raw = { ...(req.body ?? {}) } as Record<string, unknown>
+    const stationResolved = resolveTerminalStationIdFromBody(getDb(), raw, req)
+    if (!stationResolved) return jsonErr(res, 'stationId oder gültiger tabletToken erforderlich', 400)
+    raw.stationId = stationResolved
+    const body = raw as { cardNumber?: string; stationId?: string; warningId?: string }
     const card = String(body.cardNumber ?? '').trim()
     const stationId = String(body.stationId ?? '').trim()
     const warningId = String(body.warningId ?? '').trim()

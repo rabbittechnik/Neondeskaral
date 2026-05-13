@@ -12,16 +12,67 @@ import {
   listTabletWorkAreas,
 } from '../services/tabletDataService.js'
 import { confirmTaskFromTablet } from '../services/taskService.js'
+import type { StationTabletDeviceRow } from '../services/stationTabletDeviceService.js'
+import { touchTabletByToken } from '../services/stationTabletDeviceService.js'
 
 export const tabletRouter = Router()
 
-function requireStation(req: Request, res: Response): string | null {
+tabletRouter.get('/session/:tabletToken', (req, res) => {
+  try {
+    const token = decodeURIComponent(String(req.params.tabletToken ?? '').trim())
+    if (!token) return jsonErr(res, 'Kein Tablet-Zugang angegeben.', 400)
+    const db = getDb()
+    const raw = db
+      .prepare(`SELECT * FROM station_tablet_devices WHERE tablet_token = ?`)
+      .get(token) as StationTabletDeviceRow | undefined
+    if (!raw) {
+      return jsonErr(res, 'Dieser Tablet-Zugang ist ungültig oder wurde deaktiviert.', 403)
+    }
+    if (raw.is_active !== 1) {
+      return jsonErr(
+        res,
+        'Dieser Stations-Tablet-Zugang wurde deaktiviert. Bitte wende dich an die Stationsleitung.',
+        403,
+      )
+    }
+    const st = stationService.getStation(db, raw.station_id) as
+      | { id: string; name: string; federal_state?: string | null; active?: number | null }
+      | undefined
+    if (!st) {
+      return jsonErr(res, 'Dieser Tablet-Zugang ist ungültig oder wurde deaktiviert.', 403)
+    }
+    const active = st.active == null || st.active === 1
+    if (!active) {
+      return jsonErr(res, 'Dieser Tablet-Zugang ist ungültig oder wurde deaktiviert.', 403)
+    }
+    touchTabletByToken(db, token, req)
+    const federal = String(st.federal_state ?? 'BW').toUpperCase().slice(0, 2)
+    jsonOk(res, {
+      station: { id: st.id, name: st.name, federalState: federal },
+      tablet: { id: raw.id, name: raw.name },
+    })
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
+  }
+})
+
+function resolveTabletStationId(req: Request, res: Response): string | null {
+  const db = getDb()
+  const tt = typeof req.query.tabletToken === 'string' ? req.query.tabletToken.trim() : ''
+  if (tt) {
+    const row = touchTabletByToken(db, tt, req)
+    if (!row) {
+      jsonErr(res, 'Tablet-Zugang ungültig oder deaktiviert', 403)
+      return null
+    }
+    return row.station_id
+  }
   const stationId = typeof req.query.stationId === 'string' ? req.query.stationId.trim() : ''
   if (!stationId) {
-    jsonErr(res, 'stationId erforderlich', 400)
+    jsonErr(res, 'stationId oder tabletToken erforderlich', 400)
     return null
   }
-  const row = stationService.getStation(getDb(), stationId)
+  const row = stationService.getStation(db, stationId)
   if (!row) {
     jsonErr(res, 'Station nicht gefunden', 404)
     return null
@@ -31,7 +82,7 @@ function requireStation(req: Request, res: Response): string | null {
 
 tabletRouter.get('/shifts-range', (req, res) => {
   try {
-    const sid = requireStation(req, res)
+    const sid = resolveTabletStationId(req, res)
     if (!sid) return
     const from = typeof req.query.from === 'string' ? req.query.from.trim() : ''
     const to = typeof req.query.to === 'string' ? req.query.to.trim() : ''
@@ -46,7 +97,7 @@ tabletRouter.get('/shifts-range', (req, res) => {
 
 tabletRouter.get('/employees', (req, res) => {
   try {
-    const sid = requireStation(req, res)
+    const sid = resolveTabletStationId(req, res)
     if (!sid) return
     jsonOk(res, listEmployeesTabletClock(getDb(), sid))
   } catch (e) {
@@ -56,7 +107,7 @@ tabletRouter.get('/employees', (req, res) => {
 
 tabletRouter.get('/time-entries', (req, res) => {
   try {
-    const sid = requireStation(req, res)
+    const sid = resolveTabletStationId(req, res)
     if (!sid) return
     jsonOk(res, listTabletTimeEntriesWide(getDb(), sid))
   } catch (e) {
@@ -66,7 +117,7 @@ tabletRouter.get('/time-entries', (req, res) => {
 
 tabletRouter.get('/running-presence', (req, res) => {
   try {
-    const sid = requireStation(req, res)
+    const sid = resolveTabletStationId(req, res)
     if (!sid) return
     jsonOk(res, listTabletRunningPresence(getDb(), sid))
   } catch (e) {
@@ -76,7 +127,7 @@ tabletRouter.get('/running-presence', (req, res) => {
 
 tabletRouter.get('/week-schedule', (req, res) => {
   try {
-    const sid = requireStation(req, res)
+    const sid = resolveTabletStationId(req, res)
     if (!sid) return
     const weekStart = typeof req.query.weekStart === 'string' ? req.query.weekStart.trim() : ''
     jsonOk(res, getTabletWeekSchedule(getDb(), sid, weekStart))
@@ -87,7 +138,7 @@ tabletRouter.get('/week-schedule', (req, res) => {
 
 tabletRouter.get('/work-areas', (req, res) => {
   try {
-    const sid = requireStation(req, res)
+    const sid = resolveTabletStationId(req, res)
     if (!sid) return
     jsonOk(res, listTabletWorkAreas(getDb(), sid))
   } catch (e) {
@@ -97,7 +148,7 @@ tabletRouter.get('/work-areas', (req, res) => {
 
 tabletRouter.get('/tasks-today', (req, res) => {
   try {
-    const sid = requireStation(req, res)
+    const sid = resolveTabletStationId(req, res)
     if (!sid) return
     const employeeId = typeof req.query.employeeId === 'string' ? req.query.employeeId.trim() : undefined
     jsonOk(res, getTabletTasksPayload(getDb(), sid, employeeId || null))
@@ -108,10 +159,21 @@ tabletRouter.get('/tasks-today', (req, res) => {
 
 tabletRouter.post('/tasks/:taskId/complete', (req, res) => {
   try {
-    const stationId = typeof req.query.stationId === 'string' ? req.query.stationId.trim() : ''
-    if (!stationId) return jsonErr(res, 'stationId erforderlich', 400)
-    const row = stationService.getStation(getDb(), stationId)
-    if (!row) return jsonErr(res, 'Station nicht gefunden', 404)
+    const db = getDb()
+    const tt = typeof req.query.tabletToken === 'string' ? req.query.tabletToken.trim() : ''
+    const stationIdFromQuery = typeof req.query.stationId === 'string' ? req.query.stationId.trim() : ''
+    let stationId = ''
+    if (tt) {
+      const row = touchTabletByToken(db, tt, req)
+      if (!row) return jsonErr(res, 'Tablet-Zugang ungültig oder deaktiviert', 403)
+      stationId = row.station_id
+    } else if (stationIdFromQuery) {
+      const row = stationService.getStation(db, stationIdFromQuery)
+      if (!row) return jsonErr(res, 'Station nicht gefunden', 404)
+      stationId = stationIdFromQuery
+    } else {
+      return jsonErr(res, 'stationId oder tabletToken erforderlich', 400)
+    }
     const taskId = String(req.params.taskId ?? '').trim()
     if (!taskId) return jsonErr(res, 'taskId erforderlich', 400)
     const body = (req.body ?? {}) as { date?: string; employeeId?: string; displayName?: string; comment?: string }

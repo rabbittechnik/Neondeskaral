@@ -39,6 +39,7 @@ export function StaffTerminalPage() {
     tasks,
     taskLogs,
     error,
+    tabletToken,
     refetch,
     refetchTasks,
     completeShiftWithChecklist,
@@ -90,6 +91,7 @@ export function StaffTerminalPage() {
           cardNumber: cardNumber.trim(),
           stationId: sid,
           force: Boolean(options?.force),
+          ...(tabletToken ? { tabletToken } : {}),
         }),
       })
       const json = (await res.json()) as {
@@ -115,7 +117,7 @@ export function StaffTerminalPage() {
       notifyRunningEntriesRefresh()
       return entry
     },
-    [refetch, stationId],
+    [refetch, stationId, tabletToken],
   )
 
   const shiftsInWeek = useMemo(() => {
@@ -162,7 +164,12 @@ export function StaffTerminalPage() {
       const res = await fetch(`${API_BASE}/terminal/shift-warnings/acknowledge`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cardNumber: card, stationId, warningId: w.id }),
+        body: JSON.stringify({
+          cardNumber: card,
+          stationId,
+          warningId: w.id,
+          ...(tabletToken ? { tabletToken } : {}),
+        }),
       })
       const json = (await res.json()) as { ok?: boolean; error?: string }
       if (!json.ok) {
@@ -419,7 +426,7 @@ export function StaffTerminalPage() {
 
   return (
     <div className="flex min-h-dvh flex-col items-center px-4 pb-12 pt-8 sm:pt-12">
-      <p className="text-sm font-medium uppercase tracking-[0.2em] text-cyan-400/80">Neondesk</p>
+      <p className="text-sm font-medium uppercase tracking-[0.2em] text-cyan-400/80">Rabbit-Technik</p>
       <h1 className="mt-1 text-2xl font-bold text-[var(--text-main)] sm:text-3xl md:text-4xl">
         {selectedStation?.name ?? 'Station'}
       </h1>

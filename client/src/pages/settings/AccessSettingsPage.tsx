@@ -34,6 +34,8 @@ const PERMISSION_UI: { key: string; label: string }[] = [
   { key: 'employees.manageAppAccess', label: 'Mitarbeiter-App-Zugänge verwalten' },
   { key: 'employees.viewDevices', label: 'Geräteübersicht (Mitarbeiter-App)' },
   { key: 'employees.revokeDevices', label: 'Gerätezugänge widerrufen' },
+  { key: 'stationTablets.view', label: 'Stations-Tablets ansehen (Terminal-QR)' },
+  { key: 'stationTablets.manage', label: 'Stations-Tablets verwalten (anlegen, QR, deaktivieren)' },
   { key: 'employees.viewSensitive', label: 'Sensible Mitarbeiterdaten (PIN/Karte/Entgelt)' },
   { key: 'payroll.view', label: 'Lohn-/Entgeltdaten einsehen' },
   { key: 'employees.manageSensitive', label: 'Sensible Mitarbeiterdaten verwalten' },
