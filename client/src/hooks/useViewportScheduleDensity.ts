@@ -2,16 +2,16 @@ import { useEffect, useState } from 'react'
 import type { TimelineViewportDensity } from '../components/schedule/timelineLayout'
 
 function densityFromWidth(w: number): TimelineViewportDensity {
-  if (w < 1200) return 'cramped'
-  if (w < 1400) return 'compact'
+  if (w < 1180) return 'cramped'
+  if (w < 1680) return 'compact'
   return 'comfort'
 }
 
 /**
- * Automatischer Kompaktmodus für Schichtplan / Dashboard (Breakpoints 1400 / 1200).
+ * Standard kompakt; etwas luftiger nur auf sehr breiten Screens („comfort“).
  */
 export function useViewportScheduleDensity(): TimelineViewportDensity {
-  const [density, setDensity] = useState<TimelineViewportDensity>('comfort')
+  const [density, setDensity] = useState<TimelineViewportDensity>('compact')
 
   useEffect(() => {
     const update = () => setDensity(densityFromWidth(window.innerWidth))

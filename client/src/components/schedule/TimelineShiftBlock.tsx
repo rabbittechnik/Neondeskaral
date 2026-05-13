@@ -4,6 +4,7 @@ import { getShiftTypeDef, workAreaLabel } from '../../data/mockSchedule'
 import { darkenHex, hexToRgba, lightenHex } from './scheduleDayUtils'
 import type { TimelineLayout } from './timelineLayout'
 import type { WeekTimelineEditBridge } from './scheduleTimelineEditTypes'
+import { buildShiftBarTooltipLines, shortenPersonNameForShiftBar } from './scheduleBlockDisplay'
 
 type Props = {
   item: {
@@ -56,9 +57,26 @@ export function TimelineShiftBlock({
   const glow = hexToRgba(accentColor, 0.55)
   const glowSoft = hexToRgba(accentColor, 0.35)
   const borderHi = lightenHex(accentColor, 0.28)
-  const narrow = widthPercent < 16
-  const rL = seamBefore ? 'rounded-l-none' : 'rounded-l-xl'
-  const rR = seamAfter ? 'rounded-r-none' : 'rounded-r-xl'
+  const veryNarrow = widthPercent < 11
+  const narrow = widthPercent < 22
+  const rL = seamBefore ? 'rounded-l-none' : 'rounded-l-lg'
+  const rR = seamAfter ? 'rounded-r-none' : 'rounded-r-lg'
+  const displayName = veryNarrow || narrow ? shortenPersonNameForShiftBar(employeeName) : employeeName
+  const areaLabel = area.trim()
+  const dateDe = (() => {
+    const ymd = block.dateISO
+    const [y, m, d] = ymd.split('-')
+    return d && m && y ? `${d}.${m}.${y}` : ymd
+  })()
+  const detailTitle = buildShiftBarTooltipLines({
+    employeeName,
+    start: displayStart,
+    end: displayEnd,
+    areaLabel,
+    shiftTypeLabel: typeDef.label,
+    status: block.status,
+    dateLabel: `Datum: ${dateDe}`,
+  })
 
   const edit = shiftEdit?.canEdit
   const assignActive = Boolean(shiftEdit?.assignDragSourceId)
@@ -92,18 +110,19 @@ export function TimelineShiftBlock({
 
   return (
     <div
-      className={`absolute z-[2] min-w-[40px] sm:min-w-[48px] ${dimmed ? 'opacity-35' : ''} ${successFlash ? 'ring-2 ring-emerald-400/80 ring-offset-2 ring-offset-black/40' : ''}`}
+      className={`absolute z-[2] min-w-[32px] sm:min-w-[40px] ${dimmed ? 'opacity-35' : ''} ${successFlash ? 'ring-2 ring-emerald-400/80 ring-offset-1 ring-offset-black/40' : ''}`}
       style={{
         top,
         height: h,
         left: `${leftPercent}%`,
         width: `${widthPercent}%`,
+        minHeight: h,
       }}
       data-shift-assign-target={block.id}
     >
       <button
         type="button"
-        title={`${employeeName} · ${displayStart}–${displayEnd} · ${area}`}
+        title={detailTitle}
         data-shift-assign-target={block.id}
         onClick={() => {
           if (didPointerMove.current) return
@@ -137,69 +156,53 @@ export function TimelineShiftBlock({
         style={{
           height: h,
           background: `linear-gradient(145deg, ${hi} 0%, ${accentColor} 42%, ${lo} 100%)`,
-          boxShadow: `${seamBefore ? 'inset 1px 0 0 rgba(255,255,255,0.38),' : ''}${
-            seamAfter ? 'inset -1px 0 0 rgba(255,255,255,0.42),' : ''
-          } 0 0 18px ${glow}, 0 0 32px ${glowSoft}, inset 0 1px 0 ${hexToRgba(borderHi, 0.55)}, inset 0 -1px 0 ${hexToRgba(deep, 0.45)}`,
+          boxShadow: `${seamBefore ? 'inset 1px 0 0 rgba(255,255,255,0.34),' : ''}${
+            seamAfter ? 'inset -1px 0 0 rgba(255,255,255,0.38),' : ''
+          } 0 0 10px ${glow}, 0 0 18px ${glowSoft}, inset 0 1px 0 ${hexToRgba(borderHi, 0.5)}, inset 0 -1px 0 ${hexToRgba(deep, 0.42)}`,
           borderColor: borderHi,
           textShadow: textShadowStrong,
           ['--accent-glow' as string]: glow,
+          ['--accent-glow-soft' as string]: glowSoft,
         }}
-        className={`group absolute inset-0 z-[8] overflow-hidden border px-2 py-1 text-left text-white transition-[box-shadow,filter,transform,opacity] duration-150 hover:z-[12] hover:brightness-[1.06] hover:shadow-[0_0_28px_var(--accent-glow),0_0_44px_var(--accent-glow),inset_0_1px_0_rgba(255,255,255,0.35)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/60 active:scale-[0.99] sm:px-2.5 sm:py-1.5 ${rL} ${rR} ${
+        className={`group absolute inset-0 z-[8] overflow-hidden border px-2 py-0.5 text-left text-white transition-[box-shadow,filter,transform,opacity] duration-150 hover:z-[12] hover:brightness-[1.05] hover:shadow-[0_0_20px_var(--accent-glow),0_0_34px_var(--accent-glow-soft),inset_0_1px_0_rgba(255,255,255,0.38)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/60 active:scale-[0.99] ${rL} ${rR} ${
           seamBefore ? 'border-l-0' : ''
         } ${seamAfter ? 'border-r-0' : ''} ${preview ? 'opacity-90' : ''} ${
-          block.conflict ? 'ring-2 ring-orange-500 ring-offset-2 ring-offset-[var(--bg-card)]' : ''
+          block.conflict ? 'ring-1 ring-orange-400 ring-offset-1 ring-offset-[var(--bg-card)]' : ''
         } ${
           isDropHover
-            ? 'ring-2 ring-cyan-300 ring-offset-2 ring-offset-black/50 shadow-[0_0_32px_rgba(34,211,238,0.55)]'
+            ? 'ring-2 ring-cyan-300 ring-offset-1 ring-offset-black/50 shadow-[0_0_22px_rgba(34,211,238,0.5)]'
             : ''
         }`}
       >
         {assignActive && isDropHover ? (
-          <span className="pointer-events-none absolute inset-x-0 bottom-1 z-[4] text-center text-[9px] font-semibold uppercase tracking-wide text-cyan-100 drop-shadow">
+          <span className="pointer-events-none absolute inset-x-0 bottom-0.5 z-[4] text-center text-[8px] font-semibold uppercase tracking-wide text-cyan-100 drop-shadow">
             Hier ablegen
           </span>
         ) : null}
-        {narrow ? (
-          <div className="flex min-h-0 flex-col justify-center gap-0.5 leading-tight">
+        <div
+          className={`flex h-full min-h-0 min-w-0 items-center gap-1 leading-none ${layout.shiftNameClass} text-white`}
+          style={{ textShadow: textShadowStrong }}
+        >
+          <span className="min-w-0 truncate font-semibold">{displayName}</span>
+          <span className="shrink-0 text-white/70">·</span>
+          <span className={`shrink-0 tabular-nums text-white/95 ${layout.shiftMetaClass}`}>
+            {displayStart}–{displayEnd}
+          </span>
+          {!veryNarrow && areaLabel ? (
+            <>
+              <span className="shrink-0 text-white/70">·</span>
+              <span className={`min-w-0 truncate text-white/95 ${layout.shiftMetaClass}`}>{areaLabel}</span>
+            </>
+          ) : null}
+          {layout.showShiftTypeBadge ? (
             <span
-              className={`min-w-0 truncate font-bold tracking-tight text-white ${layout.shiftNameClass}`}
-              style={{ textShadow: textShadowStrong }}
+              className={`ml-auto shrink-0 rounded border border-white/25 bg-black/25 px-1 py-px font-bold uppercase tracking-wide text-white/95 ${layout.shiftBadgeClass}`}
+              style={{ textShadow: '0 1px 1px rgba(0,0,0,0.65)' }}
             >
-              {employeeName}
+              {typeDef.label}
             </span>
-            <span
-              className={`tabular-nums font-semibold text-white/95 ${layout.shiftMetaClass}`}
-              style={{ textShadow: textShadowStrong }}
-            >
-              {displayStart}–{displayEnd}
-            </span>
-          </div>
-        ) : (
-          <>
-            <div className="flex items-start justify-between gap-1 sm:gap-1.5">
-              <span
-                className={`min-w-0 truncate font-bold tracking-tight text-white ${layout.shiftNameClass}`}
-                style={{ textShadow: textShadowStrong }}
-              >
-                {employeeName}
-              </span>
-              <span
-                className={`shrink-0 rounded-md border border-white/25 bg-black/25 px-1.5 py-px font-bold uppercase tracking-wide text-white/95 backdrop-blur-[2px] ${layout.shiftBadgeClass}`}
-                style={{ textShadow: '0 1px 1px rgba(0,0,0,0.7)' }}
-              >
-                {typeDef.label}
-              </span>
-            </div>
-            <p
-              className={`mt-0.5 truncate font-semibold tabular-nums text-white/95 ${layout.shiftMetaClass}`}
-              style={{ textShadow: textShadowStrong }}
-            >
-              {displayStart}–{displayEnd}
-              {area ? <span className="font-medium text-white/80"> · </span> : null}
-              {area ? <span className="font-semibold text-white">{area}</span> : null}
-            </p>
-          </>
-        )}
+          ) : null}
+        </div>
       </button>
 
       {edit && !assignActive ? (
@@ -209,7 +212,7 @@ export function TimelineShiftBlock({
             aria-orientation="vertical"
             aria-label="Startzeit ziehen"
             title="Startzeit ziehen"
-            className={`absolute bottom-0 left-0 top-0 w-11 max-w-[40%] cursor-ew-resize touch-manipulation bg-transparent hover:bg-white/[0.08] active:bg-white/10 ${
+            className={`absolute bottom-0 left-0 top-0 w-9 max-w-[40%] cursor-ew-resize touch-manipulation bg-transparent hover:bg-white/[0.08] active:bg-white/10 ${
               seamBefore ? 'z-[34]' : 'z-[24]'
             }`}
             onPointerDown={(e) => startInteract('resize-start', e)}
@@ -219,7 +222,7 @@ export function TimelineShiftBlock({
             aria-orientation="vertical"
             aria-label="Endzeit ziehen"
             title="Endzeit ziehen"
-            className={`absolute bottom-0 right-0 top-0 w-11 max-w-[40%] cursor-ew-resize touch-manipulation bg-transparent hover:bg-white/[0.08] active:bg-white/10 ${
+            className={`absolute bottom-0 right-0 top-0 w-9 max-w-[40%] cursor-ew-resize touch-manipulation bg-transparent hover:bg-white/[0.08] active:bg-white/10 ${
               seamAfter ? 'z-[35]' : 'z-[24]'
             }`}
             onPointerDown={(e) => startInteract('resize-end', e)}

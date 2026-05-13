@@ -85,14 +85,14 @@ export function WeeklyScheduleTimeline({
   const resolvedFooter = showFooterLink ?? variant === 'compact'
 
   return (
-    <div className={variant === 'full' ? 'space-y-3' : 'space-y-2'}>
+    <div className={variant === 'full' ? 'space-y-2' : 'space-y-1.5'}>
       {resolvedShowTitle ? (
         <h2 className="text-sm font-semibold tracking-tight text-[var(--text-main)]">
           Schichtplan – Diese Woche
         </h2>
       ) : null}
       {resolvedShowLegend ? <ScheduleTimelineLegend variant={variant} /> : null}
-      <div className={variant === 'full' ? 'space-y-2.5' : 'space-y-2'}>
+      <div className={variant === 'full' ? 'space-y-2' : 'space-y-1.5'}>
         {days.map((dayDate, dayIndex) => (
           <DayTimelineRow
             key={toISODate(dayDate)}

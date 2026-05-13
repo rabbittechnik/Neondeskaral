@@ -130,7 +130,7 @@ export function DayTimelineRow({
 
   const shiftAreaHeight =
     visibleRowItems.length === 0
-      ? Math.max(40, layout.blockHeight + 8)
+      ? Math.max(30, layout.blockHeight + 6)
       : headerOffsetPx + (maxVisibleRow + 1) * (layout.blockHeight + layout.rowGap)
 
   const absenceTracksH =
