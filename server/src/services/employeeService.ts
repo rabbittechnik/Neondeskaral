@@ -399,9 +399,10 @@ export function listEmployees(
   const rows = db.prepare(sql).all(stationId) as EmployeeRow[]
   const waStmt = db.prepare(`SELECT work_area_id FROM employee_work_areas WHERE employee_id = ?`)
   const sens = Boolean(opts?.includeSensitive)
+  const withAccess = Boolean(opts?.includeAccessTokens)
   return rows.map((r) =>
     rowToEmployeeApi(r, (waStmt.all(r.id) as { work_area_id: string }[]).map((x) => x.work_area_id), {
-      includeAccessToken: false,
+      includeAccessToken: withAccess,
       includeSensitive: sens,
     }),
   )

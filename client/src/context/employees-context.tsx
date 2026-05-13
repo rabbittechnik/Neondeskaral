@@ -151,32 +151,45 @@ export function EmployeesProvider({ children }: { children: ReactNode }) {
     [refetch],
   )
 
+  const applyEmployeePatchFromApi = useCallback((raw: Employee) => {
+    const merged = mergeEmployeeFromApi(raw as Partial<Employee> & { id: string })
+    setEmployees((prev) => prev.map((e) => (e.id === merged.id ? { ...e, ...merged } : e)))
+  }, [])
+
   const regenerateEmployeeAccess = useCallback(
     async (id: string) => {
       const res = await apiSend<Employee>('POST', `/employees/${encodeURIComponent(id)}/regenerate-access-token`, {})
       if (!res.ok || !res.data) throw new Error(res.ok === false ? res.error : 'Fehler')
+      const tok = String((res.data as { employeeAccessToken?: string }).employeeAccessToken ?? '').trim()
+      if (!tok) {
+        console.error('[employees] regenerate-access: response ohne employeeAccessToken', res.data)
+        throw new Error('Zugang wurde nicht vollständig erstellt. Token fehlt.')
+      }
+      applyEmployeePatchFromApi(res.data)
       await refetch()
       return res.data
     },
-    [refetch],
+    [applyEmployeePatchFromApi, refetch],
   )
 
   const disableEmployeeAccess = useCallback(
     async (id: string) => {
       const res = await apiSend<Employee>('POST', `/employees/${encodeURIComponent(id)}/disable-access`, {})
       if (!res.ok) throw new Error(res.error)
+      if (res.data) applyEmployeePatchFromApi(res.data)
       await refetch()
     },
-    [refetch],
+    [applyEmployeePatchFromApi, refetch],
   )
 
   const enableEmployeeAccess = useCallback(
     async (id: string) => {
       const res = await apiSend<Employee>('POST', `/employees/${encodeURIComponent(id)}/enable-access`, {})
       if (!res.ok) throw new Error(res.error)
+      if (res.data) applyEmployeePatchFromApi(res.data)
       await refetch()
     },
-    [refetch],
+    [applyEmployeePatchFromApi, refetch],
   )
 
   const revokeAllEmployeeAppDevices = useCallback(
