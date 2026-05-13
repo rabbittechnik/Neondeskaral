@@ -51,6 +51,8 @@ import { EmployeeAppLayout } from '../layouts/EmployeeAppLayout'
 import { EmployeeAccessPage } from '../pages/employee-app/EmployeeAccessPage'
 import { EmployeeAppPage } from '../pages/employee-app/EmployeeAppPage'
 import { LandingChoicePage } from '../pages/employee-app/LandingChoicePage'
+import { AppHubPage } from '../pages/app/AppHubPage'
+import { SavedLocalAccessPage } from '../pages/app/SavedLocalAccessPage'
 import { TimeApprovalsPage } from '../pages/time-approvals/TimeApprovalsPage'
 import { TuvReportsPage } from '../pages/tuv/TuvReportsPage'
 import { TuvReportEditorPage } from '../pages/tuv/TuvReportEditorPage'
@@ -61,6 +63,13 @@ function MitarbeiterToEmployeesProfile() {
   return <Navigate to={`/employees/${employeeId ?? ''}`} replace />
 }
 
+function LegacyEmployeeAccessToEmployee() {
+  const { token } = useParams()
+  const t = (token ?? '').trim()
+  if (!t) return <Navigate to="/employee" replace />
+  return <Navigate to={`/employee/${encodeURIComponent(t)}`} replace />
+}
+
 export const router = createBrowserRouter([
   {
     path: '/login',
@@ -68,14 +77,30 @@ export const router = createBrowserRouter([
     children: [{ index: true, element: <LoginPage /> }],
   },
   {
+    path: '/app',
+    element: <AppHubPage />,
+  },
+  {
+    path: '/app/zugaenge',
+    element: <SavedLocalAccessPage />,
+  },
+  {
     path: '/employee-access/:token',
-    element: <EmployeeAppLayout />,
-    children: [{ index: true, element: <EmployeeAccessPage /> }],
+    element: <LegacyEmployeeAccessToEmployee />,
   },
   {
     path: '/employee-app',
+    element: <Navigate to="/employee" replace />,
+  },
+  {
+    path: '/employee',
     element: <EmployeeAppLayout />,
     children: [{ index: true, element: <EmployeeAppPage /> }],
+  },
+  {
+    path: '/employee/:token',
+    element: <EmployeeAppLayout />,
+    children: [{ index: true, element: <EmployeeAccessPage /> }],
   },
   {
     path: '/tablet',

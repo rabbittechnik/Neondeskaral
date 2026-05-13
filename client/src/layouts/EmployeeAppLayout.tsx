@@ -4,7 +4,9 @@ import { Outlet, useLocation } from 'react-router-dom'
 export function EmployeeAppLayout() {
   const loc = useLocation()
   useEffect(() => {
-    const sub = loc.pathname.startsWith('/employee-access') ? 'Zugang' : 'Mitarbeiter-App'
+    const sub = loc.pathname.startsWith('/employee-access') || loc.pathname.startsWith('/employee/')
+      ? 'Zugang'
+      : 'Mitarbeiter-App'
     document.title = `${sub} · Rabbit-Technik Station`
   }, [loc.pathname])
 

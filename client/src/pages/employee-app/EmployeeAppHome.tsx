@@ -455,7 +455,7 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
             </Button>
           ) : (
             <Link
-              to="/employee-app"
+              to="/employee"
               className="inline-flex w-full items-center justify-center rounded-xl bg-cyan-500 px-4 py-3 text-sm font-semibold text-slate-950"
             >
               QR-Code erneut scannen

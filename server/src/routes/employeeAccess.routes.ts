@@ -223,6 +223,17 @@ employeeAccessRouter.post('/:token/revoke-this-device', (req, res) => {
   }
 })
 
+employeeAccessRouter.get('/:token/session', (req, res) => {
+  try {
+    const meta = access.parseEmployeeAccessRequestMeta(req)
+    const out = access.buildEmployeeAccessSessionSummary(getDb(), req.params.token, meta)
+    if (!out.ok) return jsonErr(res, denied(), 403)
+    jsonOk(res, { employee: out.employee, station: out.station })
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
+  }
+})
+
 employeeAccessRouter.get('/:token', (req, res) => {
   try {
     const meta = access.parseEmployeeAccessRequestMeta(req)

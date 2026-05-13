@@ -1,50 +1,15 @@
 import { API_BASE } from '../services/api'
+import { parseAccessPasteInput } from './accessPasteInput'
 
-/** QR-Inhalt parsen; lehnt offensichtlich falsche App-Routen ab. */
+/** QR-Inhalt parsen; lehnt Mitarbeiter-Links ab (Klartext, kein Raten nach PWA). */
 export function extractTabletTokenFromQrText(raw: string): { token: string | null; error?: string } {
-  const t = raw.trim()
-  if (!t) return { token: null, error: 'Leerer Inhalt.' }
-
-  const lower = t.toLowerCase()
-  if (
-    lower.includes('/employee-access/') ||
-    lower.includes('/employee-app') ||
-    lower.includes('/login') ||
-    lower.includes('/auth/')
-  ) {
+  const p = parseAccessPasteInput(raw)
+  if (p.kind === 'employee') {
     return { token: null, error: 'Das ist kein Stations-Tablet-QR-Code.' }
   }
-
-  const pathMatch = t.match(/\/tablet\/([^/?#\s]+)/)
-  if (pathMatch) {
-    return { token: decodeURIComponent(pathMatch[1]) }
-  }
-
-  if (/^https?:\/\//i.test(t)) {
-    try {
-      const u = new URL(t)
-      const m = u.pathname.match(/\/tablet\/([^/?#]+)/)
-      if (m) return { token: decodeURIComponent(m[1]) }
-      return { token: null, error: 'Kein Tablet-Link erkannt (Pfad muss /tablet/… enthalten).' }
-    } catch {
-      return { token: null, error: 'Ungültiger Link.' }
-    }
-  }
-
-  if (t.startsWith('/tablet/')) {
-    const seg = t.slice('/tablet/'.length).split(/[/?#]/)[0]
-    return seg ? { token: decodeURIComponent(seg) } : { token: null, error: 'Kein Token im Pfad.' }
-  }
-
-  if (t.includes('/') || t.includes('://')) {
-    return { token: null, error: 'Kein gültiger Tablet-Link erkannt.' }
-  }
-
-  if (/^[a-zA-Z0-9_.-]+$/.test(t) && t.length >= 6) {
-    return { token: t }
-  }
-
-  return { token: null, error: 'Token konnte nicht erkannt werden.' }
+  if (p.kind === 'tablet') return { token: p.token }
+  if (p.kind === 'ambiguous') return { token: p.token }
+  return { token: null, error: p.message }
 }
 
 export async function validateTabletSession(
@@ -63,6 +28,6 @@ export async function validateTabletSession(
   const err =
     typeof json.error === 'string' && json.error.trim()
       ? json.error.trim()
-      : 'Dieser QR-Code ist kein gültiger Stations-Tablet-Zugang.'
+      : 'Dieser Zugang ist ungültig oder wurde deaktiviert.'
   return { ok: false, error: err, status: res.status }
 }

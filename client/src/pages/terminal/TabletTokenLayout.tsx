@@ -82,7 +82,7 @@ export function TabletTokenLayout() {
     if (!token) {
       setLoading(false)
       setSession(null)
-      setErrorMsg('Kein Tablet-Zugang angegeben.')
+      setErrorMsg('Kein Stations-Tablet-Zugang in der Adresse angegeben.')
       return
     }
     let cancelled = false
@@ -96,7 +96,7 @@ export function TabletTokenLayout() {
         if (cancelled) return
         if (!res.ok || json.ok === false || !json.data?.station?.id) {
           const err =
-            json.error ?? 'Dieser Stations-Tablet-Zugang ist ungültig oder wurde deaktiviert.'
+            json.error ?? 'Dieser Zugang ist ungültig oder wurde deaktiviert.'
           setSession(null)
           setErrorMsg(err)
           setAccessInvalid(res.status === 403 || res.status === 400)

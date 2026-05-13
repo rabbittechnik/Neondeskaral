@@ -4,7 +4,9 @@ import { Tablet } from 'lucide-react'
 import { TabletQrScannerModal } from '../../components/terminal/TabletQrScannerModal'
 import { Button } from '../../components/ui/Button'
 import { readStationTabletToken, writeStationTabletToken } from '../../utils/stationTabletToken'
-import { extractTabletTokenFromQrText, validateTabletSession } from '../../utils/tabletQrToken'
+import { validateTabletSession } from '../../utils/tabletQrToken'
+import { parseAccessPasteInput } from '../../utils/accessPasteInput'
+import { probeEmployeeAccessSession } from '../../utils/accessTokenProbe'
 
 /** `/tablet` — gespeicherter Token, oder Einrichtung per QR / manueller Eingabe. */
 export function TabletLandingPage() {
@@ -15,6 +17,11 @@ export function TabletLandingPage() {
   const [busy, setBusy] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [phase, setPhase] = useState<'idle' | 'connected'>('idle')
+  const [wrongEmployee, setWrongEmployee] = useState<{
+    token: string
+    employeeName: string
+    stationName: string
+  } | null>(null)
 
   useLayoutEffect(() => {
     setSavedToken(readStationTabletToken())
@@ -42,12 +49,50 @@ export function TabletLandingPage() {
 
   const processRawInput = useCallback(
     async (raw: string) => {
-      const extracted = extractTabletTokenFromQrText(raw)
-      if (extracted.error || !extracted.token) {
-        setFormError(extracted.error ?? 'Ungültiger Inhalt.')
+      setFormError(null)
+      setWrongEmployee(null)
+      const p = parseAccessPasteInput(raw)
+      if (p.kind === 'invalid') {
+        setFormError(p.message)
         return
       }
-      await connectValidatedToken(extracted.token)
+      if (p.kind === 'employee') {
+        setBusy(true)
+        const pr = await probeEmployeeAccessSession(p.token)
+        setBusy(false)
+        if (pr.ok) {
+          setWrongEmployee({
+            token: p.token,
+            employeeName: pr.employee.displayName,
+            stationName: pr.station.name,
+          })
+        } else {
+          setFormError('Dieser Zugang ist ungültig oder wurde deaktiviert.')
+        }
+        return
+      }
+      if (p.kind === 'tablet') {
+        await connectValidatedToken(p.token)
+        return
+      }
+      setBusy(true)
+      const tabFirst = await validateTabletSession(p.token)
+      if (tabFirst.ok) {
+        setBusy(false)
+        await connectValidatedToken(p.token)
+        return
+      }
+      const emp = await probeEmployeeAccessSession(p.token)
+      setBusy(false)
+      if (emp.ok) {
+        setWrongEmployee({
+          token: p.token,
+          employeeName: emp.employee.displayName,
+          stationName: emp.station.name,
+        })
+        return
+      }
+      setFormError('Dieser Zugang ist ungültig oder wurde deaktiviert.')
     },
     [connectValidatedToken],
   )
@@ -91,11 +136,34 @@ export function TabletLandingPage() {
 
       <TabletQrScannerModal open={scannerOpen} onClose={() => setScannerOpen(false)} onDecoded={onQrDecoded} />
 
+      {wrongEmployee ? (
+        <div className="mb-8 w-full max-w-md rounded-xl border border-amber-500/30 bg-amber-500/10 p-5 text-center">
+          <p className="text-sm font-semibold text-amber-100">
+            Dieser QR-Code gehört zu einer Mitarbeiter-App, nicht zu einem Stations-Tablet.
+          </p>
+          <p className="mt-2 text-xs text-amber-200/85">
+            Mitarbeiter-Zugang: {wrongEmployee.employeeName} · {wrongEmployee.stationName}
+          </p>
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-center">
+            <Button
+              type="button"
+              variant="primary"
+              className="w-full sm:w-auto"
+              onClick={() => navigate(`/employee/${encodeURIComponent(wrongEmployee.token)}`, { replace: true })}
+            >
+              Mitarbeiter-App öffnen
+            </Button>
+            <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => setWrongEmployee(null)}>
+              Zurück
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
       <Tablet className="h-14 w-14 text-cyan-400/90" aria-hidden />
-      <h1 className="mt-6 text-center text-xl font-semibold text-white">Kein Tablet-Zugang angegeben</h1>
+      <h1 className="mt-6 text-center text-xl font-semibold text-white">Kein Stations-Tablet-Zugang gespeichert</h1>
       <p className="mt-3 max-w-md text-center text-sm text-slate-400">
-        Bitte richte das Stations-Tablet ein — per Kamera oder durch Einfügen des Links aus „Mein Konto · Geräte &
-        Apps“.
+        Bitte Stations-QR-Code scannen oder den Tablet-Link aus „Mein Konto · Geräte & Apps“ einfügen.
       </p>
 
       <div className="mt-8 flex w-full max-w-md flex-col gap-3">
@@ -106,6 +174,7 @@ export function TabletLandingPage() {
           disabled={busy}
           onClick={() => {
             setFormError(null)
+            setWrongEmployee(null)
             setScannerOpen(true)
           }}
         >
@@ -121,7 +190,7 @@ export function TabletLandingPage() {
               type="text"
               value={manual}
               onChange={(e) => setManual(e.target.value)}
-              placeholder="https://…/tablet/… oder Token"
+              placeholder="https://…/tablet/… oder /tablet/… oder Token"
               autoComplete="off"
               className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white placeholder:text-slate-600"
               disabled={busy}
@@ -149,12 +218,14 @@ export function TabletLandingPage() {
         </p>
       ) : null}
 
-      <Link
-        to="/"
-        className="mt-10 text-sm font-medium text-cyan-400/90 underline-offset-4 hover:underline hover:text-cyan-300"
-      >
-        Zur Startauswahl
-      </Link>
+      <div className="mt-10 flex flex-col items-center gap-2 text-sm">
+        <Link to="/app/zugaenge" className="font-medium text-cyan-400/90 underline-offset-4 hover:underline hover:text-cyan-300">
+          Gespeicherte Zugänge verwalten
+        </Link>
+        <Link to="/" className="text-slate-500 underline-offset-4 hover:underline hover:text-slate-400">
+          Zur Startauswahl
+        </Link>
+      </div>
     </div>
   )
 }

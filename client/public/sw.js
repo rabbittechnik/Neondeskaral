@@ -5,7 +5,7 @@
 
 const CACHE_NAME = 'rabbit-technik-station-__CACHE_BUILD_ID__'
 
-const CORE_ASSETS = ['/', '/index.html', '/manifest.json', '/favicon.svg', '/pwa-192.svg', '/pwa-512.svg']
+const CORE_ASSETS = ['/', '/app', '/index.html', '/manifest.json', '/favicon.svg', '/pwa-192.svg', '/pwa-512.svg']
 
 self.addEventListener('install', (event) => {
   event.waitUntil(

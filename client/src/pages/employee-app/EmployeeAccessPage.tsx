@@ -20,10 +20,10 @@ export function EmployeeAccessPage() {
     <EmployeeAppHome
       accessToken={t}
       persistSession
-      onSessionStored={() => navigate('/employee-app', { replace: true })}
+      onSessionStored={() => navigate('/employee', { replace: true })}
       onClearSession={() => {
         clearStoredEmployeeAccessSession()
-        navigate('/employee-app', { replace: true })
+        navigate('/employee', { replace: true })
       }}
     />
   )

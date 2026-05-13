@@ -1,4 +1,5 @@
-const KEY_TOKEN = 'employeeAccessToken'
+const KEY_TOKEN = 'rabbit_technik_employee_app_token'
+const KEY_TOKEN_LEGACY = 'employeeAccessToken'
 const KEY_NAME = 'employeeAccessEmployeeName'
 const KEY_STATION = 'employeeAccessStationName'
 const KEY_DEVICE = 'employeeAppDeviceId'
@@ -33,13 +34,21 @@ export function getEmployeeAppDeviceHeaders(): Record<string, string> {
 
 export function getStoredEmployeeAccessToken(): string | null {
   if (typeof window === 'undefined') return null
-  const t = localStorage.getItem(KEY_TOKEN)
-  return t?.trim() ? t.trim() : null
+  const primary = localStorage.getItem(KEY_TOKEN)?.trim()
+  if (primary) return primary
+  const leg = localStorage.getItem(KEY_TOKEN_LEGACY)?.trim()
+  if (leg) {
+    localStorage.setItem(KEY_TOKEN, leg)
+    localStorage.removeItem(KEY_TOKEN_LEGACY)
+    return leg
+  }
+  return null
 }
 
 export function setStoredEmployeeAccessSession(token: string, employeeName?: string, stationName?: string): void {
   if (typeof window === 'undefined') return
   localStorage.setItem(KEY_TOKEN, token.trim())
+  localStorage.removeItem(KEY_TOKEN_LEGACY)
   if (employeeName != null) localStorage.setItem(KEY_NAME, employeeName)
   if (stationName != null) localStorage.setItem(KEY_STATION, stationName)
 }
@@ -55,23 +64,17 @@ export function getStoredEmployeeAccessMeta(): { employeeName: string | null; st
 export function clearStoredEmployeeAccessSession(): void {
   if (typeof window === 'undefined') return
   localStorage.removeItem(KEY_TOKEN)
+  localStorage.removeItem(KEY_TOKEN_LEGACY)
   localStorage.removeItem(KEY_NAME)
   localStorage.removeItem(KEY_STATION)
   localStorage.removeItem(KEY_DEVICE)
 }
 
-/** Aus URL, Roh-Token oder eingefügtem Link */
+import { parseAccessPasteInput } from '../../utils/accessPasteInput'
+
+/** Aus URL, Roh-Token oder eingefügtem Link (inkl. /employee/… und Legacy /employee-access/…). */
 export function parseEmployeeAccessTokenFromInput(raw: string): string {
-  const t = raw.trim()
-  if (!t) return ''
-  const m = t.match(/employee-access\/([^/?#]+)/i)
-  if (m) return decodeURIComponent(m[1])
-  try {
-    const u = new URL(t)
-    const p = u.pathname.match(/\/employee-access\/([^/]+)/i)
-    if (p) return decodeURIComponent(p[1])
-  } catch {
-    /* ignore */
-  }
-  return t
+  const p = parseAccessPasteInput(raw)
+  if (p.kind === 'employee' || p.kind === 'ambiguous') return p.token
+  return ''
 }

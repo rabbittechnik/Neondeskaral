@@ -166,7 +166,7 @@ export function DevicesPage() {
   if (!canView) {
     return (
       <div className="space-y-4">
-        <PageHeader title="Geräte & Apps" description="Mitarbeiter-App und Stations-Terminals" />
+        <PageHeader title="Geräte & Apps" description="Mitarbeiter-App und Stations-Tablet" />
         <p className="text-sm text-[var(--text-muted)]">
           Sie haben keine Berechtigung für diesen Bereich. Üblicherweise sind z. B. Mitarbeiter-App-Zugänge (
           <span className="text-cyan-200/85">employees.viewAppAccess</span>) oder Schichtplan bearbeiten (
@@ -180,7 +180,7 @@ export function DevicesPage() {
     <div className="space-y-6">
       <PageHeader
         title="Geräte & Apps"
-        description="Persönliche Mitarbeiter-App (Handy mit QR je Person) · Stations-Terminals (ein QR pro Tablet an der Tankstelle)"
+        description="Persönliche Mitarbeiter-App (Handy mit QR je Person) · Stations-Tablet (ein QR pro Gerät an der Tankstelle)"
       />
 
       <PwaInstallPanel />
@@ -193,7 +193,7 @@ export function DevicesPage() {
         <p className="text-sm text-[var(--text-muted)]">
           Übersicht aller Mitarbeiter der gewählten Station. Token werden nicht vollständig angezeigt. Die Mitarbeiter-App
           ist vom Stations-Tablet getrennt: ein persönlicher Zugang fürs Handy, eigene Aufgaben, Urlaub und Stempeln mit
-          Mitarbeitenden-Profil — nicht dasselbe wie das Terminal ohne persönlichen Login.
+          Mitarbeitenden-Profil — nicht dasselbe wie das Stations-Tablet ohne persönlichen Login.
         </p>
 
         <div className="flex flex-wrap gap-2">

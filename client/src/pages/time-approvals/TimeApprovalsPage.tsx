@@ -48,7 +48,7 @@ type DetailPayload = {
 }
 
 function sourceLabel(source: string): string {
-  if (source === 'tablet' || source === 'cash_register_card_terminal') return 'Tablet-Terminal'
+  if (source === 'tablet' || source === 'cash_register_card_terminal') return 'Stations-Tablet'
   if (source === 'employee_mobile_app') return 'Mitarbeiter-App'
   if (source === 'manual') return 'Manuell'
   return source

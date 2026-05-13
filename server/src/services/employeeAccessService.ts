@@ -142,6 +142,26 @@ export function resolveEmployeeAccessContext(
   return { ok: true, row }
 }
 
+/** Leichtgewichtige Token-Validierung für Routing/PWA (gleiche Zugriffsregeln wie voller Payload). */
+export function buildEmployeeAccessSessionSummary(
+  db: Database,
+  token: string,
+  meta?: EmployeeAccessRequestMeta,
+):
+  | { ok: true; employee: { displayName: string }; station: { id: string; name: string } }
+  | { ok: false } {
+  const ctx = resolveEmployeeAccessContext(db, token, meta)
+  if (!ctx.ok) return { ok: false }
+  const row = ctx.row
+  const st = getStation(db, row.station_id)
+  const stationName = st && String(st.name ?? '').trim() ? String(st.name) : 'Station'
+  return {
+    ok: true,
+    employee: { displayName: String(row.display_name ?? '').trim() || 'Mitarbeitender' },
+    station: { id: row.station_id, name: stationName },
+  }
+}
+
 function employmentRoleFromRow(row: EmployeeRow): string {
   const raw = (row as Record<string, unknown>).employment_role
   return typeof raw === 'string' ? raw.trim() : ''

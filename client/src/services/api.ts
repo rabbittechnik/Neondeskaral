@@ -6,8 +6,10 @@ import { getEmployeeAppDeviceHeaders } from '../pages/employee-app/employeeAppSt
 const rawBase = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? ''
 export const API_BASE = rawBase || 'http://localhost:3001/api'
 
-const TOKEN_LOCAL = 'neonshift_admin_token'
-const TOKEN_SESSION = 'neonshift_admin_token_session'
+const TOKEN_LOCAL = 'rabbit_technik_admin_token'
+const TOKEN_LOCAL_LEGACY = 'neonshift_admin_token'
+const TOKEN_SESSION = 'rabbit_technik_admin_token_session'
+const TOKEN_SESSION_LEGACY = 'neonshift_admin_token_session'
 
 export type ApiEnvelope<T> =
   | { ok: true; data: T }
@@ -15,13 +17,31 @@ export type ApiEnvelope<T> =
 
 export function getAdminToken(): string | null {
   if (typeof window === 'undefined') return null
-  return localStorage.getItem(TOKEN_LOCAL) ?? sessionStorage.getItem(TOKEN_SESSION)
+  const fromLs = localStorage.getItem(TOKEN_LOCAL) ?? localStorage.getItem(TOKEN_LOCAL_LEGACY)
+  if (fromLs) {
+    if (!localStorage.getItem(TOKEN_LOCAL) && localStorage.getItem(TOKEN_LOCAL_LEGACY)) {
+      localStorage.setItem(TOKEN_LOCAL, fromLs)
+      localStorage.removeItem(TOKEN_LOCAL_LEGACY)
+    }
+    return fromLs
+  }
+  const fromSs = sessionStorage.getItem(TOKEN_SESSION) ?? sessionStorage.getItem(TOKEN_SESSION_LEGACY)
+  if (fromSs) {
+    if (!sessionStorage.getItem(TOKEN_SESSION) && sessionStorage.getItem(TOKEN_SESSION_LEGACY)) {
+      sessionStorage.setItem(TOKEN_SESSION, fromSs)
+      sessionStorage.removeItem(TOKEN_SESSION_LEGACY)
+    }
+    return fromSs
+  }
+  return null
 }
 
 export function setAdminToken(token: string, rememberMe: boolean): void {
   if (typeof window === 'undefined') return
   localStorage.removeItem(TOKEN_LOCAL)
+  localStorage.removeItem(TOKEN_LOCAL_LEGACY)
   sessionStorage.removeItem(TOKEN_SESSION)
+  sessionStorage.removeItem(TOKEN_SESSION_LEGACY)
   if (rememberMe) localStorage.setItem(TOKEN_LOCAL, token)
   else sessionStorage.setItem(TOKEN_SESSION, token)
 }
@@ -29,7 +49,9 @@ export function setAdminToken(token: string, rememberMe: boolean): void {
 export function clearAdminToken(): void {
   if (typeof window === 'undefined') return
   localStorage.removeItem(TOKEN_LOCAL)
+  localStorage.removeItem(TOKEN_LOCAL_LEGACY)
   sessionStorage.removeItem(TOKEN_SESSION)
+  sessionStorage.removeItem(TOKEN_SESSION_LEGACY)
 }
 
 function authHeaders(): HeadersInit {
@@ -42,8 +64,9 @@ function onUnauthorized(): void {
   if (typeof window === 'undefined') return
   const p = window.location.pathname
   const onPath = (prefix: string) => p === prefix || p.startsWith(`${prefix}/`)
-  if (onPath('/employee-app') || onPath('/employee-access')) return
+  if (onPath('/employee-app') || onPath('/employee-access') || onPath('/employee')) return
   if (onPath('/tablet') || onPath('/station-terminal')) return
+  if (onPath('/app')) return
   if (!p.startsWith('/login')) window.location.assign('/login')
 }
 

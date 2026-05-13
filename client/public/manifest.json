@@ -2,7 +2,7 @@
   "name": "Rabbit-Technik Station",
   "short_name": "RT Station",
   "description": "Schichtplanung, Zeiterfassung und Stationsverwaltung für Tankstellen.",
-  "start_url": "/tablet",
+  "start_url": "/app",
   "scope": "/",
   "display": "standalone",
   "background_color": "#070b12",
