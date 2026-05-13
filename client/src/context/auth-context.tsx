@@ -29,6 +29,10 @@ export type AuthUser = {
   id: string
   username: string
   displayName: string
+  /** Optional, falls später aus dem Backend geliefert */
+  firstName?: string
+  /** Optionaler alternativer vollständiger Name */
+  name?: string
   roleId: string
   /** z. B. chief_admin, station_team_lead */
   roleKey?: string

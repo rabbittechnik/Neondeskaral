@@ -1,7 +1,12 @@
 import { CheckCircle2 } from 'lucide-react'
+import { useAuth } from '../../context/auth-context'
 import { Card } from '../../components/ui/Card'
+import { dashboardGreetingName } from '../../utils/authGreeting'
 
 export function WelcomeBanner() {
+  const { user } = useAuth()
+  const name = dashboardGreetingName(user)
+
   return (
     <Card
       padding="none"
@@ -16,10 +21,21 @@ export function WelcomeBanner() {
       />
       <div className="relative z-10 flex h-full flex-col justify-center p-5 md:p-6 lg:p-8">
         <h2 className="text-2xl font-semibold tracking-tight md:text-3xl">
-          Willkommen zurück, Mathias{' '}
-          <span className="inline-block" aria-hidden>
-            👋
-          </span>
+          {name ? (
+            <>
+              Willkommen zurück, {name}{' '}
+              <span className="inline-block" aria-hidden>
+                👋
+              </span>
+            </>
+          ) : (
+            <>
+              Willkommen zurück{' '}
+              <span className="inline-block" aria-hidden>
+                👋
+              </span>
+            </>
+          )}
         </h2>
         <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-[var(--text-muted)]">
           <CheckCircle2 className="h-4 w-4 text-emerald-400" aria-hidden />
