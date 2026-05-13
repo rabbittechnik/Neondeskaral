@@ -231,6 +231,11 @@ const statements = [
     rejected_by TEXT,
     rejected_at TEXT,
     rejected_reason TEXT,
+    paid INTEGER DEFAULT 0,
+    counts_against_vacation INTEGER DEFAULT 0,
+    paid_hours_per_day REAL DEFAULT 0,
+    paid_hours_total REAL DEFAULT 0,
+    absence_days REAL DEFAULT 0,
     created_at TEXT,
     updated_at TEXT,
     FOREIGN KEY (station_id) REFERENCES stations(id),
@@ -437,6 +442,23 @@ const statements = [
     created_at TEXT,
     updated_at TEXT
   )`,
+  `CREATE TABLE IF NOT EXISTS fuel_price_cache (
+    id TEXT PRIMARY KEY,
+    station_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    provider_station_id TEXT,
+    status TEXT,
+    is_open INTEGER,
+    e5 REAL,
+    e10 REAL,
+    diesel REAL,
+    currency TEXT DEFAULT 'EUR',
+    raw_json TEXT,
+    fetched_at TEXT,
+    created_at TEXT,
+    updated_at TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_fuel_price_cache_station ON fuel_price_cache(station_id)`,
 ]
 
 export function runSchema(db: Database.Database) {

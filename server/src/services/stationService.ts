@@ -63,6 +63,12 @@ export function updateStation(db: Database, id: string, body: Record<string, unk
       id,
     )
   if (r.changes === 0) throw new Error('Station nicht gefunden')
+  if (Object.prototype.hasOwnProperty.call(body, 'tankerkoenigStationId')) {
+    const raw = body.tankerkoenigStationId
+    const tid =
+      raw == null || (typeof raw === 'string' && raw.trim() === '') ? null : String(raw).trim()
+    db.prepare(`UPDATE stations SET tankerkoenig_station_id = ?, updated_at = ? WHERE id = ?`).run(tid, ts, id)
+  }
   return getStation(db, id)
 }
 

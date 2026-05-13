@@ -362,6 +362,41 @@ export function confirmTaskFromEmployeeApp(
   return listTaskLogs(db, { taskId })
 }
 
+/** Stations-Tablet: Quelle tablet, station_id + bestätigender Mitarbeiter. */
+export function confirmTaskFromTablet(
+  db: Database,
+  taskId: string,
+  opts: { date: string; employeeId: string; displayName: string; comment?: string; stationId: string },
+) {
+  const date = String(opts.date ?? '').trim()
+  if (!date) throw new Error('date erforderlich')
+  const stationId = String(opts.stationId ?? '').trim()
+  if (!stationId) throw new Error('stationId erforderlich')
+  const taskRow = db.prepare(`SELECT * FROM tasks WHERE id = ?`).get(taskId) as TaskRow | undefined
+  if (!taskRow) throw new Error('Aufgabe nicht gefunden')
+  if (String(taskRow.station_id ?? '').trim() !== stationId) throw new Error('Aufgabe gehört nicht zu dieser Station')
+  const controlReq = (taskRow.control_required ?? 0) === 1
+  const statusDb = controlReq ? 'in_control' : 'done'
+  const ts = nowIso()
+  const by = `${opts.displayName} (Tablet)`
+  const existing = db
+    .prepare(`SELECT * FROM task_logs WHERE task_id = ? AND date = ?`)
+    .get(taskId, date) as TaskLogRow | undefined
+  const id = existing?.id ?? `tl-${randomUUID()}`
+  const comment = opts.comment != null ? String(opts.comment) : existing?.comment ?? ''
+  if (existing) {
+    db.prepare(
+      `UPDATE task_logs SET status = ?, confirmed_at = ?, confirmed_by = ?, employee_id = COALESCE(employee_id, ?), comment = ?, station_id = ?, source = ?, confirmed_by_employee_id = ?, updated_at = ? WHERE id = ?`,
+    ).run(statusDb, ts, by, opts.employeeId, comment, stationId, 'tablet', opts.employeeId, ts, id)
+  } else {
+    db.prepare(
+      `INSERT INTO task_logs (id, task_id, employee_id, date, status, confirmed_at, confirmed_by, comment, station_id, source, confirmed_by_employee_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(id, taskId, opts.employeeId, date, statusDb, ts, by, comment, stationId, 'tablet', opts.employeeId, ts, ts)
+  }
+  return listTaskLogs(db, { taskId })
+}
+
 export function controlTask(
   db: Database,
   taskId: string,

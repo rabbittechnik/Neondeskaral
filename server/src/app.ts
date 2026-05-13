@@ -9,6 +9,8 @@ import { absencesRouter } from './routes/absences.routes.js'
 import { vacationBlocksRouter } from './routes/vacationBlocks.routes.js'
 import { tasksRouter, taskLogsRouter } from './routes/tasks.routes.js'
 import { timeEntriesRouter, terminalRouter } from './routes/timeTracking.routes.js'
+import { tabletRouter } from './routes/tablet.routes.js'
+import { fuelPricesRouter } from './routes/fuelPrices.routes.js'
 import { devRouter } from './routes/dev.routes.js'
 import { authRouter } from './routes/auth.routes.js'
 import { employeeAccessRouter } from './routes/employeeAccess.routes.js'
@@ -44,6 +46,8 @@ export function createApp() {
   app.use('/api/auth', authRouter)
   app.use('/api/employee-access', employeeAccessRouter)
   app.use('/api/terminal', terminalRouter)
+  app.use('/api/tablet', tabletRouter)
+  app.use('/api/fuel-prices', fuelPricesRouter)
 
   app.use('/api/schedule-assistant', scheduleAssistantRouter)
   app.use('/api/tuv-reports', tuvReportsRouter)

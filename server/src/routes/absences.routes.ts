@@ -87,7 +87,26 @@ absencesRouter.post('/:id/approve', (req, res) => {
     const uid = req.adminUser?.sub
     if (!uid) return jsonErr(res, 'Nicht angemeldet', 401)
     const by = getUserDisplayName(db, uid)
-    jsonOk(res, absenceService.approveAbsence(db, req.params.id, by))
+    const body = (req.body ?? {}) as { acknowledgeVacationDebt?: boolean }
+    try {
+      const a = absenceService.approveAbsence(db, req.params.id, by, {
+        acknowledgeVacationDebt: body.acknowledgeVacationDebt,
+      })
+      jsonOk(res, a)
+    } catch (e) {
+      if (e instanceof absenceService.VacationAckRequiredError) {
+        return res.status(409).json({
+          ok: false,
+          code: 'VACATION_ACK_REQUIRED',
+          error:
+            typeof e.details.message === 'string'
+              ? e.details.message
+              : 'Dieser Mitarbeiter hat nicht genügend Resturlaub.',
+          details: e.details,
+        })
+      }
+      throw e
+    }
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
   }

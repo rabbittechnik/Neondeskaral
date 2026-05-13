@@ -181,13 +181,23 @@ export function SchedulePage() {
 
   const weekAbsencesPanel = useMemo((): WeekAbsence[] => {
     const typeLabel: Record<string, string> = {
-      urlaub: 'Urlaub',
+      paid_vacation: 'Bezahlter Urlaub',
+      unpaid_vacation: 'Unbezahlter Urlaub',
+      urlaub: 'Bezahlter Urlaub',
+      vacation: 'Bezahlter Urlaub',
+      sick: 'Krank',
       krankheit: 'Krank',
+      school: 'Berufsschule',
       berufsschule: 'Berufsschule',
+      day_off: 'Frei',
       frei: 'Frei',
+      special_leave: 'Sonderurlaub',
       sonderurlaub: 'Sonderurlaub',
       unbezahlt: 'Unbezahlt',
+      unpaid: 'Unbezahlt',
+      child_sick: 'Kind krank',
       kind_krank: 'Kind krank',
+      other: 'Sonstiges',
       sonstiges: 'Sonstiges',
     }
     const fmt = (iso: string) => {

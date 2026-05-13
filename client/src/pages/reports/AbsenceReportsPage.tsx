@@ -13,9 +13,12 @@ type SummaryRow = {
   employeeId: string
   employeeName: string
   annualVacationDays: number
-  vacationTakenDays: number
+  paidVacationTakenDays: number
   remainingVacationDays: number
+  unpaidVacationDays: number
   sickDays: number
+  specialLeaveDays: number
+  paidVacationHoursInYear: number
   active: boolean
   vacationNotMaintained: boolean
 }
@@ -27,14 +30,21 @@ type SummaryPayload = {
   rows: SummaryRow[]
   totals: {
     annualVacationDays: number
-    vacationTakenDays: number
+    paidVacationTakenDays: number
     remainingVacationDays: number
+    unpaidVacationDays: number
     sickDays: number
+    specialLeaveDays: number
+    paidVacationHoursInYear: number
   }
 }
 
 function formatDaysDe(n: number): string {
   return `${n.toFixed(1).replace('.', ',')} Tage`
+}
+
+function formatHoursDe(n: number): string {
+  return `${n.toFixed(1).replace('.', ',')} Std.`
 }
 
 function buildYearOptions(): number[] {
@@ -174,14 +184,17 @@ export function AbsenceReportsPage() {
           <p className="p-6 text-sm text-[var(--text-muted)]">Keine Mitarbeiter für dieses Jahr gefunden.</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[880px] border-collapse text-sm">
+            <table className="w-full min-w-[1180px] border-collapse text-sm">
               <thead>
                 <tr className="border-b border-[var(--border-subtle)] bg-[var(--bg-elevated)]/50 text-left text-xs uppercase tracking-wide text-[var(--text-muted)]">
                   <th className="px-4 py-3 font-medium">Mitarbeiter</th>
                   <th className="px-4 py-3 text-right font-medium text-cyan-200/90">Urlaub {year}</th>
-                  <th className="px-4 py-3 text-right font-medium text-sky-300/90">Genommen {year}</th>
-                  <th className="px-4 py-3 text-right font-medium text-emerald-300/90">Resturlaub {year}</th>
-                  <th className="px-4 py-3 text-right font-medium text-orange-300/90">Kranktage {year}</th>
+                  <th className="px-4 py-3 text-right font-medium text-sky-300/90">Bez. Urlaub gen.</th>
+                  <th className="px-4 py-3 text-right font-medium text-emerald-300/90">Resturlaub</th>
+                  <th className="px-4 py-3 text-right font-medium text-slate-300/90">Unbez. Urlaub</th>
+                  <th className="px-4 py-3 text-right font-medium text-violet-300/90">Sonderurlaub</th>
+                  <th className="px-4 py-3 text-right font-medium text-lime-300/90">Urlaubs-Std.</th>
+                  <th className="px-4 py-3 text-right font-medium text-orange-300/90">Krank {year}</th>
                 </tr>
               </thead>
               <tbody>
@@ -205,17 +218,20 @@ export function AbsenceReportsPage() {
                         </div>
                       </td>
                       <td className="px-4 py-2.5 text-right tabular-nums text-cyan-100/90">{formatDaysDe(r.annualVacationDays)}</td>
-                      <td className="px-4 py-2.5 text-right tabular-nums text-sky-200/90">{formatDaysDe(r.vacationTakenDays)}</td>
+                      <td className="px-4 py-2.5 text-right tabular-nums text-sky-200/90">{formatDaysDe(r.paidVacationTakenDays)}</td>
                       <td
                         className={`px-4 py-2.5 text-right text-base font-semibold tabular-nums ${
                           neg ? 'text-red-400' : 'text-emerald-200'
                         }`}
                         title={
-                          neg ? 'Mehr Urlaub genommen als Anspruch vorhanden' : undefined
+                          neg ? 'Mehr bezahlter Urlaub genommen als Anspruch vorhanden' : undefined
                         }
                       >
                         {formatDaysDe(r.remainingVacationDays)}
                       </td>
+                      <td className="px-4 py-2.5 text-right tabular-nums text-slate-200/90">{formatDaysDe(r.unpaidVacationDays)}</td>
+                      <td className="px-4 py-2.5 text-right tabular-nums text-violet-200/90">{formatDaysDe(r.specialLeaveDays)}</td>
+                      <td className="px-4 py-2.5 text-right tabular-nums text-lime-200/90">{formatHoursDe(r.paidVacationHoursInYear)}</td>
                       <td className="px-4 py-2.5 text-right tabular-nums text-orange-200/90">{formatDaysDe(r.sickDays)}</td>
                     </tr>
                   )
@@ -228,7 +244,7 @@ export function AbsenceReportsPage() {
                     {formatDaysDe(data.totals.annualVacationDays)}
                   </td>
                   <td className="px-4 py-3 text-right font-semibold tabular-nums text-sky-200">
-                    {formatDaysDe(data.totals.vacationTakenDays)}
+                    {formatDaysDe(data.totals.paidVacationTakenDays)}
                   </td>
                   <td
                     className={`px-4 py-3 text-right text-base font-bold tabular-nums ${
@@ -236,6 +252,15 @@ export function AbsenceReportsPage() {
                     }`}
                   >
                     {formatDaysDe(data.totals.remainingVacationDays)}
+                  </td>
+                  <td className="px-4 py-3 text-right font-semibold tabular-nums text-slate-200">
+                    {formatDaysDe(data.totals.unpaidVacationDays)}
+                  </td>
+                  <td className="px-4 py-3 text-right font-semibold tabular-nums text-violet-200">
+                    {formatDaysDe(data.totals.specialLeaveDays)}
+                  </td>
+                  <td className="px-4 py-3 text-right font-semibold tabular-nums text-lime-200">
+                    {formatHoursDe(data.totals.paidVacationHoursInYear)}
                   </td>
                   <td className="px-4 py-3 text-right font-semibold tabular-nums text-orange-200">
                     {formatDaysDe(data.totals.sickDays)}
@@ -248,8 +273,8 @@ export function AbsenceReportsPage() {
       </Card>
 
       <p className="text-xs text-[var(--text-faint)] print:hidden">
-        Genommener Urlaub: nur genehmigte Einträge. Kranktage: genehmigt oder erfasst. Berechnung: Kalendertage im Jahr
-        (Umstellung auf Arbeitstage vorbereitet).
+        Genommener bezahlter Urlaub: genehmigt, zählt gegen Anspruch. Unbezahlter Urlaub und Sonderurlaub separat. Krank: genehmigt/erfasst.
+        Bezahlte Urlaubsstunden: anteilig nach Tagen im Jahr. Berechnung: Kalendertage (Arbeitstage vorbereitet).
       </p>
     </div>
   )

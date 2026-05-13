@@ -34,7 +34,7 @@ export function CashRegisterNumberModal({ open, mode, onClose, onSubmit }: Props
 
   if (!open) return null
 
-  const title = mode === 'check-in' ? 'Schicht starten' : 'Schicht beenden'
+  const title = mode === 'check-in' ? 'Kassennummer eingeben' : 'Kassennummer eingeben'
   const primary = mode === 'check-in' ? 'Schicht starten' : 'Weiter'
 
   return (
@@ -49,7 +49,7 @@ export function CashRegisterNumberModal({ open, mode, onClose, onSubmit }: Props
         </div>
         <p className="mt-3 text-base text-[var(--text-muted)]">Bitte gib deine Kassenkartennummer ein.</p>
         <label className="mt-6 block text-sm text-[var(--text-muted)]">
-          Kassenkartennummer
+          Kassennummer
           <input
             ref={inputRef}
             value={value}

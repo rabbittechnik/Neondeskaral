@@ -34,7 +34,7 @@ export const SEED_ABSENCES: Absence[] = [
   {
     id: 'abs-1',
     employeeId: 'e5',
-    type: 'urlaub',
+    type: 'paid_vacation',
     startDate: '2026-05-15',
     endDate: '2026-05-22',
     halfDay: false,
@@ -45,7 +45,7 @@ export const SEED_ABSENCES: Absence[] = [
   {
     id: 'abs-2',
     employeeId: 'e9',
-    type: 'urlaub',
+    type: 'paid_vacation',
     startDate: '2026-05-20',
     endDate: '2026-05-25',
     halfDay: false,
@@ -56,7 +56,7 @@ export const SEED_ABSENCES: Absence[] = [
   {
     id: 'abs-3',
     employeeId: 'e7',
-    type: 'krankheit',
+    type: 'sick',
     startDate: '2026-05-13',
     endDate: '2026-05-14',
     halfDay: false,
@@ -69,7 +69,7 @@ export const SEED_ABSENCES: Absence[] = [
   {
     id: 'abs-4',
     employeeId: 'e8',
-    type: 'urlaub',
+    type: 'paid_vacation',
     startDate: '2026-05-01',
     endDate: '2026-05-03',
     halfDay: false,
@@ -82,7 +82,7 @@ export const SEED_ABSENCES: Absence[] = [
   {
     id: 'abs-5',
     employeeId: 'e2',
-    type: 'frei',
+    type: 'day_off',
     startDate: '2026-05-28',
     endDate: '2026-05-28',
     halfDay: false,

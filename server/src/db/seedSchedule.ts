@@ -119,7 +119,7 @@ function absenceVacationExists(
 ): boolean {
   const r = db
     .prepare(
-      `SELECT 1 FROM absences WHERE employee_id = ? AND type = 'vacation' AND start_date = ? AND end_date = ? LIMIT 1`,
+      `SELECT 1 FROM absences WHERE employee_id = ? AND type = 'paid_vacation' AND start_date = ? AND end_date = ? LIMIT 1`,
     )
     .get(employeeId, start, end) as { 1: number } | undefined
   return Boolean(r)
@@ -194,14 +194,18 @@ export function seedImportedStationGuideSchedule(
     }
 
     const insAbs = db.prepare(
-      `INSERT INTO absences (id, station_id, employee_id, type, start_date, end_date, half_day, status, comment, requested_at, approved_by, approved_at, rejected_by, rejected_at, rejected_reason, created_at, updated_at)
-       VALUES (?, ?, ?, 'vacation', ?, ?, 0, 'approved', ?, ?, ?, ?, NULL, NULL, NULL, ?, ?)`,
+      `INSERT INTO absences (id, station_id, employee_id, type, start_date, end_date, half_day, status, comment, requested_at, approved_by, approved_at, rejected_by, rejected_at, rejected_reason, paid, counts_against_vacation, paid_hours_per_day, paid_hours_total, absence_days, created_at, updated_at)
+       VALUES (?, ?, ?, 'paid_vacation', ?, ?, 0, 'approved', ?, ?, ?, ?, NULL, NULL, NULL, 1, 1, 8, ?, ?, ?, ?)`,
     )
 
     for (const ab of stationGuideImportedAbsences) {
       const empId = ensureImportedEmployee(db, ab.employeeName)
       if (absenceVacationExists(db, empId, ab.startDate, ab.endDate)) continue
       const id = `sg-abs-${empId}-${ab.startDate}-${ab.endDate}`
+      const s = new Date(`${ab.startDate}T12:00:00`)
+      const e = new Date(`${ab.endDate}T12:00:00`)
+      const absenceDays = Math.max(1, Math.round((e.getTime() - s.getTime()) / 86400000) + 1)
+      const paidHoursTotal = absenceDays * 8
       insAbs.run(
         id,
         STATION_ID,
@@ -212,6 +216,8 @@ export function seedImportedStationGuideSchedule(
         ts,
         'Import',
         ts,
+        paidHoursTotal,
+        absenceDays,
         ts,
         ts,
       )

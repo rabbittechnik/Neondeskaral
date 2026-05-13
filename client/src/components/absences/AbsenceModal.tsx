@@ -20,17 +20,20 @@ type Props = {
   onSave: (a: Absence) => void
 }
 
-function emptyDraft(): Absence {
+type FormState = Absence & { paidHoursPerDay?: number }
+
+function emptyDraft(): FormState {
   return {
     id: '',
     employeeId: '',
-    type: 'urlaub',
+    type: 'paid_vacation',
     startDate: '',
     endDate: '',
     halfDay: false,
     status: 'beantragt',
     comment: '',
     requestedAt: new Date().toISOString(),
+    paidHoursPerDay: 8,
   }
 }
 
@@ -39,15 +42,21 @@ export function AbsenceModal({ open, mode, absence, onClose, onSave }: Props) {
   const { employees } = useEmployees()
   const { absences, vacationBlocks } = useAbsences()
   const { shifts } = useScheduleShifts()
-  const [form, setForm] = useState<Absence>(() => emptyDraft())
+  const [form, setForm] = useState<FormState>(() => emptyDraft())
   const [errors, setErrors] = useState<string[]>([])
 
   useEffect(() => {
     if (!open) return
     setErrors([])
-    if (mode === 'edit' && absence) setForm(structuredClone(absence))
-    else setForm(emptyDraft())
-  }, [open, mode, absence])
+    if (mode === 'edit' && absence) {
+      const emp = employees.find((e) => e.id === absence.employeeId)
+      const h = absence.paidHoursPerDay ?? emp?.vacationHoursPerDay ?? 8
+      setForm({
+        ...structuredClone(absence),
+        paidHoursPerDay: absence.type === 'paid_vacation' ? h : undefined,
+      } as FormState)
+    } else setForm(emptyDraft())
+  }, [open, mode, absence, employees])
 
   useEffect(() => {
     if (!open) return
@@ -94,12 +103,14 @@ export function AbsenceModal({ open, mode, absence, onClose, onSave }: Props) {
     setErrors(v)
     if (v.length > 0) return
     const now = new Date().toISOString()
+    const { paidHoursPerDay: phdField, ...base } = form
     const out: Absence = {
-      ...form,
+      ...base,
       status: approve ? 'genehmigt' : form.status,
       requestedAt: form.requestedAt || now,
       approvedBy: approve ? 'Station' : form.approvedBy,
       approvedAt: approve ? now : form.approvedAt,
+      ...(form.type === 'paid_vacation' ? { paidHoursPerDay: Number(phdField ?? 8) } : {}),
     }
     onSave(out)
     onClose()
@@ -155,7 +166,18 @@ export function AbsenceModal({ open, mode, absence, onClose, onSave }: Props) {
             Typ *
             <select
               value={form.type}
-              onChange={(e) => setForm((f) => ({ ...f, type: e.target.value as AbsenceType }))}
+              onChange={(e) => {
+                const t = e.target.value as AbsenceType
+                setForm((f) => {
+                  const emp = employees.find((x) => x.id === f.employeeId)
+                  const next = { ...f, type: t }
+                  if (t === 'paid_vacation') {
+                    const h = emp?.vacationHoursPerDay
+                    return { ...next, paidHoursPerDay: h != null && Number.isFinite(h) ? h : 8 }
+                  }
+                  return next
+                })
+              }}
               className="mt-1 w-full rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] px-3 py-2 text-sm text-[var(--text-main)]"
             >
               {(Object.keys(ABSENCE_TYPE_LABELS) as AbsenceType[]).map((t) => (
@@ -193,6 +215,21 @@ export function AbsenceModal({ open, mode, absence, onClose, onSave }: Props) {
             />
             Halbtägig
           </label>
+          {form.type === 'paid_vacation' ? (
+            <label className="block text-xs text-[var(--text-muted)]">
+              Bezahlte Stunden pro Urlaubstag
+              <input
+                type="number"
+                min={0}
+                step={0.25}
+                value={form.paidHoursPerDay ?? 8}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, paidHoursPerDay: e.target.value === '' ? undefined : Number(e.target.value) }))
+                }
+                className="mt-1 w-full rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] px-3 py-2 text-sm text-[var(--text-main)]"
+              />
+            </label>
+          ) : null}
           <label className="block text-xs text-[var(--text-muted)]">
             Kommentar
             <textarea
@@ -213,6 +250,7 @@ export function AbsenceModal({ open, mode, absence, onClose, onSave }: Props) {
               <option value="genehmigt">Genehmigt</option>
               <option value="abgelehnt">Abgelehnt</option>
               <option value="storniert">Storniert</option>
+              <option value="erfasst">Erfasst</option>
             </select>
           </label>
           <p className="text-[10px] text-[var(--text-faint)]">

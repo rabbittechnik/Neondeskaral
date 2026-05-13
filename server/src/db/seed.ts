@@ -547,14 +547,18 @@ export function seedIfEmpty(db: Database.Database) {
     }
 
     const insAbs = db.prepare(
-      `INSERT INTO absences (id, station_id, employee_id, type, start_date, end_date, half_day, status, comment, requested_at, approved_by, approved_at, rejected_by, rejected_at, rejected_reason, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?)`,
+      `INSERT INTO absences (
+         id, station_id, employee_id, type, start_date, end_date, half_day, status, comment,
+         requested_at, approved_by, approved_at, rejected_by, rejected_at, rejected_reason,
+         paid, counts_against_vacation, paid_hours_per_day, paid_hours_total, absence_days,
+         created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, ?)`,
     )
     insAbs.run(
       'abs-1',
       STATION_ID,
       'e5',
-      'vacation',
+      'paid_vacation',
       '2026-05-15',
       '2026-05-22',
       'requested',
@@ -562,6 +566,11 @@ export function seedIfEmpty(db: Database.Database) {
       ts,
       null,
       null,
+      1,
+      1,
+      8,
+      64,
+      8,
       ts,
       ts,
     )
@@ -569,7 +578,7 @@ export function seedIfEmpty(db: Database.Database) {
       'abs-2',
       STATION_ID,
       'e4',
-      'vacation',
+      'paid_vacation',
       '2026-05-20',
       '2026-05-25',
       'requested',
@@ -577,6 +586,11 @@ export function seedIfEmpty(db: Database.Database) {
       ts,
       null,
       null,
+      1,
+      1,
+      8,
+      48,
+      6,
       ts,
       ts,
     )
@@ -592,6 +606,11 @@ export function seedIfEmpty(db: Database.Database) {
       ts,
       'Station',
       ts,
+      0,
+      0,
+      0,
+      0,
+      2,
       ts,
       ts,
     )
@@ -599,7 +618,7 @@ export function seedIfEmpty(db: Database.Database) {
       'abs-4',
       STATION_ID,
       'e8',
-      'vacation',
+      'paid_vacation',
       '2026-05-01',
       '2026-05-03',
       'approved',
@@ -607,6 +626,11 @@ export function seedIfEmpty(db: Database.Database) {
       ts,
       'Station',
       ts,
+      1,
+      1,
+      8,
+      24,
+      3,
       ts,
       ts,
     )
@@ -622,6 +646,11 @@ export function seedIfEmpty(db: Database.Database) {
       ts,
       'Station',
       ts,
+      0,
+      0,
+      0,
+      0,
+      1,
       ts,
       ts,
     )

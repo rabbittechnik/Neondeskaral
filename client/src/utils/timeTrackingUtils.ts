@@ -3,10 +3,20 @@ import type { ScheduleShift } from '../data/mockSchedule'
 import type { ShiftCloseChecklist, TimeEntry } from '../types/timeTracking'
 import { toISODateLocal } from './taskUtils'
 
+/** Minimal-Mitarbeiter für Kassen-Terminal (Einstempeln/Ausstempeln). */
+export type ClockCardEmployee = Pick<
+  Employee,
+  | 'id'
+  | 'displayName'
+  | 'cashRegisterCardNumber'
+  | 'terminalEnabled'
+  | 'timeTrackingEnabled'
+>
+
 export function findEmployeeByCashRegisterCardNumber(
-  employees: Employee[],
+  employees: ClockCardEmployee[],
   raw: string,
-): Employee | undefined {
+): ClockCardEmployee | undefined {
   const n = raw.trim()
   if (!n) return undefined
   return employees.find(
@@ -63,15 +73,15 @@ export function getPlannedShiftForEmployeeToday(
 
 export type CheckInEvaluation =
   | { kind: 'unknown_card' }
-  | { kind: 'already_checked_in'; employee: Employee; entry: TimeEntry }
-  | { kind: 'not_scheduled'; employee: Employee }
-  | { kind: 'too_early'; employee: Employee; minutesEarly: number; plannedStart: string }
-  | { kind: 'too_late'; employee: Employee; minutesLate: number; planned: ScheduleShift }
-  | { kind: 'ready'; employee: Employee; planned: ScheduleShift | null }
+  | { kind: 'already_checked_in'; employee: ClockCardEmployee; entry: TimeEntry }
+  | { kind: 'not_scheduled'; employee: ClockCardEmployee }
+  | { kind: 'too_early'; employee: ClockCardEmployee; minutesEarly: number; plannedStart: string }
+  | { kind: 'too_late'; employee: ClockCardEmployee; minutesLate: number; planned: ScheduleShift }
+  | { kind: 'ready'; employee: ClockCardEmployee; planned: ScheduleShift | null }
 
 export function evaluateCheckIn(
   cardNumber: string,
-  employees: Employee[],
+  employees: ClockCardEmployee[],
   shifts: ScheduleShift[],
   entries: TimeEntry[],
   now: Date = new Date(),
@@ -99,12 +109,12 @@ export function evaluateCheckIn(
 
 export type CheckOutEvaluation =
   | { kind: 'unknown_card' }
-  | { kind: 'not_checked_in'; employee: Employee }
-  | { kind: 'ready'; employee: Employee; entry: TimeEntry }
+  | { kind: 'not_checked_in'; employee: ClockCardEmployee }
+  | { kind: 'ready'; employee: ClockCardEmployee; entry: TimeEntry }
 
 export function evaluateCheckOut(
   cardNumber: string,
-  employees: Employee[],
+  employees: ClockCardEmployee[],
   entries: TimeEntry[],
 ): CheckOutEvaluation {
   const emp = findEmployeeByCashRegisterCardNumber(employees, cardNumber)
@@ -183,7 +193,7 @@ export type ShiftSnapshotRow = {
 }
 
 export function buildShiftSnapshotRows(
-  employees: Employee[],
+  employees: ClockCardEmployee[],
   shifts: ScheduleShift[],
   entries: TimeEntry[],
   now: Date = new Date(),
@@ -280,7 +290,7 @@ export type UpcomingRow = {
 }
 
 export function buildUpcomingShiftRows(
-  employees: Employee[],
+  employees: ClockCardEmployee[],
   shifts: ScheduleShift[],
   entries: TimeEntry[],
   now: Date = new Date(),

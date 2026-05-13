@@ -10,7 +10,7 @@ import {
 import type { Absence, VacationBlock } from '../types/absence'
 import { createAbsenceId, createVacationBlockId } from '../data/mockAbsences'
 import { dispatchNotificationsRefresh } from '../utils/notificationsRefresh'
-import { apiGet, apiSend } from '../services/api'
+import { apiGet, apiSend, type ApiEnvelope } from '../services/api'
 import { useStation } from './station-context'
 
 type AbsencesContextValue = {
@@ -22,7 +22,7 @@ type AbsencesContextValue = {
   setAbsence: (a: Absence) => Promise<void>
   addAbsence: (a: Absence) => Promise<void>
   removeAbsence: (id: string) => Promise<void>
-  approveAbsence: (id: string) => Promise<void>
+  approveAbsence: (id: string, opts?: { acknowledgeVacationDebt?: boolean }) => Promise<ApiEnvelope<Absence>>
   rejectAbsence: (id: string, reason?: string) => Promise<void>
   setVacationBlock: (b: VacationBlock) => Promise<void>
   addVacationBlock: (b: VacationBlock) => Promise<void>
@@ -98,11 +98,13 @@ export function AbsencesProvider({ children }: { children: ReactNode }) {
   )
 
   const approveAbsence = useCallback(
-    async (id: string) => {
-      const res = await apiSend<Absence>('POST', `/absences/${encodeURIComponent(id)}/approve`, {})
-      if (!res.ok) throw new Error(res.error)
-      await refetch()
-      dispatchNotificationsRefresh()
+    async (id: string, opts?: { acknowledgeVacationDebt?: boolean }) => {
+      const res = await apiSend<Absence>('POST', `/absences/${encodeURIComponent(id)}/approve`, opts ?? {})
+      if (res.ok) {
+        await refetch()
+        dispatchNotificationsRefresh()
+      }
+      return res
     },
     [refetch],
   )

@@ -1,14 +1,14 @@
 export type AbsenceType =
-  | 'urlaub'
-  | 'krankheit'
-  | 'berufsschule'
-  | 'frei'
-  | 'sonderurlaub'
-  | 'unbezahlt'
-  | 'kind_krank'
-  | 'sonstiges'
+  | 'paid_vacation'
+  | 'unpaid_vacation'
+  | 'day_off'
+  | 'sick'
+  | 'special_leave'
+  | 'child_sick'
+  | 'other'
+  | 'school'
 
-export type AbsenceStatus = 'beantragt' | 'genehmigt' | 'abgelehnt' | 'storniert'
+export type AbsenceStatus = 'beantragt' | 'genehmigt' | 'abgelehnt' | 'storniert' | 'erfasst'
 
 export type Absence = {
   id: string
@@ -27,6 +27,11 @@ export type Absence = {
   rejectedReason?: string
   /** Hinweis aus Konfliktprüfung (optional gespeichert) */
   conflictHint?: string
+  paid?: boolean
+  countsAgainstVacation?: boolean
+  paidHoursPerDay?: number
+  paidHoursTotal?: number
+  absenceDays?: number
 }
 
 export type VacationBlock = {

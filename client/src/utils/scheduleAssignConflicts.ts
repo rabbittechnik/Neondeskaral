@@ -60,9 +60,9 @@ export function evaluateShiftAssignConflicts(params: {
     if (a.employeeId !== params.newEmployeeId) continue
     if (!absenceCoversDate(a, dateIso)) continue
     const t =
-      a.type === 'urlaub'
+      a.type === 'paid_vacation' || a.type === 'unpaid_vacation'
         ? 'Urlaub'
-        : a.type === 'krankheit' || a.type === 'kind_krank'
+        : a.type === 'sick' || a.type === 'krankheit' || a.type === 'child_sick' || a.type === 'kind_krank'
           ? 'Krank'
           : 'Abwesend'
     hard.push(`${emp.displayName} ist an diesem Tag als ${t} markiert (${a.startDate} – ${a.endDate}).`)

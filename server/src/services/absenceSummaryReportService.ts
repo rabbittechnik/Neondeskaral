@@ -1,5 +1,6 @@
 import type { Database } from 'better-sqlite3'
 import { calculateAbsenceDaysInYear, type AbsenceCountMode, workDayCodesFromEmployeeRow } from '../utils/absenceYearCalculator.js'
+import { countAbsenceSpanDaysCalendar, normalizeAbsenceDbType } from '../utils/vacationImpactCalculator.js'
 
 type EmployeeRow = {
   id: string
@@ -20,6 +21,9 @@ type AbsenceRow = {
   end_date: string
   half_day: number | null
   status: string
+  counts_against_vacation: number | null
+  paid_hours_total: number | null
+  absence_days: number | null
 }
 
 export type AbsenceSummaryCohort = 'active' | 'exited_year'
@@ -28,18 +32,24 @@ export type AbsenceSummaryRow = {
   employeeId: string
   employeeName: string
   annualVacationDays: number
-  vacationTakenDays: number
+  paidVacationTakenDays: number
   remainingVacationDays: number
+  unpaidVacationDays: number
   sickDays: number
+  specialLeaveDays: number
+  paidVacationHoursInYear: number
   active: boolean
   vacationNotMaintained: boolean
 }
 
 export type AbsenceSummaryTotals = {
   annualVacationDays: number
-  vacationTakenDays: number
+  paidVacationTakenDays: number
   remainingVacationDays: number
+  unpaidVacationDays: number
   sickDays: number
+  specialLeaveDays: number
+  paidVacationHoursInYear: number
 }
 
 export type AbsenceSummaryPayload = {
@@ -98,7 +108,8 @@ function loadAbsencesOverlappingYear(db: Database, stationId: string, year: numb
   const yEnd = `${year}-12-31`
   return db
     .prepare(
-      `SELECT employee_id, type, start_date, end_date, half_day, status
+      `SELECT employee_id, type, start_date, end_date, half_day, status,
+              counts_against_vacation, paid_hours_total, absence_days
        FROM absences
        WHERE station_id = ?
          AND end_date >= ? AND start_date <= ?`,
@@ -106,7 +117,41 @@ function loadAbsencesOverlappingYear(db: Database, stationId: string, year: numb
     .all(stationId, yStart, yEnd) as AbsenceRow[]
 }
 
-function sumVacationTakenForEmployee(
+function daysInYear(
+  r: Pick<AbsenceRow, 'start_date' | 'end_date' | 'half_day'>,
+  year: number,
+  mode: AbsenceCountMode,
+  workCodes: string[] | null,
+): number {
+  return (
+    Math.round(
+      calculateAbsenceDaysInYear(
+        { startDate: r.start_date, endDate: r.end_date, halfDay: (r.half_day ?? 0) === 1 },
+        year,
+        mode,
+        workCodes,
+      ) * 100,
+    ) / 100
+  )
+}
+
+function paidVacationHoursPortionInYear(r: AbsenceRow, year: number, mode: AbsenceCountMode, workCodes: string[] | null): number {
+  const t = normalizeAbsenceDbType(r.type)
+  if (t !== 'paid_vacation') return 0
+  if (r.status !== 'approved') return 0
+  if (r.counts_against_vacation === 0) return 0
+  const inYear = daysInYear(r, year, mode, workCodes)
+  if (inYear <= 0) return 0
+  const totalHours = Number(r.paid_hours_total ?? 0) || 0
+  const spanTotal =
+    Number(r.absence_days) > 0
+      ? Number(r.absence_days)
+      : countAbsenceSpanDaysCalendar(r.start_date, r.end_date, (r.half_day ?? 0) === 1)
+  if (!spanTotal || spanTotal <= 0) return 0
+  return Math.round(totalHours * (inYear / spanTotal) * 100) / 100
+}
+
+function sumPaidVacationTakenForEmployee(
   rows: AbsenceRow[],
   employeeId: string,
   year: number,
@@ -116,14 +161,59 @@ function sumVacationTakenForEmployee(
   let sum = 0
   for (const r of rows) {
     if (r.employee_id !== employeeId) continue
-    if (r.type !== 'vacation') continue
+    if (normalizeAbsenceDbType(r.type) !== 'paid_vacation') continue
     if (r.status !== 'approved') continue
-    sum += calculateAbsenceDaysInYear(
-      { startDate: r.start_date, endDate: r.end_date, halfDay: (r.half_day ?? 0) === 1 },
-      year,
-      mode,
-      workCodes,
-    )
+    if (r.counts_against_vacation === 0) continue
+    sum += daysInYear(r, year, mode, workCodes)
+  }
+  return Math.round(sum * 100) / 100
+}
+
+function sumUnpaidVacationForEmployee(
+  rows: AbsenceRow[],
+  employeeId: string,
+  year: number,
+  mode: AbsenceCountMode,
+  workCodes: string[] | null,
+): number {
+  let sum = 0
+  for (const r of rows) {
+    if (r.employee_id !== employeeId) continue
+    if (normalizeAbsenceDbType(r.type) !== 'unpaid_vacation') continue
+    if (r.status !== 'approved') continue
+    sum += daysInYear(r, year, mode, workCodes)
+  }
+  return Math.round(sum * 100) / 100
+}
+
+function sumSpecialLeaveForEmployee(
+  rows: AbsenceRow[],
+  employeeId: string,
+  year: number,
+  mode: AbsenceCountMode,
+  workCodes: string[] | null,
+): number {
+  let sum = 0
+  for (const r of rows) {
+    if (r.employee_id !== employeeId) continue
+    if (normalizeAbsenceDbType(r.type) !== 'special_leave') continue
+    if (r.status !== 'approved') continue
+    sum += daysInYear(r, year, mode, workCodes)
+  }
+  return Math.round(sum * 100) / 100
+}
+
+function sumPaidVacationHoursForEmployee(
+  rows: AbsenceRow[],
+  employeeId: string,
+  year: number,
+  mode: AbsenceCountMode,
+  workCodes: string[] | null,
+): number {
+  let sum = 0
+  for (const r of rows) {
+    if (r.employee_id !== employeeId) continue
+    sum += paidVacationHoursPortionInYear(r, year, mode, workCodes)
   }
   return Math.round(sum * 100) / 100
 }
@@ -138,14 +228,9 @@ function sumSickForEmployee(
   let sum = 0
   for (const r of rows) {
     if (r.employee_id !== employeeId) continue
-    if (r.type !== 'sick') continue
+    if (normalizeAbsenceDbType(r.type) !== 'sick') continue
     if (r.status !== 'approved' && r.status !== 'recorded') continue
-    sum += calculateAbsenceDaysInYear(
-      { startDate: r.start_date, endDate: r.end_date, halfDay: (r.half_day ?? 0) === 1 },
-      year,
-      mode,
-      workCodes,
-    )
+    sum += daysInYear(r, year, mode, workCodes)
   }
   return Math.round(sum * 100) / 100
 }
@@ -163,16 +248,22 @@ export function buildAbsenceYearSummary(
     const annualRaw = emp.annual_vacation_days
     const vacationNotMaintained = annualRaw === null || annualRaw === undefined
     const annualVacationDays = vacationNotMaintained ? 0 : Number(annualRaw) || 0
-    const vacationTakenDays = sumVacationTakenForEmployee(absRows, emp.id, p.year, mode, workCodes)
-    const remainingVacationDays = Math.round((annualVacationDays - vacationTakenDays) * 100) / 100
+    const paidVacationTakenDays = sumPaidVacationTakenForEmployee(absRows, emp.id, p.year, mode, workCodes)
+    const remainingVacationDays = Math.round((annualVacationDays - paidVacationTakenDays) * 100) / 100
+    const unpaidVacationDays = sumUnpaidVacationForEmployee(absRows, emp.id, p.year, mode, workCodes)
     const sickDays = sumSickForEmployee(absRows, emp.id, p.year, mode, workCodes)
+    const specialLeaveDays = sumSpecialLeaveForEmployee(absRows, emp.id, p.year, mode, workCodes)
+    const paidVacationHoursInYear = sumPaidVacationHoursForEmployee(absRows, emp.id, p.year, mode, workCodes)
     return {
       employeeId: emp.id,
       employeeName: displayNameFromRow(emp),
       annualVacationDays,
-      vacationTakenDays,
+      paidVacationTakenDays,
       remainingVacationDays,
+      unpaidVacationDays,
       sickDays,
+      specialLeaveDays,
+      paidVacationHoursInYear,
       active: isActiveRow(emp),
       vacationNotMaintained,
     }
@@ -181,11 +272,22 @@ export function buildAbsenceYearSummary(
   const totals: AbsenceSummaryTotals = rows.reduce(
     (acc, r) => ({
       annualVacationDays: Math.round((acc.annualVacationDays + r.annualVacationDays) * 100) / 100,
-      vacationTakenDays: Math.round((acc.vacationTakenDays + r.vacationTakenDays) * 100) / 100,
+      paidVacationTakenDays: Math.round((acc.paidVacationTakenDays + r.paidVacationTakenDays) * 100) / 100,
       remainingVacationDays: Math.round((acc.remainingVacationDays + r.remainingVacationDays) * 100) / 100,
+      unpaidVacationDays: Math.round((acc.unpaidVacationDays + r.unpaidVacationDays) * 100) / 100,
       sickDays: Math.round((acc.sickDays + r.sickDays) * 100) / 100,
+      specialLeaveDays: Math.round((acc.specialLeaveDays + r.specialLeaveDays) * 100) / 100,
+      paidVacationHoursInYear: Math.round((acc.paidVacationHoursInYear + r.paidVacationHoursInYear) * 100) / 100,
     }),
-    { annualVacationDays: 0, vacationTakenDays: 0, remainingVacationDays: 0, sickDays: 0 },
+    {
+      annualVacationDays: 0,
+      paidVacationTakenDays: 0,
+      remainingVacationDays: 0,
+      unpaidVacationDays: 0,
+      sickDays: 0,
+      specialLeaveDays: 0,
+      paidVacationHoursInYear: 0,
+    },
   )
 
   return {

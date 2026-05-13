@@ -9,7 +9,9 @@ export const API_BASE = rawBase || 'http://localhost:3001/api'
 const TOKEN_LOCAL = 'neonshift_admin_token'
 const TOKEN_SESSION = 'neonshift_admin_token_session'
 
-export type ApiEnvelope<T> = { ok: true; data: T } | { ok: false; error: string }
+export type ApiEnvelope<T> =
+  | { ok: true; data: T }
+  | { ok: false; error: string; code?: string; details?: Record<string, unknown> }
 
 export function getAdminToken(): string | null {
   if (typeof window === 'undefined') return null
@@ -39,7 +41,9 @@ function onUnauthorized(): void {
   clearAdminToken()
   if (typeof window === 'undefined') return
   const p = window.location.pathname
-  if (p.startsWith('/employee-app') || p.startsWith('/employee-access')) return
+  const onPath = (prefix: string) => p === prefix || p.startsWith(`${prefix}/`)
+  if (onPath('/employee-app') || onPath('/employee-access')) return
+  if (onPath('/tablet') || onPath('/station-terminal')) return
   if (!p.startsWith('/login')) window.location.assign('/login')
 }
 

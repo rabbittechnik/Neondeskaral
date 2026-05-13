@@ -35,7 +35,18 @@ employeeAccessRouter.post('/:token/absences', (req, res) => {
   try {
     const meta = access.parseEmployeeAccessRequestMeta(req)
     const out = access.employeeAccessCreateAbsence(getDb(), req.params.token, req.body ?? {}, meta)
-    if (!out.ok) return jsonErr(res, denied(), 403)
+    if (!out.ok) {
+      if (out.error === 'invalid_token') return jsonErr(res, denied(), 403)
+      return res.status(409).json({
+        ok: false,
+        code: 'VACATION_ACK_REQUIRED',
+        error:
+          typeof out.details?.message === 'string'
+            ? out.details.message
+            : 'Resturlaub reicht nicht aus. Bitte mit Bestätigung erneut senden.',
+        details: out.details,
+      })
+    }
     jsonOk(res, out.data, 201)
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)

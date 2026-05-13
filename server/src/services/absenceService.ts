@@ -2,32 +2,80 @@ import type { Database } from 'better-sqlite3'
 import { randomUUID } from 'node:crypto'
 import { DEFAULT_STATION_ID } from '../constants.js'
 import { nowIso } from '../utils/timestamps.js'
-
-const TYPE_TO_DE: Record<string, string> = {
-  vacation: 'urlaub',
-  sick: 'krankheit',
-  school: 'berufsschule',
-  day_off: 'frei',
-  special_leave: 'sonderurlaub',
-  unpaid: 'unbezahlt',
-  child_sick: 'kind_krank',
-  other: 'sonstiges',
-}
-
-const DE_TO_TYPE: Record<string, string> = Object.fromEntries(
-  Object.entries(TYPE_TO_DE).map(([k, v]) => [v, k]),
-)
+import { workDayCodesFromEmployeeRow, type AbsenceCountMode } from '../utils/absenceYearCalculator.js'
+import {
+  calculateVacationImpact,
+  normalizeAbsenceDbType,
+} from '../utils/vacationImpactCalculator.js'
+import {
+  calendarYearFromStartDate,
+  paidVacationDaysOfAbsenceInYear,
+  sumApprovedPaidVacationDaysInYear,
+  sumPendingPaidVacationDaysInYear,
+  type AbsenceBalanceRow,
+} from '../utils/vacationBalanceCalculator.js'
 
 const STATUS_TO_DE: Record<string, string> = {
   requested: 'beantragt',
   approved: 'genehmigt',
   rejected: 'abgelehnt',
   cancelled: 'storniert',
+  recorded: 'erfasst',
 }
 
 const DE_TO_STATUS: Record<string, string> = Object.fromEntries(
   Object.entries(STATUS_TO_DE).map(([k, v]) => [v, k]),
 )
+
+function statusToApi(statusDb: string): string {
+  return STATUS_TO_DE[statusDb] ?? statusDb
+}
+
+function statusFromApi(statusDe: string): string {
+  return DE_TO_STATUS[statusDe] ?? statusDe
+}
+
+export class VacationAckRequiredError extends Error {
+  readonly code = 'VACATION_ACK_REQUIRED' as const
+  constructor(public readonly details: Record<string, unknown>) {
+    super('VACATION_ACK_REQUIRED')
+    this.name = 'VacationAckRequiredError'
+  }
+}
+
+type EmpVac = {
+  annual_vacation_days: number | null
+  vacation_hours_per_day: number | null
+  work_days_json: string | null
+}
+
+function loadEmployeeVacationSlice(db: Database, employeeId: string): EmpVac | undefined {
+  return db
+    .prepare(
+      `SELECT annual_vacation_days, vacation_hours_per_day, work_days_json FROM employees WHERE id = ?`,
+    )
+    .get(employeeId) as EmpVac | undefined
+}
+
+export function loadAbsenceBalanceRows(
+  db: Database,
+  stationId: string,
+  employeeId: string,
+  year: number,
+): AbsenceBalanceRow[] {
+  const yStart = `${year}-01-01`
+  const yEnd = `${year}-12-31`
+  return db
+    .prepare(
+      `SELECT id, employee_id, type, start_date, end_date, half_day, status,
+              counts_against_vacation
+       FROM absences
+       WHERE station_id = ? AND employee_id = ? AND end_date >= ? AND start_date <= ?`,
+    )
+    .all(stationId, employeeId, yStart, yEnd) as AbsenceBalanceRow[]
+}
+
+const VACATION_BALANCE_MODE: AbsenceCountMode = 'calendar_days'
 
 export type AbsenceRow = {
   id: string
@@ -45,17 +93,23 @@ export type AbsenceRow = {
   rejected_by: string | null
   rejected_at: string | null
   rejected_reason: string | null
+  paid: number | null
+  counts_against_vacation: number | null
+  paid_hours_per_day: number | null
+  paid_hours_total: number | null
+  absence_days: number | null
 }
 
 export function rowToAbsenceApi(r: AbsenceRow) {
+  const t = normalizeAbsenceDbType(r.type)
   return {
     id: r.id,
     employeeId: r.employee_id,
-    type: (TYPE_TO_DE[r.type] ?? 'sonstiges') as string,
+    type: t,
     startDate: r.start_date,
     endDate: r.end_date,
     halfDay: (r.half_day ?? 0) === 1,
-    status: (STATUS_TO_DE[r.status] ?? 'beantragt') as string,
+    status: statusToApi(r.status) as string,
     comment: r.comment ?? '',
     requestedAt: r.requested_at ?? nowIso(),
     approvedBy: r.approved_by ?? undefined,
@@ -63,7 +117,47 @@ export function rowToAbsenceApi(r: AbsenceRow) {
     rejectedReason: r.rejected_reason ?? undefined,
     rejectedBy: r.rejected_by ?? undefined,
     rejectedAt: r.rejected_at ?? undefined,
+    paid: (r.paid ?? 0) === 1,
+    countsAgainstVacation: (r.counts_against_vacation ?? 0) === 1,
+    paidHoursPerDay: Number(r.paid_hours_per_day ?? 0),
+    paidHoursTotal: Number(r.paid_hours_total ?? 0),
+    absenceDays: Number(r.absence_days ?? 0),
   }
+}
+
+function readPaidHoursFromBody(body: Record<string, unknown>): number | undefined {
+  if (body.paidHoursPerDay != null && body.paidHoursPerDay !== '') {
+    const n = Number(body.paidHoursPerDay)
+    return Number.isFinite(n) ? n : undefined
+  }
+  if (body.paid_hours_per_day != null && body.paid_hours_per_day !== '') {
+    const n = Number(body.paid_hours_per_day)
+    return Number.isFinite(n) ? n : undefined
+  }
+  return undefined
+}
+
+function computeImpactForRow(
+  db: Database,
+  employeeId: string,
+  typeRaw: string,
+  startDate: string,
+  endDate: string,
+  halfDay: boolean,
+  paidHoursOverride?: number | null,
+) {
+  const typeDb = normalizeAbsenceDbType(typeRaw)
+  const emp = loadEmployeeVacationSlice(db, employeeId)
+  return calculateVacationImpact(
+    {
+      type: typeDb,
+      startDate,
+      endDate,
+      halfDay,
+      paidHoursPerDay: paidHoursOverride,
+    },
+    { vacation_hours_per_day: emp?.vacation_hours_per_day },
+  )
 }
 
 export function listAbsences(
@@ -93,14 +187,14 @@ export function listAbsences(
     params.push(q.employeeId)
   }
   if (q.status) {
-    const st = DE_TO_STATUS[q.status] ?? q.status
+    const st = statusFromApi(q.status) ?? q.status
     sql += ` AND status = ?`
     params.push(st)
   }
   if (q.type) {
-    const ty = DE_TO_TYPE[q.type] ?? q.type
+    const qt = normalizeAbsenceDbType(String(q.type))
     sql += ` AND type = ?`
-    params.push(ty)
+    params.push(qt)
   }
   sql += ` ORDER BY start_date`
   const rows = db.prepare(sql).all(...params) as AbsenceRow[]
@@ -121,12 +215,14 @@ function formatDeYmd(ymd: string): string {
 }
 
 const ABS_TYPE_SNIPPET_DE: Record<string, string> = {
-  vacation: 'Urlaub',
+  paid_vacation: 'Bezahlter Urlaub',
+  vacation: 'Bezahlter Urlaub',
+  unpaid_vacation: 'Unbezahlter Urlaub',
+  unpaid: 'Unbezahlter Urlaub',
   day_off: 'Frei',
   sick: 'Krank',
   special_leave: 'Sonderurlaub',
   child_sick: 'Kind krank',
-  unpaid: 'Unbezahlt',
   other: 'Sonstiges',
   school: 'Berufsschule',
 }
@@ -144,7 +240,7 @@ export function getLatestRequestedAbsenceSnippet(db: Database, stationId: string
     )
     .get(stationId) as { dn: string; ty: string; sd: string; ed: string } | undefined
   if (!r) return null
-  const t = ABS_TYPE_SNIPPET_DE[r.ty] ?? 'Abwesenheit'
+  const t = ABS_TYPE_SNIPPET_DE[r.ty] ?? ABS_TYPE_SNIPPET_DE[normalizeAbsenceDbType(r.ty)] ?? 'Abwesenheit'
   return `${r.dn} beantragt ${t} vom ${formatDeYmd(r.sd)} bis ${formatDeYmd(r.ed)}.`
 }
 
@@ -153,33 +249,139 @@ export function getAbsence(db: Database, id: string) {
   return r ? rowToAbsenceApi(r) : undefined
 }
 
+export function getAbsenceRow(db: Database, id: string): AbsenceRow | undefined {
+  return db.prepare(`SELECT * FROM absences WHERE id = ?`).get(id) as AbsenceRow | undefined
+}
+
+/** Jahres-Resturlaub-Übersicht für Mitarbeiter-App (Kalendertage, bezahlter Urlaub). */
+export function buildVacationSnapshotForEmployee(
+  db: Database,
+  stationId: string,
+  employeeId: string,
+  year: number,
+) {
+  const emp = loadEmployeeVacationSlice(db, employeeId)
+  const workCodes = workDayCodesFromEmployeeRow(emp?.work_days_json)
+  const rows = loadAbsenceBalanceRows(db, stationId, employeeId, year)
+  const annualDays = Number(emp?.annual_vacation_days ?? 0) || 0
+  const approvedPaid = sumApprovedPaidVacationDaysInYear(rows, employeeId, year, VACATION_BALANCE_MODE, workCodes)
+  const pendingPaid = sumPendingPaidVacationDaysInYear(rows, employeeId, year, VACATION_BALANCE_MODE, workCodes)
+  const remainingPaid = Math.round((annualDays - approvedPaid) * 100) / 100
+  return {
+    year,
+    annualVacationDays: annualDays,
+    approvedPaidVacationDays: approvedPaid,
+    pendingPaidVacationDays: pendingPaid,
+    remainingPaidVacationDays: remainingPaid,
+  }
+}
+
+/** Prüfung Resturlaub für neuen bezahlten Urlaubsantrag (Mitarbeiter-App). */
+export function evaluatePaidVacationRequestDebt(
+  db: Database,
+  stationId: string,
+  employeeId: string,
+  p: {
+    startDate: string
+    endDate: string
+    halfDay: boolean
+    typeInput: string
+  },
+) {
+  const typeDb = normalizeAbsenceDbType(p.typeInput)
+  if (typeDb !== 'paid_vacation') {
+    return { exceeds: false as const }
+  }
+  const year = calendarYearFromStartDate(p.startDate)
+  const emp = loadEmployeeVacationSlice(db, employeeId)
+  const workCodes = workDayCodesFromEmployeeRow(emp?.work_days_json)
+  const annual = Number(emp?.annual_vacation_days ?? 0) || 0
+  const rows = loadAbsenceBalanceRows(db, stationId, employeeId, year)
+  const taken = sumApprovedPaidVacationDaysInYear(rows, employeeId, year, VACATION_BALANCE_MODE, workCodes)
+  const pending = sumPendingPaidVacationDaysInYear(rows, employeeId, year, VACATION_BALANCE_MODE, workCodes)
+  const requestDays = paidVacationDaysOfAbsenceInYear(
+    p.startDate,
+    p.endDate,
+    p.halfDay,
+    year,
+    VACATION_BALANCE_MODE,
+    workCodes,
+  )
+  const remaining = Math.round((annual - taken) * 100) / 100
+  const afterRequest = Math.round((remaining - requestDays) * 100) / 100
+  const exceeds = requestDays > remaining
+  return {
+    exceeds,
+    annualVacationDays: annual,
+    approvedPaidVacationDays: taken,
+    pendingPaidVacationDays: pending,
+    remainingVacationDays: remaining,
+    requestedPaidVacationDays: requestDays,
+    remainingAfterRequest: afterRequest,
+    year,
+  }
+}
+
+export function assertPaidVacationCreateAllowed(
+  db: Database,
+  stationId: string,
+  employeeId: string,
+  body: Record<string, unknown>,
+  p: { startDate: string; endDate: string; halfDay: boolean; typeInput: string },
+) {
+  const ack =
+    body.acknowledgeVacationDebt === true ||
+    Number(body.acknowledgeVacationDebt) === 1 ||
+    String(body.acknowledgeVacationDebt ?? '').toLowerCase() === 'true'
+  const ev = evaluatePaidVacationRequestDebt(db, stationId, employeeId, { ...p, typeInput: p.typeInput })
+  if (!ev.exceeds) return
+  if (ack) return
+  throw new VacationAckRequiredError({
+    message:
+      'Achtung: Dein verfügbarer Resturlaub reicht für diesen Antrag nicht aus. Bitte bestätige den Antrag trotzdem oder brich ab.',
+    ...ev,
+  })
+}
+
 export function createAbsence(db: Database, body: Record<string, unknown>, stationId = DEFAULT_STATION_ID) {
   const employeeId = String(body.employeeId ?? '').trim()
-  const typeDe = String(body.type ?? '').trim()
+  const typeInput = String(body.type ?? '').trim()
   const startDate = String(body.startDate ?? '').trim()
   const endDate = String(body.endDate ?? '').trim()
   if (!employeeId) throw new Error('employee_id erforderlich')
-  if (!typeDe) throw new Error('type erforderlich')
+  if (!typeInput) throw new Error('type erforderlich')
   if (!startDate) throw new Error('start_date erforderlich')
   if (!endDate) throw new Error('end_date erforderlich')
-  const type = DE_TO_TYPE[typeDe] ?? typeDe
+  const halfDay = body.halfDay === true
+  const paidHoursOverride = readPaidHoursFromBody(body)
+  const impact = computeImpactForRow(db, employeeId, typeInput, startDate, endDate, halfDay, paidHoursOverride)
+  const typeDb = normalizeAbsenceDbType(typeInput)
   const id = typeof body.id === 'string' && body.id.trim() ? body.id.trim() : `abs-${randomUUID()}`
   const ts = nowIso()
-  const status = DE_TO_STATUS[String(body.status ?? 'beantragt')] ?? 'requested'
+  const status = statusFromApi(String(body.status ?? 'beantragt')) ?? 'requested'
   db.prepare(
-    `INSERT INTO absences (id, station_id, employee_id, type, start_date, end_date, half_day, status, comment, requested_at, approved_by, approved_at, rejected_by, rejected_at, rejected_reason, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, ?, ?)`,
+    `INSERT INTO absences (
+       id, station_id, employee_id, type, start_date, end_date, half_day, status, comment,
+       requested_at, approved_by, approved_at, rejected_by, rejected_at, rejected_reason,
+       paid, counts_against_vacation, paid_hours_per_day, paid_hours_total, absence_days,
+       created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     stationId,
     employeeId,
-    type,
+    typeDb,
     startDate,
     endDate,
-    body.halfDay === true ? 1 : 0,
+    halfDay ? 1 : 0,
     status,
     String(body.comment ?? ''),
     ts,
+    impact.paid ? 1 : 0,
+    impact.countsAgainstVacation ? 1 : 0,
+    impact.paidHoursPerDay,
+    impact.paidHoursTotal,
+    impact.absenceDays,
     ts,
     ts,
   )
@@ -190,29 +392,50 @@ export function updateAbsence(db: Database, id: string, body: Record<string, unk
   const existing = db.prepare(`SELECT * FROM absences WHERE id = ?`).get(id) as AbsenceRow | undefined
   if (!existing) throw new Error('Abwesenheit nicht gefunden')
   const ts = nowIso()
-  const type =
-    body.type != null ? DE_TO_TYPE[String(body.type)] ?? String(body.type) : existing.type
+  const employeeId =
+    body.employeeId != null ? String(body.employeeId) : existing.employee_id
+  const startDate = body.startDate != null ? String(body.startDate) : existing.start_date
+  const endDate = body.endDate != null ? String(body.endDate) : existing.end_date
+  const halfDay =
+    body.halfDay != null ? body.halfDay === true : (existing.half_day ?? 0) === 1
+  const typeInput = body.type != null ? String(body.type) : existing.type
+  const paidHoursOverride =
+    body.paidHoursPerDay != null || body.paid_hours_per_day != null
+      ? readPaidHoursFromBody(body as Record<string, unknown>)
+      : existing.paid_hours_per_day
+  const impact = computeImpactForRow(db, employeeId, typeInput, startDate, endDate, halfDay, paidHoursOverride)
+  const typeDb = normalizeAbsenceDbType(typeInput)
   const status =
-    body.status != null ? DE_TO_STATUS[String(body.status)] ?? String(body.status) : existing.status
+    body.status != null ? statusFromApi(String(body.status)) ?? String(body.status) : existing.status
   db.prepare(
     `UPDATE absences SET
-      employee_id = COALESCE(?, employee_id),
+      employee_id = ?,
       type = ?,
-      start_date = COALESCE(?, start_date),
-      end_date = COALESCE(?, end_date),
-      half_day = COALESCE(?, half_day),
+      start_date = ?,
+      end_date = ?,
+      half_day = ?,
       status = ?,
       comment = COALESCE(?, comment),
+      paid = ?,
+      counts_against_vacation = ?,
+      paid_hours_per_day = ?,
+      paid_hours_total = ?,
+      absence_days = ?,
       updated_at = ?
     WHERE id = ?`,
   ).run(
-    body.employeeId != null ? String(body.employeeId) : null,
-    type,
-    body.startDate != null ? String(body.startDate) : null,
-    body.endDate != null ? String(body.endDate) : null,
-    body.halfDay != null ? (body.halfDay ? 1 : 0) : null,
+    employeeId,
+    typeDb,
+    startDate,
+    endDate,
+    halfDay ? 1 : 0,
     status,
     body.comment != null ? String(body.comment) : null,
+    impact.paid ? 1 : 0,
+    impact.countsAgainstVacation ? 1 : 0,
+    impact.paidHoursPerDay,
+    impact.paidHoursTotal,
+    impact.absenceDays,
     ts,
     id,
   )
@@ -224,7 +447,60 @@ export function deleteAbsence(db: Database, id: string) {
   if (r.changes === 0) throw new Error('Abwesenheit nicht gefunden')
 }
 
-export function approveAbsence(db: Database, id: string, by = 'Station') {
+export function approveAbsence(
+  db: Database,
+  id: string,
+  by = 'Station',
+  options?: { acknowledgeVacationDebt?: boolean },
+) {
+  const row = db.prepare(`SELECT * FROM absences WHERE id = ?`).get(id) as AbsenceRow | undefined
+  if (!row) throw new Error('Abwesenheit nicht gefunden')
+  if (row.status !== 'requested') throw new Error('Nur beantragte Abwesenheiten können genehmigt werden')
+
+  const typeDb = normalizeAbsenceDbType(row.type)
+  const counts = row.counts_against_vacation
+  const affects =
+    typeDb === 'paid_vacation' && (counts === null || counts === undefined || counts === 1)
+
+  if (affects) {
+    const year = calendarYearFromStartDate(row.start_date)
+    const emp = loadEmployeeVacationSlice(db, row.employee_id)
+    const workCodes = workDayCodesFromEmployeeRow(emp?.work_days_json)
+    const annual = Number(emp?.annual_vacation_days ?? 0) || 0
+    const balRows = loadAbsenceBalanceRows(db, row.station_id, row.employee_id, year)
+    const taken = sumApprovedPaidVacationDaysInYear(
+      balRows,
+      row.employee_id,
+      year,
+      VACATION_BALANCE_MODE,
+      workCodes,
+      id,
+    )
+    const currentInYear = paidVacationDaysOfAbsenceInYear(
+      row.start_date,
+      row.end_date,
+      (row.half_day ?? 0) === 1,
+      year,
+      VACATION_BALANCE_MODE,
+      workCodes,
+    )
+    const remainingAfter = Math.round((annual - taken - currentInYear) * 100) / 100
+    const ack =
+      options?.acknowledgeVacationDebt === true ||
+      String(options?.acknowledgeVacationDebt ?? '').toLowerCase() === 'true' ||
+      String(options?.acknowledgeVacationDebt ?? '') === '1'
+    if (remainingAfter < 0 && !ack) {
+      throw new VacationAckRequiredError({
+        message: 'Dieser Mitarbeiter hat nicht genügend Resturlaub.',
+        annualVacationDays: annual,
+        alreadyTakenDays: taken,
+        requestedDays: currentInYear,
+        remainingAfterApproval: remainingAfter,
+        hint: 'Minus-Urlaub wird gespeichert und kann im Folgejahr berücksichtigt werden.',
+      })
+    }
+  }
+
   const ts = nowIso()
   const r = db
     .prepare(

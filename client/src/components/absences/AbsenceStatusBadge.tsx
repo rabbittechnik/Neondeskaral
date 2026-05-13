@@ -10,7 +10,7 @@ type Props = {
 export function AbsenceStatusBadge({ status, className = '' }: Props) {
   return (
     <Badge tone={absenceStatusBadgeTone(status)} className={className}>
-      {ABSENCE_STATUS_LABELS[status]}
+      {ABSENCE_STATUS_LABELS[status] ?? status}
     </Badge>
   )
 }

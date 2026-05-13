@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto'
 import { nowIso } from '../utils/timestamps.js'
 import { TEAMLEAD_PERMISSIONS } from '../constants/permissions.js'
 import { ensureDefaultUserStationAccess, ensureKnownStationsAndWorkAreas } from '../services/stationAccessService.js'
+import { calculateVacationImpact, normalizeAbsenceDbType } from '../utils/vacationImpactCalculator.js'
 
 function employeesColumnNames(db: Database.Database): Set<string> {
   const rows = db.prepare(`PRAGMA table_info(employees)`).all() as { name: string }[]
@@ -138,6 +139,51 @@ export function runMigrations(db: Database.Database) {
   mergeEmployeeAppPermissionsIntoAccess(db)
   mergeEmployeesViewDeletedPermission(db)
   migrateRoleLabelsAndAbsenceRejectColumns(db)
+  migrateAbsenceVacationModel(db)
+  ensureFuelPriceCacheAndStationTankerkoenig(db)
+  ensureTaskLogsTabletColumns(db)
+}
+
+function ensureFuelPriceCacheAndStationTankerkoenig(db: Database.Database) {
+  db.exec(`CREATE TABLE IF NOT EXISTS fuel_price_cache (
+    id TEXT PRIMARY KEY,
+    station_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    provider_station_id TEXT,
+    status TEXT,
+    is_open INTEGER,
+    e5 REAL,
+    e10 REAL,
+    diesel REAL,
+    currency TEXT DEFAULT 'EUR',
+    raw_json TEXT,
+    fetched_at TEXT,
+    created_at TEXT,
+    updated_at TEXT
+  )`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_fuel_price_cache_station ON fuel_price_cache(station_id)`)
+
+  const stationCols = new Set(
+    (db.prepare(`PRAGMA table_info(stations)`).all() as { name: string }[]).map((r) => r.name),
+  )
+  if (!stationCols.has('tankerkoenig_station_id')) {
+    db.exec(`ALTER TABLE stations ADD COLUMN tankerkoenig_station_id TEXT`)
+  }
+}
+
+function ensureTaskLogsTabletColumns(db: Database.Database) {
+  const cols = new Set(
+    (db.prepare(`PRAGMA table_info(task_logs)`).all() as { name: string }[]).map((r) => r.name),
+  )
+  if (!cols.has('station_id')) {
+    db.exec(`ALTER TABLE task_logs ADD COLUMN station_id TEXT`)
+  }
+  if (!cols.has('source')) {
+    db.exec(`ALTER TABLE task_logs ADD COLUMN source TEXT`)
+  }
+  if (!cols.has('confirmed_by_employee_id')) {
+    db.exec(`ALTER TABLE task_logs ADD COLUMN confirmed_by_employee_id TEXT`)
+  }
 }
 
 function migrateEmployeeExtendedColumns(db: Database.Database) {
@@ -278,6 +324,75 @@ function migrateRoleLabelsAndAbsenceRejectColumns(db: Database.Database) {
   }
   if (!absNames.has('rejected_at')) {
     db.exec(`ALTER TABLE absences ADD COLUMN rejected_at TEXT`)
+  }
+}
+
+function migrateAbsenceVacationModel(db: Database.Database) {
+  const absCols = db.prepare(`PRAGMA table_info(absences)`).all() as { name: string }[]
+  const absNames = new Set(absCols.map((c) => c.name))
+  const addAbs = (name: string, ddl: string) => {
+    if (!absNames.has(name)) {
+      db.exec(`ALTER TABLE absences ADD COLUMN ${ddl}`)
+      absNames.add(name)
+    }
+  }
+  addAbs('paid', 'paid INTEGER DEFAULT 0')
+  addAbs('counts_against_vacation', 'counts_against_vacation INTEGER DEFAULT 0')
+  addAbs('paid_hours_per_day', 'paid_hours_per_day REAL DEFAULT 0')
+  addAbs('paid_hours_total', 'paid_hours_total REAL DEFAULT 0')
+  addAbs('absence_days', 'absence_days REAL DEFAULT 0')
+
+  db.prepare(`UPDATE absences SET type = 'paid_vacation' WHERE lower(trim(type)) = 'vacation'`).run()
+  db.prepare(`UPDATE absences SET type = 'unpaid_vacation' WHERE lower(trim(type)) = 'unpaid'`).run()
+
+  const rows = db
+    .prepare(
+      `SELECT a.id, a.type, a.start_date, a.end_date, a.half_day, a.status,
+              e.vacation_hours_per_day AS vhpd
+       FROM absences a
+       LEFT JOIN employees e ON e.id = a.employee_id`,
+    )
+    .all() as {
+    id: string
+    type: string
+    start_date: string
+    end_date: string
+    half_day: number | null
+    status: string
+    vhpd: number | null
+  }[]
+
+  const upd = db.prepare(
+    `UPDATE absences SET
+       type = ?,
+       paid = ?,
+       counts_against_vacation = ?,
+       paid_hours_per_day = ?,
+       paid_hours_total = ?,
+       absence_days = ?
+     WHERE id = ?`,
+  )
+
+  for (const r of rows) {
+    const canon = normalizeAbsenceDbType(r.type)
+    const impact = calculateVacationImpact(
+      {
+        type: canon,
+        startDate: r.start_date,
+        endDate: r.end_date,
+        halfDay: (r.half_day ?? 0) === 1,
+      },
+      { vacation_hours_per_day: r.vhpd },
+    )
+    upd.run(
+      canon,
+      impact.paid ? 1 : 0,
+      impact.countsAgainstVacation ? 1 : 0,
+      impact.paidHoursPerDay,
+      impact.paidHoursTotal,
+      impact.absenceDays,
+      r.id,
+    )
   }
 }
 

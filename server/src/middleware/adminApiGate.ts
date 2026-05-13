@@ -12,6 +12,8 @@ export function adminApiGate(req: Request, res: Response, next: NextFunction) {
   if (p === '/api/auth/login') return next()
   if (p.startsWith('/api/employee-access')) return next()
   if (p.startsWith('/api/terminal')) return next()
+  if (p.startsWith('/api/tablet')) return next()
+  if (p.startsWith('/api/fuel-prices')) return next()
 
   if (!p.startsWith('/api')) return next()
 

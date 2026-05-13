@@ -407,6 +407,34 @@ export function listEmployees(
   )
 }
 
+/** Nur Stations-Terminal: Kassennummer + Stempel-Flags, ohne Lohn/Bank im JSON. */
+export function listEmployeesTabletClock(db: Database, stationId = DEFAULT_STATION_ID) {
+  let where = 'station_id = ?'
+  where += ` AND ${sqlEmployeeNotSoftDeleted()}`
+  where += ` AND ${sqlEmployeeActive()}`
+  const sql = `SELECT * FROM employees WHERE ${where} ORDER BY display_name`
+  const rows = db.prepare(sql).all(stationId) as EmployeeRow[]
+  const waStmt = db.prepare(`SELECT work_area_id FROM employee_work_areas WHERE employee_id = ?`)
+  return rows.map((r) => {
+    const wa = (waStmt.all(r.id) as { work_area_id: string }[]).map((x) => x.work_area_id)
+    const api = rowToEmployeeApi(r, wa, { includeAccessToken: false, includeSensitive: true })
+    return {
+      id: api.id,
+      displayName: api.displayName,
+      firstName: api.firstName,
+      lastName: api.lastName,
+      cashRegisterCardNumber: String(api.cashRegisterCardNumber ?? '').trim(),
+      terminalEnabled: Boolean(api.terminalEnabled),
+      timeTrackingEnabled: Boolean(api.timeTrackingEnabled),
+      color: api.color,
+      role: api.role,
+      employmentRole: api.employmentRole ?? '',
+      status: api.status,
+      workAreaIds: api.workAreaIds ?? [],
+    }
+  })
+}
+
 export function getEmployee(db: Database, id: string, opts?: { includeAccessToken?: boolean; includeSensitive?: boolean }) {
   const row = db.prepare(`SELECT * FROM employees WHERE id = ?`).get(id) as EmployeeRow | undefined
   if (!row) return undefined

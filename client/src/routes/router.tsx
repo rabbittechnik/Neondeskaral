@@ -52,6 +52,7 @@ import { LandingChoicePage } from '../pages/employee-app/LandingChoicePage'
 import { TimeApprovalsPage } from '../pages/time-approvals/TimeApprovalsPage'
 import { TuvReportsPage } from '../pages/tuv/TuvReportsPage'
 import { TuvReportEditorPage } from '../pages/tuv/TuvReportEditorPage'
+import { TabletTerminalProvider } from '../context/tablet-terminal-context'
 
 function MitarbeiterToEmployeesProfile() {
   const { employeeId } = useParams()
@@ -78,15 +79,20 @@ export const router = createBrowserRouter([
     path: '/tablet',
     element: (
       <StationProvider>
-        <WorkAreasProvider>
-          <EmployeesProvider>
-            <ScheduleShiftsProvider>
-              <TimeTrackingProvider>
-                <TerminalLayout />
-              </TimeTrackingProvider>
-            </ScheduleShiftsProvider>
-          </EmployeesProvider>
-        </WorkAreasProvider>
+        <TabletTerminalProvider>
+          <TerminalLayout />
+        </TabletTerminalProvider>
+      </StationProvider>
+    ),
+    children: [{ index: true, element: <StaffTerminalPage /> }],
+  },
+  {
+    path: '/station-terminal',
+    element: (
+      <StationProvider>
+        <TabletTerminalProvider>
+          <TerminalLayout />
+        </TabletTerminalProvider>
       </StationProvider>
     ),
     children: [{ index: true, element: <StaffTerminalPage /> }],

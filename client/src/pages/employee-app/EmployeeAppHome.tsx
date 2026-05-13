@@ -46,6 +46,8 @@ type PubEmp = {
   role?: string
   roleLabel?: string
   color?: string
+  annualVacationDays?: number | null
+  vacationHoursPerDay?: number | null
 }
 
 type PubStation = { id: string; name: string }
@@ -60,6 +62,13 @@ type Payload = {
   tasks: Task[]
   taskLogs: TaskLog[]
   absences: EmployeeAbsenceRow[]
+  vacationSnapshot?: {
+    year: number
+    annualVacationDays: number
+    approvedPaidVacationDays: number
+    pendingPaidVacationDays: number
+    remainingPaidVacationDays: number
+  }
   timeEntries: TimeEntry[]
   runningTimeEntry?: TimeEntry
 }
@@ -760,7 +769,14 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
       ) : null}
 
       {tab === 'urlaub' ? (
-        <EmployeeUrlaubTab accessToken={t} absences={absences} onReload={load} />
+        <EmployeeUrlaubTab
+          accessToken={t}
+          absences={absences}
+          vacationSnapshot={payload?.vacationSnapshot}
+          annualVacationDays={payload?.employee?.annualVacationDays ?? null}
+          vacationHoursPerDay={payload?.employee?.vacationHoursPerDay ?? null}
+          onReload={load}
+        />
       ) : null}
 
       {tab === 'arbeitszeiten' ? (

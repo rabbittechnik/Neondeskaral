@@ -66,7 +66,7 @@ export function DayTimelineRow({
     [absences, dateIso],
   )
   const vacationAbsences = useMemo(
-    () => approvedDayAbsences.filter((a) => a.type === 'urlaub'),
+    () => approvedDayAbsences.filter((a) => a.type === 'paid_vacation' || a.type === 'unpaid_vacation'),
     [approvedDayAbsences],
   )
   const absenceStripH = 17

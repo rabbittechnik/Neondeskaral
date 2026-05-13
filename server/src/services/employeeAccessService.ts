@@ -3,7 +3,13 @@ import { randomBytes } from 'node:crypto'
 import { nowIso } from '../utils/timestamps.js'
 import type { EmployeeRow } from './employeeService.js'
 import { listShifts } from './shiftService.js'
-import { listAbsences, createAbsence } from './absenceService.js'
+import {
+  assertPaidVacationCreateAllowed,
+  buildVacationSnapshotForEmployee,
+  createAbsence,
+  listAbsences,
+  VacationAckRequiredError,
+} from './absenceService.js'
 import { confirmTaskFromEmployeeApp, listTaskLogsByTaskIds, listTasks, rowToTaskApi } from './taskService.js'
 import { listTimeEntries } from './timeTrackingService.js'
 import { getStation } from './stationService.js'
@@ -144,6 +150,9 @@ function roleLabelForEmployeeApp(row: EmployeeRow): string {
 }
 
 function publicEmployee(row: EmployeeRow) {
+  const R = row as Record<string, unknown>
+  const annual = R.annual_vacation_days
+  const vhpd = R.vacation_hours_per_day
   return {
     id: row.id,
     firstName: row.first_name,
@@ -155,6 +164,10 @@ function publicEmployee(row: EmployeeRow) {
     color: row.color ?? '#94a3b8',
     terminalEnabled: (row.terminal_enabled ?? 1) === 1,
     timeTrackingEnabled: (row.time_tracking_enabled ?? 1) === 1,
+    annualVacationDays:
+      annual != null && String(annual).trim() !== '' && Number.isFinite(Number(annual)) ? Number(annual) : null,
+    vacationHoursPerDay:
+      vhpd != null && String(vhpd).trim() !== '' && Number.isFinite(Number(vhpd)) ? Number(vhpd) : null,
   }
 }
 
@@ -264,7 +277,15 @@ export function buildEmployeeAccessPayload(db: Database, token: string, meta?: E
     requestedAt: a.requestedAt,
     approvedAt: a.approvedAt,
     rejectedReason: a.rejectedReason,
+    paid: a.paid,
+    countsAgainstVacation: a.countsAgainstVacation,
+    paidHoursPerDay: a.paidHoursPerDay,
+    paidHoursTotal: a.paidHoursTotal,
+    absenceDays: a.absenceDays,
   }))
+
+  const yNow = new Date().getFullYear()
+  const vacationSnapshot = buildVacationSnapshotForEmployee(db, stationId, empId, yNow)
 
   const tasksAll = listTasks(db, stationId)
   const tasks = tasksAll.filter((t) =>
@@ -304,6 +325,7 @@ export function buildEmployeeAccessPayload(db: Database, token: string, meta?: E
     tasks,
     taskLogs,
     absences,
+    vacationSnapshot,
     timeEntries,
     runningTimeEntry: running,
     activeShiftWarnings,
@@ -532,7 +554,10 @@ export function employeeAccessCreateAbsence(
   token: string,
   body: Record<string, unknown>,
   meta?: EmployeeAccessRequestMeta,
-) {
+):
+  | { ok: true; data: ReturnType<typeof createAbsence> }
+  | { ok: false; error: 'invalid_token' }
+  | { ok: false; error: 'vacation_ack_required'; details: Record<string, unknown> } {
   const ctx = resolveEmployeeAccessContext(db, token, meta)
   if (!ctx.ok) {
     return { ok: false as const, error: 'invalid_token' as const }
@@ -540,6 +565,19 @@ export function employeeAccessCreateAbsence(
   const row = ctx.row
   const safe: Record<string, unknown> = { ...(body ?? {}) }
   delete safe.employeeId
+  try {
+    assertPaidVacationCreateAllowed(db, row.station_id, row.id, safe, {
+      startDate: String(safe.startDate ?? '').trim(),
+      endDate: String(safe.endDate ?? '').trim(),
+      halfDay: safe.halfDay === true,
+      typeInput: String(safe.type ?? '').trim(),
+    })
+  } catch (e) {
+    if (e instanceof VacationAckRequiredError) {
+      return { ok: false as const, error: 'vacation_ack_required' as const, details: e.details }
+    }
+    throw e
+  }
   const data = createAbsence(
     db,
     {
