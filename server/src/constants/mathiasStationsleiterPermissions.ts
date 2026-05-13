@@ -30,6 +30,7 @@ export function mathiasStationsleiterPermissions(): Record<string, boolean> {
     'stationTablets.manage',
     'settings.view',
     'settings.edit',
+    'station.profile.edit',
   ]
   for (const k of on) {
     p[k] = true

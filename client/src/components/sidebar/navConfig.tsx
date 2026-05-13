@@ -34,6 +34,8 @@ export type NavSingle = {
   label: string
   icon: LucideIcon
   globalAdminOnly?: boolean
+  /** Sichtbar, wenn Global-Admin oder mindestens eine Zuweisung mit einer dieser Berechtigungen. */
+  anyStationPermission?: string[]
 }
 
 export type NavEntry = NavGroup | NavSingle
@@ -137,7 +139,7 @@ export const navEntries: NavEntry[] = [
     to: '/stations',
     label: 'Stationen verwalten',
     icon: Building2,
-    globalAdminOnly: true,
+    anyStationPermission: ['stations.manage', 'station.profile.edit'],
   },
   {
     type: 'single',

@@ -2,17 +2,76 @@ import { Router } from 'express'
 import { getDb } from '../db/database.js'
 import { jsonErr, jsonOk } from '../utils/http.js'
 import * as stationService from '../services/stationService.js'
-import { listAccessibleStationRows, listAllActiveStationRows } from '../services/stationAccessService.js'
-import { requireGlobalAdmin } from '../middleware/stationAuth.js'
+import {
+  listAccessibleStationRows,
+  listAllActiveStationRows,
+  canAccessStationsAdminUi,
+  hasAnyStationPermission,
+  hasPermission,
+} from '../services/stationAccessService.js'
+import type { AccessContext } from '../services/stationAccessService.js'
 
 export const stationsRouter = Router()
+
+function seesFullStationDirectory(ctx: AccessContext): boolean {
+  return ctx.globalAdmin || hasAnyStationPermission(ctx, 'stations.manage')
+}
+
+function canMutateStationDirectory(ctx: AccessContext): boolean {
+  return seesFullStationDirectory(ctx)
+}
+
+function canReadStation(ctx: AccessContext, stationId: string): boolean {
+  if (seesFullStationDirectory(ctx)) return true
+  return hasPermission(ctx, stationId, 'station.profile.edit')
+}
+
+function canEditStation(ctx: AccessContext, stationId: string): boolean {
+  if (seesFullStationDirectory(ctx)) return true
+  return hasPermission(ctx, stationId, 'station.profile.edit')
+}
 
 stationsRouter.get('/', (req, res) => {
   try {
     const ctx = req.accessContext
-    if (!ctx) return jsonErr(res, 'Intern', 500)
-    const rows = ctx.globalAdmin ? listAllActiveStationRows(getDb()) : listAccessibleStationRows(getDb(), ctx)
+    if (!ctx || !canAccessStationsAdminUi(ctx)) return jsonErr(res, 'Keine Berechtigung', 403)
+    const db = getDb()
+    const includeArchived =
+      String(req.query.includeArchived ?? '') === 'true' && seesFullStationDirectory(ctx)
+    const includeCounts = String(req.query.includeCounts ?? '') === 'true'
+    let rows: Record<string, unknown>[]
+    if (seesFullStationDirectory(ctx)) {
+      rows = listAllActiveStationRows(db, { includeArchived })
+    } else {
+      rows = listAccessibleStationRows(db, ctx, { forDropdown: false })
+    }
+    if (includeCounts) {
+      rows = rows.map((r) => {
+        const id = String(r.id ?? '')
+        const s = stationService.getStationSummary(db, id)
+        return {
+          ...r,
+          employeeCount: s.employeeCount,
+          openShiftsCount: s.openShiftsCount,
+          hasHistoricalData: s.hasHistoricalData,
+        }
+      })
+    }
     jsonOk(res, rows)
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
+  }
+})
+
+stationsRouter.get('/:id/summary', (req, res) => {
+  try {
+    const ctx = req.accessContext
+    if (!ctx || !canAccessStationsAdminUi(ctx)) return jsonErr(res, 'Keine Berechtigung', 403)
+    const id = req.params.id
+    if (!canReadStation(ctx, id)) return jsonErr(res, 'Kein Zugriff auf diese Station', 403)
+    const row = stationService.getStation(getDb(), id)
+    if (!row) return jsonErr(res, 'Station nicht gefunden', 404)
+    jsonOk(res, stationService.getStationSummary(getDb(), id))
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
   }
@@ -21,10 +80,8 @@ stationsRouter.get('/', (req, res) => {
 stationsRouter.get('/:id', (req, res) => {
   try {
     const ctx = req.accessContext
-    if (!ctx) return jsonErr(res, 'Intern', 500)
-    if (!ctx.globalAdmin && !ctx.stationIds.includes(req.params.id)) {
-      return jsonErr(res, 'Kein Zugriff auf diese Station', 403)
-    }
+    if (!ctx || !canAccessStationsAdminUi(ctx)) return jsonErr(res, 'Keine Berechtigung', 403)
+    if (!canReadStation(ctx, req.params.id)) return jsonErr(res, 'Kein Zugriff auf diese Station', 403)
     const row = stationService.getStation(getDb(), req.params.id)
     if (!row) return jsonErr(res, 'Station nicht gefunden', 404)
     jsonOk(res, row)
@@ -35,7 +92,8 @@ stationsRouter.get('/:id', (req, res) => {
 
 stationsRouter.post('/', (req, res) => {
   try {
-    if (!requireGlobalAdmin(req, res)) return
+    const ctx = req.accessContext
+    if (!ctx || !canMutateStationDirectory(ctx)) return jsonErr(res, 'Keine Berechtigung', 403)
     jsonOk(res, stationService.createStation(getDb(), req.body ?? {}), 201)
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
@@ -44,8 +102,37 @@ stationsRouter.post('/', (req, res) => {
 
 stationsRouter.put('/:id', (req, res) => {
   try {
-    if (!requireGlobalAdmin(req, res)) return
-    jsonOk(res, stationService.updateStation(getDb(), req.params.id, req.body ?? {}))
+    const ctx = req.accessContext
+    if (!ctx || !canAccessStationsAdminUi(ctx)) return jsonErr(res, 'Keine Berechtigung', 403)
+    const id = req.params.id
+    if (!canEditStation(ctx, id)) return jsonErr(res, 'Keine Berechtigung', 403)
+    const body = { ...(req.body as Record<string, unknown>) }
+    if (!canMutateStationDirectory(ctx)) {
+      delete body.active
+    }
+    jsonOk(res, stationService.updateStation(getDb(), id, body))
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
+  }
+})
+
+stationsRouter.post('/:id/archive', (req, res) => {
+  try {
+    const ctx = req.accessContext
+    if (!ctx || !canMutateStationDirectory(ctx)) return jsonErr(res, 'Keine Berechtigung', 403)
+    stationService.archiveStation(getDb(), req.params.id)
+    jsonOk(res, { archived: true })
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
+  }
+})
+
+stationsRouter.post('/:id/restore', (req, res) => {
+  try {
+    const ctx = req.accessContext
+    if (!ctx || !canMutateStationDirectory(ctx)) return jsonErr(res, 'Keine Berechtigung', 403)
+    stationService.restoreStation(getDb(), req.params.id)
+    jsonOk(res, { restored: true })
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
   }
@@ -53,9 +140,10 @@ stationsRouter.put('/:id', (req, res) => {
 
 stationsRouter.delete('/:id', (req, res) => {
   try {
-    if (!requireGlobalAdmin(req, res)) return
-    stationService.deleteStation(getDb(), req.params.id)
-    jsonOk(res, { deleted: true })
+    const ctx = req.accessContext
+    if (!ctx || !canMutateStationDirectory(ctx)) return jsonErr(res, 'Keine Berechtigung', 403)
+    const out = stationService.deleteStationSmart(getDb(), req.params.id)
+    jsonOk(res, out)
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
   }

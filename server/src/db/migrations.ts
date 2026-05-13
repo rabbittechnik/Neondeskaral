@@ -157,6 +157,46 @@ export function runMigrations(db: Database.Database) {
   syncMathiasRaselowskiAccount(db)
   ensureStationRadioColumns(db)
   seedAralBodelshausenStationRadio(db)
+  ensureStationStammdatenColumns(db)
+  ensureStationCanonicalNamesOnce(db)
+}
+
+function ensureStationStammdatenColumns(db: Database.Database) {
+  const cols = new Set((db.prepare(`PRAGMA table_info(stations)`).all() as { name: string }[]).map((c) => c.name))
+  const add = (name: string, ddl: string) => {
+    if (!cols.has(name)) {
+      db.exec(`ALTER TABLE stations ADD COLUMN ${ddl}`)
+      cols.add(name)
+    }
+  }
+  add('street', 'street TEXT')
+  add('house_number', 'house_number TEXT')
+  add('contact_person', 'contact_person TEXT')
+  add('notes', 'notes TEXT')
+  add('standard_work_times_json', 'standard_work_times_json TEXT')
+  add('archived_at', 'archived_at TEXT')
+  add('deleted_at', 'deleted_at TEXT')
+}
+
+/** Einmalig: Anzeigenamen der vier Kern-Stationen angleichen (keine Adress-/Telefon-Überschreibung). */
+function ensureStationCanonicalNamesOnce(db: Database.Database) {
+  const key = 'migration_canonical_station_names_v1'
+  const done = db.prepare(`SELECT 1 FROM settings WHERE key = ?`).get(key) as { 1: number } | undefined
+  if (done) return
+  const ts = nowIso()
+  const rows: { id: string; name: string }[] = [
+    { id: 'aral-bodelshausen', name: 'Aral Bodelshausen / Aral Bulle 1000' },
+    { id: 'autohof-kehl', name: 'Autohof Kehl' },
+    { id: 'shell-ingersheim', name: 'Shell Ingersheim' },
+    { id: 'shell-station-marsch', name: 'Shell Station Marsch' },
+  ]
+  const upd = db.prepare(`UPDATE stations SET name = ?, updated_at = ? WHERE id = ?`)
+  for (const r of rows) {
+    upd.run(r.name, ts, r.id)
+  }
+  db.prepare(
+    `INSERT INTO settings (id, station_id, key, value, type, created_at, updated_at) VALUES (?, NULL, ?, '1', 'bool', ?, ?)`,
+  ).run(randomUUID(), key, ts, ts)
 }
 
 function ensureStationRadioColumns(db: Database.Database) {

@@ -176,6 +176,16 @@ export function Sidebar() {
     return navEntries
       .filter((e) => {
         if (e.type === 'single' && e.globalAdminOnly && !user?.globalAdmin) return false
+        if (e.type === 'single' && e.anyStationPermission?.length) {
+          const ok =
+            Boolean(user?.globalAdmin) ||
+            Boolean(
+              user?.stationAccess?.some((a) =>
+                e.anyStationPermission!.some((k) => a.permissions[k] === true),
+              ),
+            )
+          if (!ok) return false
+        }
         return true
       })
       .map((e) => {

@@ -49,6 +49,10 @@ export const PERMISSION_KEYS = [
   'tuvReports.sign',
   'tuvReports.print',
   'tuvReports.manage',
+  /** Alle Stationen anlegen/bearbeiten/archivieren (Admin / delegiert). */
+  'stations.manage',
+  /** Stammdaten der zugewiesenen Station(en) bearbeiten (ohne neue Station anzulegen). */
+  'station.profile.edit',
 ] as const
 
 export type PermissionKey = (typeof PERMISSION_KEYS)[number]
@@ -71,4 +75,6 @@ export const TEAMLEAD_PERMISSIONS: Record<string, boolean> = {
   'employees.viewDeleted': false,
   'stationTablets.view': true,
   'stationTablets.manage': true,
+  'stations.manage': false,
+  'station.profile.edit': false,
 }

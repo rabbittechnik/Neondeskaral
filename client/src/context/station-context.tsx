@@ -135,6 +135,22 @@ export function StationProvider({
     }
   }, [user, availableStations, tabletBound])
 
+  useEffect(() => {
+    if (tabletBound) return
+    if (availableStations.length === 0) return
+    if (!selectedId) return
+    if (availableStations.some((s) => s.id === selectedId)) return
+    const pick = availableStations[0]!.id
+    setSelectedId(pick)
+    if (user) {
+      try {
+        window.localStorage.setItem(`${LS_PREFIX}${user.id}`, pick)
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [tabletBound, availableStations, selectedId, user])
+
   const setSelectedStationId = useCallback(
     (id: string) => {
       if (tabletBound) return

@@ -35,6 +35,8 @@ export const ADMIN_PERMISSION_UI: { key: string; label: string }[] = [
   { key: 'reports.view', label: 'Auswertungen (Reports) ansehen' },
   { key: 'settings.view', label: 'Einstellungen ansehen' },
   { key: 'settings.edit', label: 'Einstellungen bearbeiten' },
+  { key: 'stations.manage', label: 'Alle Stationen verwalten (anlegen, archivieren, Stammdaten)' },
+  { key: 'station.profile.edit', label: 'Stammdaten der zugewiesenen Station bearbeiten' },
   { key: 'access.manage', label: 'Benutzer/Zugriffe verwalten' },
   { key: 'tuvReports.view', label: 'TÜV-Berichte ansehen' },
   { key: 'tuvReports.create', label: 'TÜV-Bericht erstellen' },

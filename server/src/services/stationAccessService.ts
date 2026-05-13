@@ -4,6 +4,8 @@ import { KNOWN_STATIONS } from '../constants/stationIds.js'
 import { TEAMLEAD_PERMISSIONS } from '../constants/permissions.js'
 import { mathiasStationsleiterPermissions } from '../constants/mathiasStationsleiterPermissions.js'
 
+const VISIBLE_IN_DROPDOWN_SQL = `(active IS NULL OR active = 1) AND (deleted_at IS NULL OR trim(deleted_at) = '')`
+
 export type UserStationAccessRow = {
   id: string
   user_id: string
@@ -48,7 +50,7 @@ export function buildAccessContext(db: Database, userId: string): AccessContext 
 
   if (globalAdmin) {
     const all = db
-      .prepare(`SELECT id FROM stations WHERE active IS NULL OR active = 1 ORDER BY name`)
+      .prepare(`SELECT id FROM stations WHERE ${VISIBLE_IN_DROPDOWN_SQL} ORDER BY name`)
       .all() as { id: string }[]
     const stationIds = all.map((r) => r.id)
     return {
@@ -92,18 +94,38 @@ export function hasPermission(ctx: AccessContext, stationId: string, key: string
   return p[key] === true
 }
 
-export function listAccessibleStationRows(db: Database, ctx: AccessContext) {
-  if (ctx.stationIds.length === 0) return [] as Record<string, unknown>[]
-  const placeholders = ctx.stationIds.map(() => '?').join(',')
-  return db.prepare(`SELECT * FROM stations WHERE id IN (${placeholders}) ORDER BY name`).all(...ctx.stationIds) as Record<
-    string,
-    unknown
-  >[]
+/** Mindestens eine zugewiesene Station mit dieser Berechtigung (für Admin-Seiten ohne Stations-Kontext). */
+export function hasAnyStationPermission(ctx: AccessContext, key: string): boolean {
+  if (ctx.globalAdmin) return true
+  for (const sid of ctx.stationIds) {
+    if (hasPermission(ctx, sid, key)) return true
+  }
+  return false
 }
 
-export function listAllActiveStationRows(db: Database) {
+export function canAccessStationsAdminUi(ctx: AccessContext): boolean {
+  return ctx.globalAdmin || hasAnyStationPermission(ctx, 'stations.manage') || hasAnyStationPermission(ctx, 'station.profile.edit')
+}
+
+export function listAccessibleStationRows(
+  db: Database,
+  ctx: AccessContext,
+  opts?: { forDropdown?: boolean },
+) {
+  if (ctx.stationIds.length === 0) return [] as Record<string, unknown>[]
+  const placeholders = ctx.stationIds.map(() => '?').join(',')
+  const vis = opts?.forDropdown !== false ? ` AND ${VISIBLE_IN_DROPDOWN_SQL}` : ''
   return db
-    .prepare(`SELECT * FROM stations WHERE active IS NULL OR active = 1 ORDER BY name`)
+    .prepare(`SELECT * FROM stations WHERE id IN (${placeholders})${vis} ORDER BY name`)
+    .all(...ctx.stationIds) as Record<string, unknown>[]
+}
+
+export function listAllActiveStationRows(db: Database, opts?: { includeArchived?: boolean }) {
+  if (opts?.includeArchived) {
+    return db.prepare(`SELECT * FROM stations ORDER BY name`).all() as Record<string, unknown>[]
+  }
+  return db
+    .prepare(`SELECT * FROM stations WHERE ${VISIBLE_IN_DROPDOWN_SQL} ORDER BY name`)
     .all() as Record<string, unknown>[]
 }
 
