@@ -36,6 +36,13 @@ export function useDashboardLiveStats() {
     return { from: toISODate(mon), to: toISODate(addDays(mon, 6)), weekStart: toISODate(mon) }
   }, [])
 
+  useEffect(() => {
+    setTodayShifts([])
+    setWeekShifts([])
+    setOpenShifts([])
+    setShiftError(null)
+  }, [stationId])
+
   const reload = useCallback(async () => {
     if (!stationId) {
       setTodayShifts([])

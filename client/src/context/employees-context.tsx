@@ -47,6 +47,11 @@ export function EmployeesProvider({ children }: { children: ReactNode }) {
   const [includeInactiveInList, setIncludeInactiveInList] = useState(false)
   const [includeDeletedInList, setIncludeDeletedInList] = useState(false)
 
+  useEffect(() => {
+    setEmployees([])
+    setError(null)
+  }, [stationId])
+
   const refetch = useCallback(async () => {
     if (!stationId) {
       setEmployees([])

@@ -4,9 +4,11 @@ import { Card } from '../../components/ui/Card'
 import { WeeklyScheduleTimeline } from '../../components/schedule/WeeklyScheduleTimeline'
 import { ScheduleEmployeeSummaryBar } from '../../components/schedule/ScheduleEmployeeSummaryBar'
 import { startOfWeekMonday } from '../../components/schedule/scheduleWeekUtils'
+import { buildRequirementGapResolvedBlocks } from '../../data/defaultShiftRequirements'
 import {
   computeWeeklyHoursByEmployee,
   resolveShiftsForWeekGrid,
+  shiftsInWeek,
   toScheduleEmployeeRow,
   type ResolvedShiftBlock,
   type ScheduleShift,
@@ -69,9 +71,16 @@ export function WeeklySchedule() {
     [shifts, weekMonday],
   )
 
+  const shiftsThisWeek = useMemo(() => shiftsInWeek(shifts, weekMonday), [shifts, weekMonday])
+
+  const requirementGapBlocks = useMemo(() => {
+    if (!stationId) return [] as ResolvedShiftBlock[]
+    return buildRequirementGapResolvedBlocks(weekMonday, stationId, federalState, shiftsThisWeek)
+  }, [weekMonday, stationId, federalState, shiftsThisWeek])
+
   const timelineRange = useMemo(
-    () => computeTimelineRangeFromWeekBlocks(allBlocks),
-    [allBlocks],
+    () => computeTimelineRangeFromWeekBlocks([...allBlocks, ...requirementGapBlocks]),
+    [allBlocks, requirementGapBlocks],
   )
 
   const hoursByEmployee = useMemo(() => computeWeeklyHoursByEmployee(allBlocks), [allBlocks])
@@ -81,8 +90,8 @@ export function WeeklySchedule() {
     if (employeeFilter !== 'all') {
       list = list.filter((b) => b.open || b.employeeId === employeeFilter)
     }
-    return list
-  }, [allBlocks, employeeFilter])
+    return [...list, ...requirementGapBlocks]
+  }, [allBlocks, employeeFilter, requirementGapBlocks])
 
   const toggleEmployeeFilter = (id: string) => {
     setEmployeeFilter((prev) => (prev === id ? 'all' : id))

@@ -46,6 +46,12 @@ export function TasksProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  useEffect(() => {
+    setTasks([])
+    setLogs([])
+    setError(null)
+  }, [stationId])
+
   const refetch = useCallback(async () => {
     if (!stationId) {
       setTasks([])

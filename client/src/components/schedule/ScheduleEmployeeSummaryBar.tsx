@@ -54,31 +54,37 @@ export function ScheduleEmployeeSummaryBar({
       <div
         className={`min-w-0 p-2 sm:p-2.5 ${manyRows ? 'max-h-[min(38rem,52vh)] overflow-y-auto overflow-x-hidden pr-0.5 [scrollbar-width:thin]' : 'overflow-x-hidden'}`}
       >
-        <div
-          className="grid min-w-0 gap-1.5 sm:gap-2"
-          style={{
-            gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 108px), 1fr))',
-          }}
-        >
-          {employees.map((e) => (
-            <EmployeeSummaryCard
-              key={e.id}
-              employee={e}
-              weeklyHours={weeklyHoursById.get(e.id) ?? 0}
-              selected={selectedId === e.id}
-              compact={Boolean(dashboardCompact)}
-              fluid
-              viewportDensity={viewportDensity}
-              layoutTight={layoutTight}
-              onPointerDownCapture={
-                assignDragEnabled && onEmployeePointerDownCapture
-                  ? (ev) => onEmployeePointerDownCapture(ev, e)
-                  : undefined
-              }
-              onClick={() => onToggleEmployee(e.id)}
-            />
-          ))}
-        </div>
+        {employees.length === 0 ? (
+          <p className="px-3 py-6 text-center text-sm text-[var(--text-muted)]">
+            Keine Mitarbeiter für diese Station angelegt.
+          </p>
+        ) : (
+          <div
+            className="grid min-w-0 gap-1.5 sm:gap-2"
+            style={{
+              gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 108px), 1fr))',
+            }}
+          >
+            {employees.map((e) => (
+              <EmployeeSummaryCard
+                key={e.id}
+                employee={e}
+                weeklyHours={weeklyHoursById.get(e.id) ?? 0}
+                selected={selectedId === e.id}
+                compact={Boolean(dashboardCompact)}
+                fluid
+                viewportDensity={viewportDensity}
+                layoutTight={layoutTight}
+                onPointerDownCapture={
+                  assignDragEnabled && onEmployeePointerDownCapture
+                    ? (ev) => onEmployeePointerDownCapture(ev, e)
+                    : undefined
+                }
+                onClick={() => onToggleEmployee(e.id)}
+              />
+            ))}
+          </div>
+        )}
       </div>
     </section>
   )

@@ -1,6 +1,5 @@
 import type { Database } from 'better-sqlite3'
 import { randomUUID } from 'node:crypto'
-import { DEFAULT_STATION_ID } from '../constants.js'
 import { nowIso } from '../utils/timestamps.js'
 
 export type ShiftRow = {
@@ -55,14 +54,15 @@ export function rowToScheduleShift(r: ShiftRow) {
 export function listShifts(
   db: Database,
   q: {
-    stationId?: string
+    stationId: string
     from?: string
     to?: string
     employeeId?: string
     workAreaId?: string
   },
 ) {
-  const stationId = q.stationId ?? DEFAULT_STATION_ID
+  const stationId = String(q.stationId ?? '').trim()
+  if (!stationId) throw new Error('stationId erforderlich')
   let sql = `SELECT s.*, e.display_name AS emp_display_name, e.color AS emp_color, e.deleted_at AS emp_deleted_at
     FROM shifts s
     LEFT JOIN employees e ON e.id = s.employee_id
@@ -101,22 +101,26 @@ export function getShift(db: Database, id: string) {
   return r ? rowToScheduleShift(r) : undefined
 }
 
-export function listOpenShifts(db: Database, stationId = DEFAULT_STATION_ID) {
+export function listOpenShifts(db: Database, stationId: string) {
+  const sid = String(stationId ?? '').trim()
+  if (!sid) throw new Error('stationId erforderlich')
   const rows = db
     .prepare(
       `SELECT * FROM shifts WHERE station_id = ? AND employee_id IS NULL ORDER BY date, start_time`,
     )
-    .all(stationId) as ShiftRow[]
+    .all(sid) as ShiftRow[]
   return rows.map(rowToScheduleShift)
 }
 
 export function listConflicts(
   db: Database,
-  stationId = DEFAULT_STATION_ID,
+  stationId: string,
   range?: { from?: string; to?: string },
 ) {
+  const sid = String(stationId ?? '').trim()
+  if (!sid) throw new Error('stationId erforderlich')
   let sql = `SELECT * FROM shifts WHERE station_id = ? AND conflict = 1`
-  const params: string[] = [stationId]
+  const params: string[] = [sid]
   if (range?.from) {
     sql += ` AND date >= ?`
     params.push(range.from)
@@ -130,7 +134,9 @@ export function listConflicts(
   return rows.map(rowToScheduleShift)
 }
 
-export function createShift(db: Database, body: Record<string, unknown>, stationId = DEFAULT_STATION_ID) {
+export function createShift(db: Database, body: Record<string, unknown>, stationId: string) {
+  const sid = String(stationId ?? '').trim()
+  if (!sid) throw new Error('stationId erforderlich')
   const date = String(body.date ?? '').trim()
   const startTime = String(body.startTime ?? '').trim()
   const endTime = String(body.endTime ?? '').trim()
@@ -159,7 +165,7 @@ export function createShift(db: Database, body: Record<string, unknown>, station
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
   ).run(
     id,
-    stationId,
+    sid,
     employeeId,
     workAreaId,
     date,
@@ -265,7 +271,9 @@ export function publishShift(db: Database, id: string) {
   return getShift(db, id)
 }
 
-export function publishWeek(db: Database, weekMondayIso: string, stationId = DEFAULT_STATION_ID) {
+export function publishWeek(db: Database, weekMondayIso: string, stationId: string) {
+  const sid = String(stationId ?? '').trim()
+  if (!sid) throw new Error('stationId erforderlich')
   const mon = new Date(`${weekMondayIso}T12:00:00`)
   const sun = new Date(mon)
   sun.setDate(sun.getDate() + 6)
@@ -276,7 +284,7 @@ export function publishWeek(db: Database, weekMondayIso: string, stationId = DEF
   const ts = nowIso()
   db.prepare(
     `UPDATE shifts SET published = 1, status = 'published', updated_at = ? WHERE station_id = ? AND date >= ? AND date <= ?`,
-  ).run(ts, stationId, from, to)
+  ).run(ts, sid, from, to)
   return { ok: true as const, from, to }
 }
 

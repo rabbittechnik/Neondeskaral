@@ -193,6 +193,8 @@ export type ResolvedShiftBlock = {
   employeeColor?: string
   /** Offene Schicht ohne Mitarbeiter */
   open?: boolean
+  /** Synthetisch: fehlende Soll-Schicht (Standardbedarf), keine DB-Zeile */
+  requirementGap?: boolean
 }
 
 export function scheduleShiftToResolved(

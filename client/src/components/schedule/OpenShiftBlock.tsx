@@ -22,6 +22,7 @@ type Props = {
 
 export function OpenShiftBlock({ item, headerOffsetPx, layout, onSelect, shiftEdit }: Props) {
   const { block, row, leftPercent, widthPercent, seamBefore = false, seamAfter = false } = item
+  const isReqGap = Boolean(block.requirementGap)
   const area = layout.useWorkAreaShortCode
     ? block.workAreaCode || workAreaLabel(block.workAreaCode) || ''
     : workAreaLabel(block.workAreaCode) || block.workAreaCode || ''
@@ -35,27 +36,42 @@ export function OpenShiftBlock({ item, headerOffsetPx, layout, onSelect, shiftEd
 
   const assignActive = Boolean(shiftEdit?.assignDragSourceId)
   const isDropHover = assignActive && shiftEdit?.assignDropHoverId === block.id
-  const dimmed = assignActive && !isDropHover
+  const dimmed = !isReqGap && assignActive && !isDropHover
+
+  const titleBase = isReqGap
+    ? `Soll unbesetzt · ${typeDef.label} · ${block.start}–${block.end}`
+    : `Offene Schicht · ${block.start}–${block.end} · ${area}`
 
   return (
     <button
       type="button"
-      data-shift-assign-target={block.id}
-      title={`Offene Schicht · ${block.start}–${block.end} · ${area}`}
-      onClick={() => onSelect?.(block)}
+      disabled={isReqGap}
+      {...(isReqGap || !shiftEdit ? {} : { 'data-shift-assign-target': block.id })}
+      title={titleBase}
+      onClick={() => (isReqGap ? undefined : onSelect?.(block))}
       style={{
         top,
         height: h,
         left: `${leftPercent}%`,
         width: `${widthPercent}%`,
-        background: 'linear-gradient(145deg, #fb923c 0%, #ea580c 48%, #c2410c 100%)',
+        background: isReqGap
+          ? 'linear-gradient(145deg, #f87171 0%, #dc2626 48%, #991b1b 100%)'
+          : 'linear-gradient(145deg, #fb923c 0%, #ea580c 48%, #c2410c 100%)',
         boxShadow: `${seamBefore ? 'inset 1px 0 0 rgba(255,255,255,0.35),' : ''}${
           seamAfter ? 'inset -1px 0 0 rgba(255,255,255,0.4),' : ''
-        } 0 0 20px rgba(249,115,22,0.65), 0 0 36px rgba(234,88,12,0.35), inset 0 1px 0 rgba(255,255,255,0.35), inset 0 -1px 0 rgba(127,29,29,0.45)`,
-        borderColor: '#fed7aa',
+        } ${
+          isReqGap
+            ? '0 0 20px rgba(248,113,113,0.55), 0 0 36px rgba(220,38,38,0.35), inset 0 1px 0 rgba(255,255,255,0.25), inset 0 -1px 0 rgba(127,29,29,0.5)'
+            : '0 0 20px rgba(249,115,22,0.65), 0 0 36px rgba(234,88,12,0.35), inset 0 1px 0 rgba(255,255,255,0.35), inset 0 -1px 0 rgba(127,29,29,0.45)'
+        }`,
+        borderColor: isReqGap ? '#fecaca' : '#fed7aa',
         textShadow: textShadowStrong,
       }}
-      className={`group absolute z-[2] min-w-[40px] overflow-hidden border-2 border-orange-200/90 px-2 py-1 text-left text-white transition-[box-shadow,filter,opacity] duration-150 hover:z-[12] hover:brightness-110 hover:shadow-[0_0_32px_rgba(251,146,60,0.85)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-200 sm:min-w-[48px] sm:px-2.5 sm:py-1.5 ${rL} ${rR} ${
+      className={`group absolute z-[2] min-w-[40px] overflow-hidden border-2 px-2 py-1 text-left text-white transition-[box-shadow,filter,opacity] duration-150 sm:min-w-[48px] sm:px-2.5 sm:py-1.5 ${rL} ${rR} ${
+        isReqGap
+          ? 'cursor-default border-red-200/90 hover:brightness-105 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-200 disabled:cursor-default disabled:opacity-100'
+          : 'border-orange-200/90 hover:z-[12] hover:brightness-110 hover:shadow-[0_0_32px_rgba(251,146,60,0.85)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-200'
+      } ${
         seamBefore ? 'border-l-0' : ''
       } ${seamAfter ? 'border-r-0' : ''} ${
         dimmed ? 'opacity-35' : ''
@@ -72,7 +88,7 @@ export function OpenShiftBlock({ item, headerOffsetPx, layout, onSelect, shiftEd
             className={`truncate font-bold text-white ${layout.openTitleClass}`}
             style={{ textShadow: textShadowStrong }}
           >
-            Offen
+            {isReqGap ? '⚠ Soll' : 'Offen'}
           </span>
           <span className={`font-semibold tabular-nums text-white/95 ${layout.openMetaClass}`} style={{ textShadow: textShadowStrong }}>
             {block.start}–{block.end}
@@ -85,13 +101,13 @@ export function OpenShiftBlock({ item, headerOffsetPx, layout, onSelect, shiftEd
               className={`min-w-0 truncate font-bold text-white ${layout.openTitleClass}`}
               style={{ textShadow: textShadowStrong }}
             >
-              Offene Schicht
+              {isReqGap ? `⚠ UNBESETZTE ${typeDef.label.toUpperCase()}` : 'Offene Schicht'}
             </span>
             <span
               className={`shrink-0 rounded-md border border-white/30 bg-black/30 px-1.5 py-px font-bold uppercase tracking-wide text-white ${layout.shiftBadgeClass}`}
               style={{ textShadow: '0 1px 1px rgba(0,0,0,0.75)' }}
             >
-              Unbesetzt
+              {isReqGap ? 'SOLL' : 'Unbesetzt'}
             </span>
           </div>
           <p

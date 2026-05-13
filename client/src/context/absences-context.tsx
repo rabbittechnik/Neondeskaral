@@ -38,6 +38,12 @@ export function AbsencesProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  useEffect(() => {
+    setAbsences([])
+    setVacationBlocks([])
+    setError(null)
+  }, [stationId])
+
   const refetch = useCallback(async () => {
     if (!stationId) {
       setAbsences([])

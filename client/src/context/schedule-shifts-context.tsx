@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
@@ -32,46 +33,67 @@ function mergeById(prev: ScheduleShift[], incoming: ScheduleShift[]): ScheduleSh
   return [...map.values()]
 }
 
+/** Ersetzt nur den abgefragten Datumsbereich, Rest des Caches bleibt (gleiche Station). */
+function mergeShiftsForDateRange(
+  prev: ScheduleShift[],
+  incoming: ScheduleShift[],
+  fromIso: string,
+  toIso: string,
+): ScheduleShift[] {
+  const kept = prev.filter((s) => s.date < fromIso || s.date > toIso)
+  return mergeById(kept, incoming)
+}
+
 export function ScheduleShiftsProvider({ children }: { children: ReactNode }) {
   const { stationId } = useStation()
+  const stationIdRef = useRef(stationId)
+  stationIdRef.current = stationId
+
   const [shifts, setShifts] = useState<ScheduleShift[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  useEffect(() => {
+    setShifts([])
+    setError(null)
+    setLoading(true)
+  }, [stationId])
+
   const refetchRange = useCallback(
     async (fromIso: string, toIso: string) => {
-      if (!stationId) return
+      const sid = stationId
+      if (!sid) return
       setError(null)
       const res = await apiGet<ScheduleShift[]>('/shifts', {
-        stationId,
+        stationId: sid,
         from: fromIso,
         to: toIso,
       })
+      if (stationIdRef.current !== sid) return
       if (!res.ok || !Array.isArray(res.data)) {
         setError(res.ok === false ? res.error : 'Schichten konnten nicht geladen werden.')
         return
       }
-      setShifts((prev) => mergeById(prev, res.data as ScheduleShift[]))
+      setShifts((prev) => mergeShiftsForDateRange(prev, res.data as ScheduleShift[], fromIso, toIso))
     },
     [stationId],
   )
 
   useEffect(() => {
     const boot = async () => {
-      setLoading(true)
       if (!stationId) {
-        setShifts([])
         setLoading(false)
         return
       }
+      setLoading(true)
       const base = startOfWeekMonday(new Date())
       const from = toISODate(addDays(base, -14))
       const to = toISODate(addDays(base, 56))
       await refetchRange(from, to)
-      setLoading(false)
+      if (stationIdRef.current === stationId) setLoading(false)
     }
     void boot()
-  }, [refetchRange, stationId])
+  }, [stationId, refetchRange])
 
   const ensureWeekSeeded = useCallback(
     (weekMonday: Date) => {

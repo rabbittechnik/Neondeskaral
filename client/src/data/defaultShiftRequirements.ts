@@ -6,8 +6,8 @@
 import type { GermanState } from './germanHolidays'
 import type { DayRequirement, DayRequirementSlot } from '../types/scheduleAssistant'
 import { getRelevantHolidayForState } from '../utils/holidayUtils'
-import type { ScheduleShift } from './mockSchedule'
-import { toISODate } from './mockSchedule'
+import type { ResolvedShiftBlock, ScheduleShift } from './mockSchedule'
+import { dayIndexInWeek, toISODate } from './mockSchedule'
 
 /** Stationen mit Feiertags-Sonderlogik (Früh: 07:30 oder 08:30). */
 export const DEFAULT_SHIFT_REQUIREMENTS_STATION_IDS = ['aral-bodelshausen'] as const
@@ -261,6 +261,37 @@ export function calculateOpenShiftsForWeek(
     totalCount: totalNum,
     summaryLine: formatMissingSummary(earlyMissing, lateMissing),
   }
+}
+
+/**
+ * Synthetische Timeline-Blöcke für fehlende Soll-Schichten (keine DB-Zeile, nur Standardbedarf).
+ */
+export function buildRequirementGapResolvedBlocks(
+  weekMonday: Date,
+  stationId: string,
+  federalState: GermanState,
+  weekShifts: ScheduleShift[],
+): ResolvedShiftBlock[] {
+  const weekStart = toISODate(weekMonday)
+  const summary = calculateOpenShiftsForWeek(weekStart, weekShifts, [], stationId, federalState)
+  const out: ResolvedShiftBlock[] = []
+  for (let idx = 0; idx < summary.missingRequiredFlat.length; idx++) {
+    const m = summary.missingRequiredFlat[idx]!
+    const di = dayIndexInWeek(m.date, weekMonday)
+    if (di === null) continue
+    out.push({
+      id: `synthetic-req-${m.date}-${m.shiftType}-${idx}`,
+      dayIndex: di,
+      type: m.shiftType === 'early' ? 'frueh' : 'spaet',
+      start: m.startTime,
+      end: m.endTime,
+      workAreaCode: 'K',
+      dateISO: m.date,
+      open: true,
+      requirementGap: true,
+    })
+  }
+  return out
 }
 
 function toDayRequirementSlot(s: DefaultRequirementSlot): DayRequirementSlot {

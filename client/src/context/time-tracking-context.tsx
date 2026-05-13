@@ -70,6 +70,12 @@ export function TimeTrackingProvider({ children }: { children: ReactNode }) {
     else setCardEvents([])
   }, [stationId])
 
+  useEffect(() => {
+    setTimeEntries([])
+    setCardEvents([])
+    setError(null)
+  }, [stationId])
+
   const refetch = useCallback(async () => {
     if (!stationId) {
       setTimeEntries([])

@@ -143,7 +143,11 @@ export function DayTimelineRow({
   const moreRowHeight = hiddenShiftCount > 0 ? 22 : 0
   const trackHeightPx = trackBodyHeightPx + moreRowHeight
 
-  const summaryHours = sumShiftHoursForDay(blocksForLayout)
+  const blocksForSummary = useMemo(
+    () => blocksForLayout.filter((b) => !b.requirementGap),
+    [blocksForLayout],
+  )
+  const summaryHours = sumShiftHoursForDay(blocksForSummary)
   const summaryStr = summaryHours.toFixed(2).replace('.', ',')
 
   const hStrong = holidayBadge.severity === 'strong'
@@ -212,7 +216,10 @@ export function DayTimelineRow({
           ) : null}
 
           <p className={`text-[var(--text-muted)] ${layout.summaryClass}`}>
-            {blocks.length} Schicht{blocks.length === 1 ? '' : 'en'} · {summaryStr} Std.
+            {blocksForSummary.length} Schicht{blocksForSummary.length === 1 ? '' : 'en'} · {summaryStr} Std.
+            {blocks.some((b) => b.requirementGap) ? (
+              <span className="text-rose-200/85"> · Soll-Lücken markiert</span>
+            ) : null}
           </p>
           {absenceSummaryLine ? (
             <p

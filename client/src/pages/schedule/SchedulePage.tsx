@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { buildRequirementGapResolvedBlocks } from '../../data/defaultShiftRequirements'
 import {
   computeWeeklyHoursByEmployee,
   resolveShiftsForWeekGrid,
-  STATION_NAME,
+  shiftsInWeek,
   toISODate,
   toScheduleEmployeeRow,
   type ResolvedShiftBlock,
@@ -43,7 +44,7 @@ import { useViewportScheduleDensity } from '../../hooks/useViewportScheduleDensi
 import { apiGet } from '../../services/api'
 
 export function SchedulePage() {
-  const { federalState, stationId, hasPermission } = useStation()
+  const { federalState, stationId, hasPermission, selectedStation } = useStation()
   const { user } = useAuth()
   const { absences } = useAbsences()
   const { employees } = useEmployees()
@@ -117,9 +118,16 @@ export function SchedulePage() {
     [shifts, weekMonday],
   )
 
+  const shiftsThisWeek = useMemo(() => shiftsInWeek(shifts, weekMonday), [shifts, weekMonday])
+
+  const requirementGapBlocks = useMemo(() => {
+    if (!stationId) return [] as ResolvedShiftBlock[]
+    return buildRequirementGapResolvedBlocks(weekMonday, stationId, federalState, shiftsThisWeek)
+  }, [weekMonday, stationId, federalState, shiftsThisWeek])
+
   const timelineRange = useMemo(
-    () => computeTimelineRangeFromWeekBlocks(allBlocks),
-    [allBlocks],
+    () => computeTimelineRangeFromWeekBlocks([...allBlocks, ...requirementGapBlocks]),
+    [allBlocks, requirementGapBlocks],
   )
 
   /** Wochenraster: nur echte Dienste + offene Schichten (kein „Frei“). */
@@ -133,8 +141,10 @@ export function SchedulePage() {
     if (employeeFilter !== 'all') {
       list = list.filter((b) => b.open || b.employeeId === employeeFilter)
     }
-    return list
-  }, [allBlocks, workAreaFilter, employeeFilter])
+    const gaps =
+      workAreaFilter === 'all' || workAreaFilter === 'K' ? requirementGapBlocks : []
+    return [...list, ...gaps]
+  }, [allBlocks, workAreaFilter, employeeFilter, requirementGapBlocks])
 
   const hoursByEmployee = useMemo(
     () => computeWeeklyHoursByEmployee(allBlocks),
@@ -155,9 +165,12 @@ export function SchedulePage() {
   )
 
   useEffect(() => {
+    setScheduleConflicts([])
+    setConflictsError(null)
+  }, [stationId])
+
+  useEffect(() => {
     if (!stationId) {
-      setScheduleConflicts([])
-      setConflictsError(null)
       return
     }
     let cancelled = false
@@ -305,7 +318,7 @@ export function SchedulePage() {
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--text-faint)]">
             <span>
               Station:{' '}
-              <span className="font-medium text-cyan-200/90">{STATION_NAME}</span>
+              <span className="font-medium text-cyan-200/90">{selectedStation?.name ?? '—'}</span>
             </span>
             {shiftsLoading ? <span>Schichten werden geladen…</span> : null}
             {shiftsError ? (

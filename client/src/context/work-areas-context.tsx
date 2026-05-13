@@ -41,6 +41,11 @@ export function WorkAreasProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  useEffect(() => {
+    setDefinitions([])
+    setError(null)
+  }, [stationId])
+
   const refetch = useCallback(async () => {
     if (!stationId) {
       setLoading(false)
@@ -49,10 +54,11 @@ export function WorkAreasProvider({ children }: { children: ReactNode }) {
     setLoading(true)
     setError(null)
     const res = await apiGet<WorkAreaDefinition[]>('/work-areas', { stationId })
-    if (res.ok && Array.isArray(res.data) && res.data.length > 0) {
+    if (res.ok && Array.isArray(res.data)) {
       setDefinitions(res.data)
-    } else if (!res.ok) {
-      setError(res.error || 'Arbeitsbereiche konnten nicht geladen werden.')
+    } else {
+      setDefinitions([])
+      if (!res.ok) setError(res.error || 'Arbeitsbereiche konnten nicht geladen werden.')
     }
     setLoading(false)
   }, [stationId])
