@@ -22,9 +22,13 @@ export function terminalCheckIn(
       stationId,
       actionType: 'check_in',
       result: 'unknown_card',
-      message: 'Unbekannte Kartennummer',
+      message: 'Diese Kassenkartennummer wurde keinem aktiven Mitarbeiter dieser Station zugeordnet.',
     })
-    return { ok: false as const, result: 'unknown_card' as const, message: 'Unbekannte Kartennummer' }
+    return {
+      ok: false as const,
+      result: 'unknown_card' as const,
+      message: 'Diese Kassenkartennummer wurde keinem aktiven Mitarbeiter dieser Station zugeordnet.',
+    }
   }
   return clockCheckInByEmployeeId(db, {
     employeeId: emp.id,
@@ -46,9 +50,13 @@ export function terminalCheckOutStart(db: Database, body: { cardNumber: string; 
       stationId,
       actionType: 'check_out',
       result: 'unknown_card',
-      message: 'Unbekannte Kartennummer',
+      message: 'Diese Kassenkartennummer wurde keinem aktiven Mitarbeiter dieser Station zugeordnet.',
     })
-    return { ok: false as const, result: 'unknown_card' as const, message: 'Unbekannte Kartennummer' }
+    return {
+      ok: false as const,
+      result: 'unknown_card' as const,
+      message: 'Diese Kassenkartennummer wurde keinem aktiven Mitarbeiter dieser Station zugeordnet.',
+    }
   }
   return clockCheckOutStartByEmployeeId(db, {
     employeeId: emp.id,
@@ -89,7 +97,10 @@ export function terminalAcknowledgeShiftWarning(
   const card = String(body.cardNumber ?? '').trim()
   const emp = getEmployeeByCard(db, card, stationId)
   if (!emp) {
-    return { ok: false as const, message: 'Unbekannte Kartennummer' }
+    return {
+      ok: false as const,
+      message: 'Diese Kassenkartennummer wurde keinem aktiven Mitarbeiter dieser Station zugeordnet.',
+    }
   }
   try {
     acknowledgeShiftWarning(db, body.warningId, emp.id)

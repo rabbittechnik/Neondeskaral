@@ -139,6 +139,8 @@ export function EmployeeFormTabs({ value, onChange, disabled, mode }: Props) {
     hasPermission('payroll.view') ||
     hasPermission('employees.manageSensitive')
 
+  const canEditEmployees = hasPermission('employees.edit')
+
   const canQr = hasPermission('employees.qr')
 
   const ctxEmp = value.id ? getById(value.id) : undefined
@@ -343,7 +345,7 @@ export function EmployeeFormTabs({ value, onChange, disabled, mode }: Props) {
                     />
                   </div>
                 ) : (
-                  <p className="text-xs text-[var(--text-faint)]">PIN / Kassenkarte: keine Berechtigung.</p>
+                  <p className="text-xs text-[var(--text-faint)]">PIN setzen: keine Berechtigung.</p>
                 )}
                 <div>
                   <label className={labelClass}>Zeiterfassung *</label>
@@ -420,7 +422,7 @@ export function EmployeeFormTabs({ value, onChange, disabled, mode }: Props) {
                     ))}
                   </select>
                 </div>
-                {canSensitive ? (
+                {canSensitive || canEditEmployees ? (
                   <div>
                     <label className={labelClass}>Kassenkartennummer</label>
                     <input
@@ -429,6 +431,9 @@ export function EmployeeFormTabs({ value, onChange, disabled, mode }: Props) {
                       value={value.cashRegisterCardNumber ?? ''}
                       onChange={(e) => patch({ cashRegisterCardNumber: e.target.value })}
                     />
+                    <p className="mt-1 text-xs text-[var(--text-faint)]">
+                      Für das Stations-Tablet; leer lassen, wenn keine Karten-Anmeldung gewünscht ist.
+                    </p>
                   </div>
                 ) : null}
                 <label className="flex items-center gap-2 text-sm text-[var(--text-muted)]">

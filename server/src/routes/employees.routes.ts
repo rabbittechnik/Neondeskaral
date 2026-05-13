@@ -189,7 +189,13 @@ employeesRouter.put('/:id', (req, res) => {
     if (!row) return jsonErr(res, 'Mitarbeiter nicht gefunden', 404)
     if (!requirePermission(req, res, row.station_id, 'employees.edit')) return
     const sens = canViewEmployeeSensitive(req, row.station_id)
-    jsonOk(res, employeeService.updateEmployee(getDb(), req.params.id, req.body ?? {}, { allowSensitive: sens }))
+    jsonOk(
+      res,
+      employeeService.updateEmployee(getDb(), req.params.id, req.body ?? {}, {
+        allowSensitive: sens,
+        allowCashRegisterCard: true,
+      }),
+    )
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
   }

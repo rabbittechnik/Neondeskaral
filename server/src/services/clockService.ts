@@ -97,11 +97,14 @@ export function clockCheckInByEmployeeId(
         result: 'unknown_card',
         message: 'Mitarbeiter nicht gefunden',
       })
-    return { ok: false as const, result: 'unknown_card' as const, message: 'Mitarbeiter nicht gefunden' }
+    return {
+      ok: false as const,
+      result: 'unknown_card' as const,
+      message: 'Mitarbeiter nicht gefunden',
+    }
   }
 
-  const row = getEmployeeRowInternal(db, employeeId)!
-  if ((row.terminal_enabled ?? 1) === 0 || (row.time_tracking_enabled ?? 1) === 0) {
+  if (!emp.terminalEnabled || !emp.timeTrackingEnabled) {
     if (card)
       logCardEvent(db, {
         cardNumber: card,
@@ -144,12 +147,12 @@ export function clockCheckInByEmployeeId(
         stationId,
         actionType: 'check_in',
         result: 'already_checked_in',
-        message: 'Bereits eingestempelt',
+        message: 'Du bist bereits eingestempelt.',
       })
     return {
       ok: false as const,
       result: 'already_checked_in' as const,
-      message: 'Bereits eingestempelt',
+      message: 'Du bist bereits eingestempelt.',
       employee: emp,
       timeEntry: running,
     }
@@ -258,7 +261,11 @@ export function clockCheckOutStartByEmployeeId(
         result: 'unknown_card',
         message: 'Mitarbeiter nicht gefunden',
       })
-    return { ok: false as const, result: 'unknown_card' as const, message: 'Mitarbeiter nicht gefunden' }
+    return {
+      ok: false as const,
+      result: 'unknown_card' as const,
+      message: 'Mitarbeiter nicht gefunden',
+    }
   }
 
   const running = getRunningForEmployee(db, employeeId, stationId)
@@ -270,12 +277,12 @@ export function clockCheckOutStartByEmployeeId(
         stationId,
         actionType: 'check_out',
         result: 'not_checked_in',
-        message: 'Keine laufende Schicht',
+        message: 'Für diesen Mitarbeiter ist aktuell keine laufende Schicht vorhanden.',
       })
     return {
       ok: false as const,
       result: 'not_checked_in' as const,
-      message: 'Keine laufende Schicht',
+      message: 'Für diesen Mitarbeiter ist aktuell keine laufende Schicht vorhanden.',
       employee: emp,
     }
   }

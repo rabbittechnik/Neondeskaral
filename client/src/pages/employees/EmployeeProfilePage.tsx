@@ -15,8 +15,71 @@ import { EmploymentTypeBadge } from '../../components/employees/EmploymentTypeBa
 import { formatDateDe, formatEuroDe, formatHoursDe } from '../../components/employees/employeeFormat'
 import { EMPLOYMENT_LABELS, STATUS_LABELS } from '../../components/employees/employeeLabels'
 import { EmployeePlanningPreferencesSection } from '../../components/employees/planning/EmployeePlanningPreferencesSection'
+import { inputClass } from '../../components/schedule/shift/fieldStyles'
 
 import { EmployeeAppQrSection } from '../../components/employees/EmployeeAppQrSection'
+
+function EmployeeProfileCashCardSection({ employee, readOnly }: { employee: Employee; readOnly: boolean }) {
+  const { hasPermission } = useStation()
+  const { updateEmployee } = useEmployees()
+  const canEditCard = hasPermission('employees.edit') && !readOnly
+  const [value, setValue] = useState(employee.cashRegisterCardNumber ?? '')
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+
+  useEffect(() => {
+    setValue(employee.cashRegisterCardNumber ?? '')
+    setMsg(null)
+  }, [employee.id, employee.cashRegisterCardNumber])
+
+  const save = async () => {
+    setSaving(true)
+    setMsg(null)
+    try {
+      await updateEmployee({ ...employee, cashRegisterCardNumber: value.trim() })
+      setMsg('Gespeichert.')
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Speichern fehlgeschlagen')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const display = (employee.cashRegisterCardNumber ?? '').trim() || '—'
+
+  return (
+    <div className="mt-3 border-t border-[var(--border-subtle)] pt-3 space-y-2">
+      {!canEditCard ? (
+        <div className="flex justify-between gap-2 text-sm">
+          <span className="text-[var(--text-faint)]">Kassenkartennummer</span>
+          <span className="tabular-nums text-[var(--text-main)]">{display}</span>
+        </div>
+      ) : (
+        <>
+          <label htmlFor={`emp-cash-card-${employee.id}`} className="block text-xs font-medium text-[var(--text-faint)]">
+            Kassenkartennummer
+          </label>
+          <div className="flex flex-wrap items-end gap-2">
+            <input
+              id={`emp-cash-card-${employee.id}`}
+              type="text"
+              inputMode="numeric"
+              className={`${inputClass} max-w-[14rem]`}
+              disabled={saving}
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              autoComplete="off"
+            />
+            <Button type="button" variant="primary" disabled={saving} onClick={() => void save()}>
+              {saving ? 'Speichern…' : 'Speichern'}
+            </Button>
+          </div>
+          {msg ? <p className="text-xs text-[var(--text-muted)]">{msg}</p> : null}
+        </>
+      )}
+    </div>
+  )
+}
 
 function EmployeeProfilePlanningSection({ employee }: { employee: Employee }) {
   const { updateEmployee } = useEmployees()
@@ -242,6 +305,7 @@ export function EmployeeProfilePage() {
                 <dd className="text-[var(--text-main)]">{STATUS_LABELS[employee.status]}</dd>
               </div>
             </dl>
+            <EmployeeProfileCashCardSection employee={employee} readOnly={isRemoved} />
           </Card>
 
           <Card padding="md" className="border-[var(--border-subtle)]">

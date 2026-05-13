@@ -20,7 +20,10 @@ export function findEmployeeByCashRegisterCardNumber(
   const n = raw.trim()
   if (!n) return undefined
   return employees.find(
-    (e) => e.terminalEnabled && e.timeTrackingEnabled && e.cashRegisterCardNumber === n,
+    (e) =>
+      e.terminalEnabled &&
+      e.timeTrackingEnabled &&
+      String(e.cashRegisterCardNumber ?? '').trim() === n,
   )
 }
 

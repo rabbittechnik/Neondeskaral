@@ -254,7 +254,7 @@ export function StaffTerminalPage() {
       lastCheckInCardRef.current = card
       const ev = evaluateCheckIn(card, employees, shifts, timeEntries, new Date())
       if (ev.kind === 'unknown_card') {
-        log({ cardNumber: card, actionType: 'check_in', result: 'unknown_card', message: 'Unbekannte Karte' })
+        log({ cardNumber: card, actionType: 'check_in', result: 'unknown_card', message: 'Kassenkarte unbekannt' })
         setCheckInStep(ev)
         return
       }
@@ -325,7 +325,7 @@ export function StaffTerminalPage() {
     if (modal === 'check-out') {
       const ev = evaluateCheckOut(card, employees, timeEntries)
       if (ev.kind === 'unknown_card') {
-        log({ cardNumber: card, actionType: 'check_out', result: 'unknown_card', message: 'Unbekannte Karte' })
+        log({ cardNumber: card, actionType: 'check_out', result: 'unknown_card', message: 'Kassenkarte unbekannt' })
         setCheckOutMsg(ev)
         return
       }
@@ -335,7 +335,7 @@ export function StaffTerminalPage() {
           employeeId: ev.employee.id,
           actionType: 'check_out',
           result: 'not_checked_in',
-          message: 'Keine laufende Schicht',
+          message: 'Keine laufende Schicht (Ausstempeln)',
         })
         setCheckOutMsg(ev)
         return
@@ -361,8 +361,8 @@ export function StaffTerminalPage() {
       return (
         <TerminalResultMessage
           variant="error"
-          title="Kassenkartennummer nicht bekannt"
-          message="Bitte wende dich an den Teamleiter."
+          title="Kassenkartennummer unbekannt"
+          message="Diese Kassenkartennummer wurde keinem aktiven Mitarbeiter dieser Station zugeordnet."
         />
       )
     }
@@ -431,15 +431,15 @@ export function StaffTerminalPage() {
     if (!checkOutMsg) return null
     if (checkOutMsg.kind === 'unknown_card') {
       return (
-        <TerminalResultMessage variant="error" title="Kartennummer unbekannt" message="Bitte wende dich an den Teamleiter." />
+        <TerminalResultMessage variant="error" title="Kassenkartennummer unbekannt" message="Diese Kassenkartennummer wurde keinem aktiven Mitarbeiter dieser Station zugeordnet." />
       )
     }
     if (checkOutMsg.kind === 'not_checked_in') {
       return (
         <TerminalResultMessage
           variant="error"
-          title="Nicht eingestempelt"
-          message="Du bist aktuell nicht eingestempelt."
+          title="Keine laufende Schicht"
+          message="Für diesen Mitarbeiter ist aktuell keine laufende Schicht vorhanden."
         />
       )
     }

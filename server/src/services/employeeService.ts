@@ -449,13 +449,49 @@ export function getEmployee(db: Database, id: string, opts?: { includeAccessToke
   })
 }
 
+export function assertCashRegisterCardUnique(
+  db: Database,
+  stationId: string,
+  cardNumber: string | null | undefined,
+  excludeEmployeeId?: string,
+) {
+  const card = String(cardNumber ?? '').trim()
+  if (!card) return
+  const row = excludeEmployeeId
+    ? (db
+        .prepare(
+          `SELECT id, display_name FROM employees WHERE station_id = ?
+           AND trim(cash_register_card_number) = trim(?)
+           AND (deleted_at IS NULL OR trim(deleted_at) = '')
+           AND COALESCE(active, 1) = 1
+           AND lower(trim(COALESCE(status, ''))) NOT IN ('deleted', 'geloescht', 'inactive', 'inaktiv', 'blocked', 'gesperrt')
+           AND id != ?
+           LIMIT 1`,
+        )
+        .get(stationId, card, excludeEmployeeId) as { id: string; display_name: string } | undefined)
+    : (db
+        .prepare(
+          `SELECT id, display_name FROM employees WHERE station_id = ?
+           AND trim(cash_register_card_number) = trim(?)
+           AND (deleted_at IS NULL OR trim(deleted_at) = '')
+           AND COALESCE(active, 1) = 1
+           AND lower(trim(COALESCE(status, ''))) NOT IN ('deleted', 'geloescht', 'inactive', 'inaktiv', 'blocked', 'gesperrt')
+           LIMIT 1`,
+        )
+        .get(stationId, card) as { id: string; display_name: string } | undefined)
+  if (row) {
+    const who = row.display_name?.trim() ? `„${row.display_name.trim()}“` : 'einem anderen Mitarbeiter'
+    throw new Error(`Diese Kassenkartennummer ist bereits bei ${who} hinterlegt. Pro Station darf jede Nummer nur einmal vergeben werden.`)
+  }
+}
+
 export function getEmployeeByCard(db: Database, cardNumber: string, stationId = DEFAULT_STATION_ID) {
   const row = db
     .prepare(
-      `SELECT * FROM employees WHERE station_id = ? AND cash_register_card_number = ?
+      `SELECT * FROM employees WHERE station_id = ? AND trim(cash_register_card_number) = trim(?)
        AND (COALESCE(active, 1) = 1)
        AND (COALESCE(deleted_at, '') = '' OR trim(deleted_at) = '')
-       AND lower(trim(COALESCE(status, ''))) != 'deleted'`,
+       AND lower(trim(COALESCE(status, ''))) NOT IN ('deleted', 'geloescht', 'inactive', 'inaktiv')`,
     )
     .get(stationId, cardNumber.trim()) as EmployeeRow | undefined
   if (!row) return undefined
@@ -498,7 +534,8 @@ export function createEmployee(
   const iban = allowSensitive ? String(body.iban ?? '').trim() || null : null
   const bic = allowSensitive ? String(body.bic ?? '').trim() || null : null
   const accHolder = allowSensitive ? String(body.accountHolder ?? '').trim() || null : null
-  const cardNo = allowSensitive ? String(body.cashRegisterCardNumber ?? '').trim() || null : null
+  const cardNo = String(body.cashRegisterCardNumber ?? '').trim() || null
+  assertCashRegisterCardUnique(db, stationId, cardNo, undefined)
   const manko = allowSensitive ? Number(body.mankoMoney ?? 0) : null
   const vl = allowSensitive ? Number(body.vlAmount ?? 0) : null
   const hidePay = allowSensitive ? (body.hideInPayroll ? 1 : 0) : 0
@@ -640,17 +677,27 @@ export function updateEmployee(
   db: Database,
   id: string,
   body: Record<string, unknown>,
-  opts?: { allowSensitive?: boolean },
+  opts?: { allowSensitive?: boolean; allowCashRegisterCard?: boolean },
 ) {
   const existing = db.prepare(`SELECT * FROM employees WHERE id = ?`).get(id) as EmployeeRow | undefined
   if (!existing) throw new Error('Mitarbeiter nicht gefunden')
   const allowSensitive = Boolean(opts?.allowSensitive)
+  const allowCashRegisterCard = Boolean(opts?.allowCashRegisterCard)
   const ts = nowIso()
   const sid = String(existing.station_id)
   const exR = existing as Record<string, unknown>
   if (rStr(exR, 'deleted_at').trim()) {
     throw new Error('Gelöschte Mitarbeitende können hier nicht bearbeitet werden. Bitte zuerst wiederherstellen.')
   }
+
+  const cardBodyPresent = Object.prototype.hasOwnProperty.call(body, 'cashRegisterCardNumber')
+  const nextCashRegister =
+    (allowSensitive || allowCashRegisterCard) && cardBodyPresent
+      ? String(body.cashRegisterCardNumber ?? '').trim() || null
+      : existing.cash_register_card_number != null
+        ? String(existing.cash_register_card_number).trim() || null
+        : null
+  assertCashRegisterCardUnique(db, sid, nextCashRegister, id)
 
   if (body.status === 'inaktiv' || body.status === 'inactive') {
     db.prepare(
@@ -729,9 +776,7 @@ export function updateEmployee(
     body.vacationDaysTotal != null ? Number(body.vacationDaysTotal) : existing.vacation_days_total,
     body.vacationDaysUsed != null ? Number(body.vacationDaysUsed) : existing.vacation_days_used,
     body.color != null ? String(body.color) : existing.color,
-    allowSensitive && body.cashRegisterCardNumber !== undefined
-      ? String(body.cashRegisterCardNumber ?? '').trim() || null
-      : existing.cash_register_card_number,
+    nextCashRegister,
     body.terminalEnabled === false ? 0 : body.terminalEnabled === true ? 1 : existing.terminal_enabled,
     body.timeTrackingEnabled === false ? 0 : body.timeTrackingEnabled === true ? 1 : existing.time_tracking_enabled,
     body.timeTrackingMode != null ? String(body.timeTrackingMode) : (existing as Record<string, unknown>).time_tracking_mode ?? 'station_default',

@@ -163,6 +163,29 @@ export function runMigrations(db: Database.Database) {
   ensureStationStammdatenColumns(db)
   ensureStationCanonicalNamesOnce(db)
   syncAralBodelshausenStationDisplayName(db)
+  syncAralBodelshausenEmployeeCashRegisterCards(db)
+}
+
+/** Idempotent: Kassenkartennummern für Aral Bodelshausen (nur nicht gelöschte Zeilen, Abgleich per display_name). */
+function syncAralBodelshausenEmployeeCashRegisterCards(db: Database.Database) {
+  const ts = nowIso()
+  const pairs: [string, string][] = [
+    ['Mathias Raselowski', '772839'],
+    ['Metin Özgür', '772820'],
+    ['Max Vins', '140520'],
+    ['Valerina Mustafa', '772838'],
+    ['Luca Stöck', '140519'],
+    ['Chiara H.', '772822'],
+    ['Enise A.', '772837'],
+  ]
+  const stmt = db.prepare(
+    `UPDATE employees SET cash_register_card_number = ?, updated_at = ?
+     WHERE station_id = 'aral-bodelshausen' AND display_name = ?
+       AND (deleted_at IS NULL OR trim(deleted_at) = '')`,
+  )
+  for (const [name, num] of pairs) {
+    stmt.run(num, ts, name)
+  }
 }
 
 function ensureStationStammdatenColumns(db: Database.Database) {
