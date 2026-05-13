@@ -27,6 +27,8 @@ type Draft = {
   handoverPossible: boolean
   closingReady: boolean
   incidentNote: string
+  /** Freitexteingabe Kassendifferenz (€), leer = 0,00 € */
+  cashDifferenceInput: string
 }
 
 const initialDraft: Draft = {
@@ -42,6 +44,7 @@ const initialDraft: Draft = {
   handoverPossible: false,
   closingReady: false,
   incidentNote: '',
+  cashDifferenceInput: '',
 }
 
 const ROWS: { key: keyof Draft; label: string }[] = [
@@ -96,10 +99,26 @@ export function ShiftCloseChecklistModal({
       setError('Nicht alle Punkte wurden bestätigt. Bitte trage eine Bemerkung ein.')
       return
     }
+    let cashEuro = 0
+    const rawCash = draft.cashDifferenceInput.trim().replace(/\s/g, '')
+    if (rawCash !== '') {
+      const normalized = rawCash.replace(',', '.')
+      const n = Number(normalized)
+      if (!Number.isFinite(n)) {
+        setError('Kassendifferenz konnte nicht gelesen werden (zulässig z. B. 0, −5 oder +2,5).')
+        return
+      }
+      if (Math.abs(n) > 1_000_000) {
+        setError('Kassendifferenz ist zu groß.')
+        return
+      }
+      cashEuro = Math.round(n * 100) / 100
+    }
+
     setError('')
     const completedAt = new Date().toISOString()
     const merged = mergeChecklistDraft(
-      { ...draft, everythingOk: okAll },
+      { ...draft, everythingOk: okAll, cashDifference: cashEuro },
       timeEntryId,
       employeeId,
       createChecklistId(),
@@ -148,6 +167,22 @@ export function ShiftCloseChecklistModal({
             rows={3}
             className="mt-1 w-full rounded-xl border border-[var(--border-subtle)] bg-black/30 px-3 py-2 text-base text-[var(--text-main)]"
           />
+        </label>
+        <label className="mt-4 block text-sm text-[var(--text-muted)]">
+          Kassendifferenz (€){' '}
+          <span className="font-normal text-[var(--text-faint)]">— optional</span>
+          <input
+            type="text"
+            inputMode="decimal"
+            autoComplete="off"
+            placeholder="0,00"
+            value={draft.cashDifferenceInput}
+            onChange={(e) => setDraft((d) => ({ ...d, cashDifferenceInput: e.target.value }))}
+            className="mt-1 w-full max-w-xs rounded-xl border border-[var(--border-subtle)] bg-black/30 px-3 py-2 font-mono text-base text-[var(--text-main)] tabular-nums"
+          />
+          <span className="mt-1 block text-xs font-normal leading-snug text-[var(--text-faint)]">
+            Nur ausfüllen, wenn eine Kassendifferenz bekannt ist. Beispiele: 0,00 · −5,00 · +2,50
+          </span>
         </label>
         <p className="mt-4 text-sm font-medium text-[var(--text-muted)]">Kann die Schicht abgeschlossen werden?</p>
         {error ? <p className="mt-2 text-sm text-amber-300">{error}</p> : null}

@@ -372,6 +372,10 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
           closingReady: checklist.closingReady,
           everythingOk: checklist.everythingOk,
           incidentNote: checklist.incidentNote,
+          cashDifference:
+            checklist.cashDifference != null && Number.isFinite(checklist.cashDifference)
+              ? checklist.cashDifference
+              : 0,
         },
       })
       if (raw.result === 'invalid_token') {

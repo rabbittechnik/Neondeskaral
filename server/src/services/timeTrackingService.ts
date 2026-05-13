@@ -253,7 +253,29 @@ function plannedShiftRowForEntry(
   return list[0] ?? null
 }
 
+/** Kassendifferenz aus Checkliste: optional, Standard 0 €; erlaubt z. B. -5 oder 2,5 */
+export function parseChecklistCashDifferenceEuro(checklist: Record<string, unknown>): number {
+  const v = checklist.cashDifference ?? checklist.cash_difference
+  if (v === null || v === undefined) return 0
+  if (typeof v === 'number') {
+    if (!Number.isFinite(v)) throw new Error('Kassendifferenz ungültig')
+    if (Math.abs(v) > 1_000_000) throw new Error('Kassendifferenz außerhalb des zulässigen Bereichs')
+    return Math.round(v * 100) / 100
+  }
+  const s = String(v).trim().replace(/\s/g, '')
+  if (!s) return 0
+  const n = Number(s.replace(',', '.'))
+  if (!Number.isFinite(n)) throw new Error('Kassendifferenz ungültig')
+  if (Math.abs(n) > 1_000_000) throw new Error('Kassendifferenz außerhalb des zulässigen Bereichs')
+  return Math.round(n * 100) / 100
+}
+
 function checklistRowToApi(r: Record<string, unknown>) {
+  const cashRaw = r.cash_difference
+  const cashDiff =
+    cashRaw === null || cashRaw === undefined || String(cashRaw).trim() === ''
+      ? 0
+      : Math.round(Number(cashRaw) * 100) / 100
   return {
     id: String(r.id),
     timeEntryId: String(r.time_entry_id),
@@ -271,6 +293,7 @@ function checklistRowToApi(r: Record<string, unknown>) {
     closingReady: (r.closing_ready as number) === 1,
     everythingOk: (r.everything_ok as number) === 1,
     incidentNote: String(r.incident_note ?? ''),
+    cashDifference: Number.isFinite(cashDiff) ? cashDiff : 0,
     completedAt: String(r.completed_at ?? ''),
   }
 }
@@ -444,13 +467,14 @@ export function insertChecklist(
 ) {
   const id = `chk-${randomUUID()}`
   const ts = nowIso()
+  const cashDifference = parseChecklistCashDifferenceEuro(checklist)
   db.prepare(
     `INSERT INTO shift_close_checklists (
       id, time_entry_id, employee_id,
       fridge_fronted, drinks_filled, cigarettes_filled, shelves_filled, trash_emptied,
       counter_clean, coffee_area_clean, outside_checked, incidents_noted, handover_possible,
-      closing_ready, everything_ok, incident_note, completed_at, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      closing_ready, everything_ok, incident_note, cash_difference, completed_at, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     timeEntryId,
@@ -468,6 +492,7 @@ export function insertChecklist(
     checklist.closingReady ? 1 : 0,
     checklist.everythingOk ? 1 : 0,
     String(checklist.incidentNote ?? ''),
+    cashDifference,
     ts,
     ts,
   )

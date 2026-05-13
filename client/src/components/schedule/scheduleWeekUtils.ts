@@ -64,3 +64,14 @@ export function formatDayMonthDot(d: Date): string {
 export function weekDayDates(weekMonday: Date): Date[] {
   return Array.from({ length: 7 }, (_, i) => addDays(weekMonday, i))
 }
+
+/** Erster und letzter Kalendertag des Monats, zu dem `contained` gehört (lokales Datum). */
+export function calendarMonthRangeForDate(contained: Date): { fromYmd: string; toYmd: string } {
+  const y = contained.getFullYear()
+  const m = contained.getMonth()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const fromYmd = `${y}-${pad(m + 1)}-01`
+  const lastDay = new Date(y, m + 1, 0).getDate()
+  const toYmd = `${y}-${pad(m + 1)}-${pad(lastDay)}`
+  return { fromYmd, toYmd }
+}

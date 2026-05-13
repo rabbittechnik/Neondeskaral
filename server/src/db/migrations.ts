@@ -144,6 +144,10 @@ export function runMigrations(db: Database.Database) {
   ensureTaskLogsTabletColumns(db)
   removeSeedDemoRunningTimeEntries(db)
   alignAralBodelshausenEmployeeDisplayRoles(db)
+  ensurePayrollAdjustmentsTable(db)
+  mergePayrollExportPermission(db)
+  ensureShiftCloseChecklistCashDifferenceColumn(db)
+  ensurePayrollAdjustmentsUpdatedAtColumn(db)
 }
 
 /** Stammdaten-Anzeige-Rollen für Bodelshausen (bestehende DBs, Railway-Deploy). */
@@ -172,6 +176,67 @@ function alignAralBodelshausenEmployeeDisplayRoles(db: Database.Database) {
   } catch {
     /* ignore */
   }
+}
+
+/** payroll.export: Default = reports.export, wenn noch nicht gesetzt. */
+function mergePayrollExportPermission(db: Database.Database) {
+  const rows = db.prepare(`SELECT id, permissions_json FROM user_station_access`).all() as {
+    id: string
+    permissions_json: string
+  }[]
+  const ts = nowIso()
+  for (const r of rows) {
+    let p: Record<string, boolean> = {}
+    try {
+      p = JSON.parse(r.permissions_json || '{}') as Record<string, boolean>
+    } catch {
+      p = {}
+    }
+    if (p['payroll.export'] !== undefined) continue
+    p['payroll.export'] = p['reports.export'] === true
+    db.prepare(`UPDATE user_station_access SET permissions_json = ?, updated_at = ? WHERE id = ?`).run(
+      JSON.stringify(p),
+      ts,
+      r.id,
+    )
+  }
+}
+
+function ensureShiftCloseChecklistCashDifferenceColumn(db: Database.Database) {
+  const cols = new Set(
+    (db.prepare(`PRAGMA table_info(shift_close_checklists)`).all() as { name: string }[]).map((c) => c.name),
+  )
+  if (!cols.has('cash_difference')) {
+    db.exec(`ALTER TABLE shift_close_checklists ADD COLUMN cash_difference REAL`)
+  }
+}
+
+function ensurePayrollAdjustmentsUpdatedAtColumn(db: Database.Database) {
+  const cols = new Set(
+    (db.prepare(`PRAGMA table_info(payroll_adjustments)`).all() as { name: string }[]).map((c) => c.name),
+  )
+  if (!cols.has('updated_at')) {
+    db.exec(`ALTER TABLE payroll_adjustments ADD COLUMN updated_at TEXT`)
+  }
+}
+
+function ensurePayrollAdjustmentsTable(db: Database.Database) {
+  db.exec(`CREATE TABLE IF NOT EXISTS payroll_adjustments (
+    id TEXT PRIMARY KEY,
+    station_id TEXT NOT NULL,
+    employee_id TEXT NOT NULL,
+    type TEXT NOT NULL,
+    amount REAL NOT NULL,
+    date TEXT NOT NULL,
+    note TEXT,
+    created_by TEXT,
+    created_at TEXT,
+    updated_at TEXT,
+    FOREIGN KEY (station_id) REFERENCES stations(id),
+    FOREIGN KEY (employee_id) REFERENCES employees(id)
+  )`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_payroll_adj_station_date ON payroll_adjustments(station_id, date)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_payroll_adj_employee ON payroll_adjustments(employee_id)`)
 }
 
 /** Früherer Seed: feste IDs mit „running“ — produktiv keine Demo-Eingestempelten. */

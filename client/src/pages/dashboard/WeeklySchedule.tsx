@@ -3,7 +3,10 @@ import { Link } from 'react-router-dom'
 import { Card } from '../../components/ui/Card'
 import { WeeklyScheduleTimeline } from '../../components/schedule/WeeklyScheduleTimeline'
 import { ScheduleEmployeeSummaryBar } from '../../components/schedule/ScheduleEmployeeSummaryBar'
-import { startOfWeekMonday } from '../../components/schedule/scheduleWeekUtils'
+import {
+  calendarMonthRangeForDate,
+  startOfWeekMonday,
+} from '../../components/schedule/scheduleWeekUtils'
 import { buildRequirementGapResolvedBlocks } from '../../data/defaultShiftRequirements'
 import {
   computeWeeklyHoursByEmployee,
@@ -84,6 +87,11 @@ export function WeeklySchedule() {
   )
 
   const hoursByEmployee = useMemo(() => computeWeeklyHoursByEmployee(allBlocks), [allBlocks])
+
+  const monthlyPlannedHoursById = useMemo(() => {
+    const { fromYmd, toYmd } = calendarMonthRangeForDate(weekMonday)
+    return computePlannedHoursByEmployeeInDateRange(shifts, fromYmd, toYmd)
+  }, [shifts, weekMonday])
 
   const gridBlocks = useMemo(() => {
     let list = allBlocks.filter((b) => b.type !== 'frei' && (b.open || Boolean(b.employeeId)))
@@ -185,6 +193,7 @@ export function WeeklySchedule() {
       <ScheduleEmployeeSummaryBar
         employees={scheduleRows}
         weeklyHoursById={hoursByEmployee}
+        monthlyPlannedHoursById={monthlyPlannedHoursById}
         selectedId={employeeFilter === 'all' ? null : employeeFilter}
         onToggleEmployee={toggleEmployeeFilter}
         dashboardCompact

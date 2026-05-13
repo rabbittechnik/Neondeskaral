@@ -4,10 +4,16 @@ import { jsonErr, jsonOk } from '../utils/http.js'
 import { requireAnyPermission } from '../middleware/stationAuth.js'
 import { buildAbsenceYearSummary, type AbsenceSummaryCohort } from '../services/absenceSummaryReportService.js'
 import type { AbsenceCountMode } from '../utils/absenceYearCalculator.js'
+import {
+  calculatePayrollScheduleReport,
+  calculatePayrollTimeTrackingReport,
+  listPayrollTimeEntryDetails,
+} from '../services/payrollReportService.js'
 
 export const reportsRouter = Router()
 
 const REPORT_ABSENCE_KEYS = ['reports.view', 'absences.view', 'payroll.view']
+const PAYROLL_TIME_KEYS = ['payroll.view', 'reports.payroll']
 
 reportsRouter.get('/absences-summary', (req, res) => {
   try {
@@ -31,6 +37,75 @@ reportsRouter.get('/absences-summary', (req, res) => {
       countMode,
     })
     jsonOk(res, data)
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
+  }
+})
+
+reportsRouter.get('/payroll-time-tracking', (req, res) => {
+  try {
+    const stationId = typeof req.query.stationId === 'string' ? req.query.stationId : undefined
+    if (!requireAnyPermission(req, res, stationId, PAYROLL_TIME_KEYS)) return
+    const from = typeof req.query.from === 'string' ? req.query.from.trim() : ''
+    const to = typeof req.query.to === 'string' ? req.query.to.trim() : ''
+    if (!from || !to) {
+      jsonErr(res, 'from und to (YYYY-MM-DD) erforderlich', 400)
+      return
+    }
+    const employmentType = typeof req.query.employmentType === 'string' ? req.query.employmentType : undefined
+    const data = calculatePayrollTimeTrackingReport(getDb(), {
+      stationId: stationId!,
+      fromDate: from,
+      toDate: to,
+      employmentFilter: employmentType,
+    })
+    jsonOk(res, data)
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
+  }
+})
+
+reportsRouter.get('/payroll-schedule', (req, res) => {
+  try {
+    const stationId = typeof req.query.stationId === 'string' ? req.query.stationId : undefined
+    if (!requireAnyPermission(req, res, stationId, PAYROLL_TIME_KEYS)) return
+    const from = typeof req.query.from === 'string' ? req.query.from.trim() : ''
+    const to = typeof req.query.to === 'string' ? req.query.to.trim() : ''
+    if (!from || !to) {
+      jsonErr(res, 'from und to (YYYY-MM-DD) erforderlich', 400)
+      return
+    }
+    const employmentType = typeof req.query.employmentType === 'string' ? req.query.employmentType : undefined
+    const data = calculatePayrollScheduleReport(getDb(), {
+      stationId: stationId!,
+      fromDate: from,
+      toDate: to,
+      employmentFilter: employmentType,
+    })
+    jsonOk(res, data)
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
+  }
+})
+
+reportsRouter.get('/payroll-time-tracking/time-entries', (req, res) => {
+  try {
+    const stationId = typeof req.query.stationId === 'string' ? req.query.stationId : undefined
+    if (!requireAnyPermission(req, res, stationId, PAYROLL_TIME_KEYS)) return
+    const from = typeof req.query.from === 'string' ? req.query.from.trim() : ''
+    const to = typeof req.query.to === 'string' ? req.query.to.trim() : ''
+    if (!from || !to) {
+      jsonErr(res, 'from und to (YYYY-MM-DD) erforderlich', 400)
+      return
+    }
+    const employeeId = typeof req.query.employeeId === 'string' ? req.query.employeeId.trim() : undefined
+    const items = listPayrollTimeEntryDetails(getDb(), {
+      stationId: stationId!,
+      fromDate: from,
+      toDate: to,
+      employeeId: employeeId || undefined,
+    })
+    jsonOk(res, { stationId: stationId!, fromDate: from, toDate: to, items })
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
   }

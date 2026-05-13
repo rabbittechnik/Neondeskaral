@@ -341,6 +341,7 @@ const statements = [
     closing_ready INTEGER DEFAULT 0,
     everything_ok INTEGER DEFAULT 0,
     incident_note TEXT,
+    cash_difference REAL,
     completed_at TEXT,
     created_at TEXT,
     FOREIGN KEY (time_entry_id) REFERENCES time_entries(id),
@@ -459,6 +460,22 @@ const statements = [
     updated_at TEXT
   )`,
   `CREATE INDEX IF NOT EXISTS idx_fuel_price_cache_station ON fuel_price_cache(station_id)`,
+  `CREATE TABLE IF NOT EXISTS payroll_adjustments (
+    id TEXT PRIMARY KEY,
+    station_id TEXT NOT NULL,
+    employee_id TEXT NOT NULL,
+    type TEXT NOT NULL,
+    amount REAL NOT NULL,
+    date TEXT NOT NULL,
+    note TEXT,
+    created_by TEXT,
+    created_at TEXT,
+    updated_at TEXT,
+    FOREIGN KEY (station_id) REFERENCES stations(id),
+    FOREIGN KEY (employee_id) REFERENCES employees(id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_payroll_adj_station_date ON payroll_adjustments(station_id, date)`,
+  `CREATE INDEX IF NOT EXISTS idx_payroll_adj_employee ON payroll_adjustments(employee_id)`,
 ]
 
 export function runSchema(db: Database.Database) {

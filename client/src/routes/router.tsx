@@ -260,6 +260,11 @@ export const router = createBrowserRouter([
         handle: { title: 'Lohnabrechnung (Zeiterfassung)' },
       },
       {
+        path: 'reports/payroll-time-tracking',
+        element: <PayrollTimePage />,
+        handle: { title: 'Lohnabrechnung (Zeiterfassung)' },
+      },
+      {
         path: 'reports/payroll-schedule',
         element: <PayrollSchedulePage />,
         handle: { title: 'Lohnabrechnung (Schichtplan)' },

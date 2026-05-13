@@ -170,6 +170,10 @@ export function TimeTrackingProvider({ children }: { children: ReactNode }) {
           closingReady: checklist.closingReady,
           everythingOk: checklist.everythingOk,
           incidentNote: checklist.incidentNote,
+          cashDifference:
+            checklist.cashDifference != null && Number.isFinite(checklist.cashDifference)
+              ? checklist.cashDifference
+              : 0,
         },
       }
       const res = await apiSend<TimeEntry>('POST', '/terminal/check-out-complete', body)

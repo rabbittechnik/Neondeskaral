@@ -748,6 +748,32 @@ export type WeekAbsence = {
   range: string
 }
 
+/** Netto-Planstunden einer Schicht (Ende − Start − Pause), wie in der Lohnabrechnung Schichtplan. */
+export function netPlannedHoursForShift(s: ScheduleShift): number {
+  if (!s.startTime || !s.endTime) return 0
+  const gross = hoursBetween(s.startTime, s.endTime)
+  const br = (s.breakMinutes ?? 0) / 60
+  return Math.max(0, Math.round((gross - br) * 10) / 10)
+}
+
+/** Summiert geplante Nettostunden pro Mitarbeiter im Datumintervall [fromYmd, toYmd] (Station bereits gefilterte Liste). */
+export function computePlannedHoursByEmployeeInDateRange(
+  shifts: ScheduleShift[],
+  fromYmd: string,
+  toYmd: string,
+): Map<string, number> {
+  const map = new Map<string, number>()
+  for (const s of shifts) {
+    if (!s.employeeId) continue
+    if (s.shiftType === 'frei') continue
+    if (s.date < fromYmd || s.date > toYmd) continue
+    const h = netPlannedHoursForShift(s)
+    if (h <= 0) continue
+    map.set(s.employeeId, (map.get(s.employeeId) ?? 0) + h)
+  }
+  return map
+}
+
 export function computeWeeklyHoursByEmployee(
   blocks: ResolvedShiftBlock[],
 ): Map<string, number> {

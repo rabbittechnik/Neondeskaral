@@ -28,6 +28,8 @@ function compactDisplayName(fullName: string): string {
 type Props = {
   employee: ScheduleEmployeeRow
   weeklyHours: number
+  /** Geplante Stunden im Kalendermonat (Schichtplan); ohne Angabe wird `employee.monthlyHours` (Profil) genutzt */
+  monthPlannedHours?: number
   selected: boolean
   onClick: () => void
   /** Schmalere Karte (z. B. Dashboard) */
@@ -43,6 +45,7 @@ type Props = {
 export function EmployeeSummaryCard({
   employee,
   weeklyHours,
+  monthPlannedHours,
   selected,
   onClick,
   compact,
@@ -135,7 +138,7 @@ export function EmployeeSummaryCard({
           </p>
           <div className={statsCls}>
             <span className={wLineCls}>W: {formatHoursDe(weeklyHours)}</span>
-            <span className={mLineCls}>M: {formatHoursDe(employee.monthlyHours)}</span>
+            <span className={mLineCls}>M: {formatHoursDe(monthHoursShown)}</span>
           </div>
           <div className={badgeWrapCls}>
             <EmployeeStatusBadge variant="presence" presence={employee.schedulePresence} />

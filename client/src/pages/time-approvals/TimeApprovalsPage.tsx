@@ -325,6 +325,14 @@ export function TimeApprovalsPage() {
                   <li>Übergabe: {detail.checklist.handoverPossible ? 'Ja' : 'Nein'}</li>
                   <li>Zuschließbar: {detail.checklist.closingReady ? 'Ja' : 'Nein'}</li>
                 </ul>
+                <p className="mt-2 text-[var(--text-main)]">
+                  Kassendifferenz:{' '}
+                  <span className="font-semibold tabular-nums">
+                    {new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(
+                      Number(detail.checklist.cashDifference ?? 0),
+                    )}
+                  </span>
+                </p>
                 {String(detail.checklist.incidentNote ?? '').trim() ? (
                   <p className="mt-2 text-[var(--text-faint)]">
                     Bemerkung: {String(detail.checklist.incidentNote)}

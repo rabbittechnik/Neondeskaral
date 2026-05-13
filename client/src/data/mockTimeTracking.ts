@@ -68,6 +68,7 @@ export function buildSeedChecklists(): ShiftCloseChecklist[] {
       closingReady: true,
       everythingOk: true,
       incidentNote: '',
+      cashDifference: 0,
       completedAt: now,
     },
   ]

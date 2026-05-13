@@ -89,9 +89,17 @@ export const navEntries: NavEntry[] = [
     label: 'Auswertungen',
     icon: BarChart3,
     children: [
-      { to: '/reports/payroll-time', label: 'Lohnabrechnung (Zeiterfassung)' },
+      {
+        to: '/reports/payroll-time',
+        label: 'Lohnabrechnung (Zeiterfassung)',
+        anyPermission: ['payroll.view', 'reports.payroll'],
+      },
       { to: '/zeiterfassung/freigaben', label: 'Zeitfreigaben', approverOnly: true },
-      { to: '/reports/payroll-schedule', label: 'Lohnabrechnung (Schichtplan)' },
+      {
+        to: '/reports/payroll-schedule',
+        label: 'Lohnabrechnung (Schichtplan)',
+        anyPermission: ['payroll.view', 'reports.payroll'],
+      },
       { to: '/reports/tasks', label: 'Aufgaben' },
       {
         to: '/reports/absences',

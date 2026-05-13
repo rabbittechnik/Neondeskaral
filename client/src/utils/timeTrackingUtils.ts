@@ -151,6 +151,11 @@ export function mergeChecklistDraft(
   checklistId: string,
   completedAt: string,
 ): ShiftCloseChecklist {
+  const cd =
+    draft.cashDifference != null && Number.isFinite(Number(draft.cashDifference))
+      ? Math.round(Number(draft.cashDifference) * 100) / 100
+      : 0
+
   return {
     id: checklistId,
     timeEntryId,
@@ -168,6 +173,7 @@ export function mergeChecklistDraft(
     closingReady: Boolean(draft.closingReady),
     everythingOk: Boolean(draft.everythingOk),
     incidentNote: draft.incidentNote?.trim() ?? '',
+    cashDifference: cd,
     completedAt,
   }
 }

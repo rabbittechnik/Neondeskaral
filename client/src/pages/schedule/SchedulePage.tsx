@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { buildRequirementGapResolvedBlocks } from '../../data/defaultShiftRequirements'
 import {
+  computePlannedHoursByEmployeeInDateRange,
   computeWeeklyHoursByEmployee,
   resolveShiftsForWeekGrid,
   shiftsInWeek,
@@ -19,6 +20,7 @@ import { ScheduleViewPlaceholder } from '../../components/schedule/ScheduleViewP
 import {
   addDays,
   addWeeks,
+  calendarMonthRangeForDate,
   formatDE,
   getISOWeek,
   startOfWeekMonday,
@@ -150,6 +152,11 @@ export function SchedulePage() {
     () => computeWeeklyHoursByEmployee(allBlocks),
     [allBlocks],
   )
+
+  const monthlyPlannedHoursById = useMemo(() => {
+    const { fromYmd, toYmd } = calendarMonthRangeForDate(weekMonday)
+    return computePlannedHoursByEmployeeInDateRange(shifts, fromYmd, toYmd)
+  }, [shifts, weekMonday])
 
   const openShiftsThisWeek = useMemo(
     () => openShiftSlotsFromBlocks(allBlocks),
@@ -350,6 +357,7 @@ export function SchedulePage() {
         <ScheduleEmployeeSummaryBar
           employees={scheduleRows}
           weeklyHoursById={hoursByEmployee}
+          monthlyPlannedHoursById={monthlyPlannedHoursById}
           selectedId={employeeFilter === 'all' ? null : employeeFilter}
           onToggleEmployee={toggleEmployeeFilter}
           viewportDensity={viewportDensity}

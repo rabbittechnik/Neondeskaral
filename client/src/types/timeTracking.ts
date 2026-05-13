@@ -54,6 +54,8 @@ export type ShiftCloseChecklist = {
   closingReady: boolean
   everythingOk: boolean
   incidentNote: string
+  /** Optional: Kassendifferenz beim Schichtabschluss (€), Standard 0 */
+  cashDifference?: number
   completedAt: string
 }
 

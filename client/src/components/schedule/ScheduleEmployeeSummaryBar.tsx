@@ -8,6 +8,8 @@ type Props = {
   employees: ScheduleEmployeeRow[]
   /** Berechnete WoStd. aus dem aktuellen Wochenplan */
   weeklyHoursById: Map<string, number>
+  /** Geplante Monatsstunden (Kalendermonat); fehlt die Map → Fallback Profilfeld `monthlyHours` */
+  monthlyPlannedHoursById?: Map<string, number>
   /** Entspricht Filter „ein Mitarbeiter“ / Karte aktiv */
   selectedId: string | null
   onToggleEmployee: (id: string) => void
@@ -23,6 +25,7 @@ type Props = {
 export function ScheduleEmployeeSummaryBar({
   employees,
   weeklyHoursById,
+  monthlyPlannedHoursById,
   selectedId,
   onToggleEmployee,
   dashboardCompact,
@@ -44,7 +47,7 @@ export function ScheduleEmployeeSummaryBar({
               Mitarbeiter
             </h2>
             <p className="truncate text-[10px] text-[var(--text-faint)]">
-              W = Woche aus Plan · M = Monatsstunden · Karte klicken zum Filtern
+              W = Woche aus Plan · M = geplante Std. Monat · Karte klicken zum Filtern
               {assignDragEnabled ? ' · Zum Zuweisen Mitarbeiter ziehen' : null}
             </p>
           </div>
@@ -70,6 +73,11 @@ export function ScheduleEmployeeSummaryBar({
                 key={e.id}
                 employee={e}
                 weeklyHours={weeklyHoursById.get(e.id) ?? 0}
+                monthPlannedHours={
+                  monthlyPlannedHoursById !== undefined
+                    ? (monthlyPlannedHoursById.get(e.id) ?? 0)
+                    : undefined
+                }
                 selected={selectedId === e.id}
                 compact={Boolean(dashboardCompact)}
                 fluid

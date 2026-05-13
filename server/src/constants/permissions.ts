@@ -19,6 +19,7 @@ export const PERMISSION_KEYS = [
   'employees.revokeDevices',
   'employees.viewSensitive',
   'payroll.view',
+  'payroll.export',
   'employees.manageSensitive',
   'absences.view',
   'absences.create',
@@ -59,6 +60,9 @@ export const TEAMLEAD_PERMISSIONS: Record<string, boolean> = {
   'access.manage': false,
   'employees.viewSensitive': false,
   'payroll.view': false,
+  'payroll.export': false,
+  /** Ohne explizite Lohn-Berechtigung kein Zugriff auf Lohn-Auswertungen (nur payroll.view). */
+  'reports.payroll': false,
   'employees.manageSensitive': false,
   'employees.delete': false,
   'employees.viewDeleted': false,
