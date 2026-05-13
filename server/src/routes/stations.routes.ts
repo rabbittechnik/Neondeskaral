@@ -3,6 +3,12 @@ import { getDb } from '../db/database.js'
 import { jsonErr, jsonOk } from '../utils/http.js'
 import * as stationService from '../services/stationService.js'
 import {
+  ensureStationShiftCloseChecklistDefsSeeded,
+  listShiftCloseChecklistDefsForAdmin,
+  type StationShiftChecklistDefRow,
+} from '../services/stationShiftChecklistDefService.js'
+import type { ShiftCloseChecklistKind } from '../constants/shiftCloseChecklistCatalog.js'
+import {
   listAccessibleStationRows,
   listAllActiveStationRows,
   canAccessStationsAdminUi,
@@ -58,6 +64,43 @@ stationsRouter.get('/', (req, res) => {
       })
     }
     jsonOk(res, rows)
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
+  }
+})
+
+function shiftCloseChecklistDefRowToApi(r: StationShiftChecklistDefRow) {
+  return {
+    id: r.id,
+    stationId: r.station_id,
+    checklistType: r.checklist_type,
+    itemKey: r.item_key,
+    label: r.label,
+    sortOrder: r.sort_order,
+    answerMode: r.answer_mode,
+    groupId: r.group_id,
+    groupLabel: r.group_label,
+    active: r.active == null ? true : Boolean(r.active),
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  }
+}
+
+stationsRouter.get('/:id/shift-close-checklist-defs', (req, res) => {
+  try {
+    const ctx = req.accessContext
+    if (!ctx || !canAccessStationsAdminUi(ctx)) return jsonErr(res, 'Keine Berechtigung', 403)
+    const id = req.params.id
+    if (!canReadStation(ctx, id)) return jsonErr(res, 'Kein Zugriff auf diese Station', 403)
+    const db = getDb()
+    const row = stationService.getStation(db, id)
+    if (!row) return jsonErr(res, 'Station nicht gefunden', 404)
+    const kindRaw = String(req.query.kind ?? '').trim().toLowerCase()
+    const kind: ShiftCloseChecklistKind | undefined =
+      kindRaw === 'closing' || kindRaw === 'handover' ? kindRaw : undefined
+    ensureStationShiftCloseChecklistDefsSeeded(db, id)
+    const defs = listShiftCloseChecklistDefsForAdmin(db, id, kind).map(shiftCloseChecklistDefRowToApi)
+    jsonOk(res, { defs })
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
   }

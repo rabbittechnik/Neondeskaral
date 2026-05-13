@@ -3,7 +3,9 @@ import { randomUUID } from 'node:crypto'
 import { DEFAULT_STATION_ID } from '../constants.js'
 import { nowIso } from '../utils/timestamps.js'
 import { listShiftRowsForStationDateRange, type ShiftRow } from './shiftService.js'
-import { listReviewItemsForTimeEntry, syncReviewItemsFromCloseChecklist } from './shiftChecklistReviewService.js'
+import { listReviewItemsForTimeEntry, syncReviewItemsFromCloseChecklist, syncReviewItemsFromShiftCloseItems } from './shiftChecklistReviewService.js'
+import { createShiftWarningsFromShiftCloseCheckout } from './employeeShiftWarningService.js'
+import type { ParsedStructuredChecklist } from '../utils/shiftCloseChecklistValidate.js'
 
 export type TimeEntryRow = {
   id: string
@@ -337,8 +339,21 @@ export function getTimeEntryDetail(db: Database, id: string) {
   const chkRaw = db.prepare(`SELECT * FROM shift_close_checklists WHERE time_entry_id = ?`).get(id) as
     | Record<string, unknown>
     | undefined
+  const shiftCloseStructured = loadStructuredShiftCloseChecklist(db, id)
   let reviewItems = listReviewItemsForTimeEntry(db, id)
-  if (chkRaw && reviewItems.length === 0) {
+  if (shiftCloseStructured && reviewItems.length === 0) {
+    syncReviewItemsFromShiftCloseItems(db, {
+      timeEntryId: id,
+      employeeId: row.employee_id,
+      stationId: row.station_id,
+      items: shiftCloseStructured.items.map((it) => ({
+        itemKey: it.itemKey,
+        itemLabel: it.itemLabel,
+        answer: it.answer as 'yes' | 'no' | 'not_relevant',
+      })),
+    })
+    reviewItems = listReviewItemsForTimeEntry(db, id)
+  } else if (chkRaw && reviewItems.length === 0) {
     const api = checklistRowToApi(chkRaw)
     syncReviewItemsFromCloseChecklist(db, {
       timeEntryId: id,
@@ -371,6 +386,7 @@ export function getTimeEntryDetail(db: Database, id: string) {
     timeEntry: entry,
     employeeName: emp?.display_name ?? '',
     checklist: chkRaw ? checklistRowToApi(chkRaw) : null,
+    shiftCloseStructured,
     checklistReviewItems: reviewItems,
     plannedShift: planned
       ? {
@@ -459,6 +475,136 @@ export function requestTimeEntryCorrection(db: Database, id: string, correctionN
   return getTimeEntry(db, id)
 }
 
+export function loadStructuredShiftCloseChecklist(db: Database, timeEntryId: string) {
+  const run = db
+    .prepare(`SELECT * FROM shift_close_checklist_runs WHERE time_entry_id = ?`)
+    .get(timeEntryId) as Record<string, unknown> | undefined
+  if (!run) return null
+  const rows = db
+    .prepare(`SELECT * FROM shift_close_checklist_items WHERE time_entry_id = ? ORDER BY rowid`)
+    .all(timeEntryId) as Record<string, unknown>[]
+  return {
+    checklistType: String(run.checklist_type ?? ''),
+    cashDifference: Number(run.cash_difference ?? 0),
+    truthConfirmed: (run.truth_confirmed as number) === 1,
+    createdAt: String(run.created_at ?? ''),
+    items: rows.map((r) => ({
+      itemKey: String(r.item_key ?? ''),
+      itemLabel: String(r.item_label ?? ''),
+      answer: String(r.answer ?? '') as 'yes' | 'no' | 'not_relevant',
+      reason: r.reason ? String(r.reason) : undefined,
+    })),
+  }
+}
+
+function legacyBoolFromStructuredKeys(parsed: ParsedStructuredChecklist, keys: string[]): number {
+  const matched = keys.filter((k) => parsed.items.some((i) => i.itemKey === k))
+  if (matched.length === 0) return 1
+  for (const k of matched) {
+    const a = parsed.items.find((i) => i.itemKey === k)?.answer
+    if (a === 'no') return 0
+  }
+  return 1
+}
+
+function insertLegacyShiftCloseRowFromStructured(
+  db: Database,
+  timeEntryId: string,
+  employeeId: string,
+  parsed: ParsedStructuredChecklist,
+  ts: string,
+) {
+  const anyNo = parsed.items.some((i) => i.answer === 'no')
+  const lines: string[] = []
+  for (const it of parsed.items) {
+    if (it.answer === 'no') lines.push(`${it.itemLabel}: ${it.reason ?? ''}`)
+    if (it.answer === 'not_relevant' && it.reason) lines.push(`${it.itemLabel} (n. v.): ${it.reason}`)
+  }
+  const incidentNote = lines.join('\n')
+  const id = `chk-${randomUUID()}`
+  const b = (keys: string[]) => legacyBoolFromStructuredKeys(parsed, keys)
+  db.prepare(
+    `INSERT INTO shift_close_checklists (
+      id, time_entry_id, employee_id,
+      fridge_fronted, drinks_filled, cigarettes_filled, shelves_filled, trash_emptied,
+      counter_clean, coffee_area_clean, outside_checked, incidents_noted, handover_possible,
+      closing_ready, everything_ok, incident_note, cash_difference, completed_at, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    id,
+    timeEntryId,
+    employeeId,
+    b(['ho_fridges_filled', 'cl_fridges_fill', 'cl_fridges_check']),
+    1,
+    b(['ho_cigarettes_refilled', 'cl_cigarettes_refill']),
+    b(['ho_sales_floor_clean', 'cl_chips_alcohol_sweets', 'cl_storage_tidy']),
+    b(['ho_trash_inside_outside', 'cl_trash_all']),
+    b(['ho_register_front_tidy', 'cl_register_front', 'cl_register_front_check']),
+    b(['ho_coffee_area', 'cl_coffee_machine_clean', 'cl_backshop_clean', 'cl_oven_clean']),
+    b(['cl_outdoor_area']),
+    1,
+    b(['ho_handover_possible', 'cl_station_closed_properly']),
+    b(['cl_all_doors_locked', 'cl_lights_off', 'cl_station_closed_properly']),
+    anyNo ? 0 : 1,
+    incidentNote,
+    parsed.cashDifference,
+    ts,
+    ts,
+  )
+  return id
+}
+
+export function insertShiftCloseChecklistParsed(
+  db: Database,
+  timeEntryId: string,
+  employeeId: string,
+  stationId: string,
+  parsed: ParsedStructuredChecklist,
+) {
+  const ts = nowIso()
+  db.prepare(`DELETE FROM shift_close_checklist_runs WHERE time_entry_id = ?`).run(timeEntryId)
+  db.prepare(`DELETE FROM shift_close_checklists WHERE time_entry_id = ?`).run(timeEntryId)
+  const runId = `sccr-${randomUUID()}`
+  db.prepare(
+    `INSERT INTO shift_close_checklist_runs (id, time_entry_id, employee_id, station_id, checklist_type, cash_difference, truth_confirmed, created_at)
+     VALUES (?,?,?,?,?,?,1,?)`,
+  ).run(runId, timeEntryId, employeeId, stationId, parsed.checklistType, parsed.cashDifference, ts)
+  const insItem = db.prepare(
+    `INSERT INTO shift_close_checklist_items (id, checklist_id, time_entry_id, employee_id, station_id, checklist_type, item_key, item_label, answer, reason, created_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+  )
+  for (const it of parsed.items) {
+    insItem.run(
+      `scci-${randomUUID()}`,
+      runId,
+      timeEntryId,
+      employeeId,
+      stationId,
+      parsed.checklistType,
+      it.itemKey,
+      it.itemLabel,
+      it.answer,
+      it.reason ?? null,
+      ts,
+    )
+  }
+  insertLegacyShiftCloseRowFromStructured(db, timeEntryId, employeeId, parsed, ts)
+  syncReviewItemsFromShiftCloseItems(db, {
+    timeEntryId,
+    employeeId,
+    stationId,
+    items: parsed.items,
+  })
+  createShiftWarningsFromShiftCloseCheckout(db, {
+    stationId,
+    employeeId,
+    sourceTimeEntryId: timeEntryId,
+    items: parsed.items,
+  })
+  return runId
+}
+
+/** Alte Booleans-Checkliste (Fallback für alte Clients ohne strukturierte Punkte). */
 export function insertChecklist(
   db: Database,
   timeEntryId: string,

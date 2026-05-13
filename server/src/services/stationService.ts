@@ -1,6 +1,7 @@
 import type { Database } from 'better-sqlite3'
 import { randomUUID } from 'node:crypto'
 import { nowIso } from '../utils/timestamps.js'
+import { seedStationShiftCloseChecklistDefsFromBuiltInCatalog } from './stationShiftChecklistDefService.js'
 
 export function listStations(db: Database) {
   return db.prepare(`SELECT * FROM stations ORDER BY name`).all()
@@ -56,6 +57,9 @@ function purgeStationData(db: Database, stationId: string) {
   db.prepare(`DELETE FROM task_logs WHERE task_id IN (SELECT id FROM tasks WHERE station_id = ?)`).run(stationId)
   db.prepare(`DELETE FROM tasks WHERE station_id = ?`).run(stationId)
   db.prepare(
+    `DELETE FROM shift_close_checklist_runs WHERE time_entry_id IN (SELECT id FROM time_entries WHERE station_id = ?)`,
+  ).run(stationId)
+  db.prepare(
     `DELETE FROM shift_close_checklists WHERE time_entry_id IN (SELECT id FROM time_entries WHERE station_id = ?)`,
   ).run(stationId)
   db.prepare(`DELETE FROM time_entries WHERE station_id = ?`).run(stationId)
@@ -70,6 +74,7 @@ function purgeStationData(db: Database, stationId: string) {
   db.prepare(`DELETE FROM card_entry_events WHERE station_id = ?`).run(stationId)
   db.prepare(`DELETE FROM employee_shift_warnings WHERE station_id = ?`).run(stationId)
   db.prepare(`DELETE FROM shift_checklist_review_items WHERE station_id = ?`).run(stationId)
+  db.prepare(`DELETE FROM station_shift_close_checklist_defs WHERE station_id = ?`).run(stationId)
   db.prepare(`DELETE FROM employee_app_devices WHERE station_id = ?`).run(stationId)
   db.prepare(`DELETE FROM fuel_price_cache WHERE station_id = ?`).run(stationId)
   db.prepare(`DELETE FROM station_tablet_devices WHERE station_id = ?`).run(stationId)
@@ -189,6 +194,7 @@ export function createStation(db: Database, body: Record<string, unknown>) {
       ts,
     )
   }
+  seedStationShiftCloseChecklistDefsFromBuiltInCatalog(db, id)
   return getStation(db, id)
 }
 

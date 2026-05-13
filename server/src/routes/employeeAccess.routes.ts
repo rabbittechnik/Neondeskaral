@@ -300,6 +300,9 @@ employeeAccessRouter.post('/:token/check-out-start', (req, res) => {
       message: out.message,
       employee: out.employee,
       timeEntry: out.timeEntry,
+      checklistType: out.checklistType,
+      items: out.checklistItems,
+      wizardGroups: out.wizardGroups,
     })
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)

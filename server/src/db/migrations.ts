@@ -6,6 +6,7 @@ import { mathiasStationsleiterPermissions } from '../constants/mathiasStationsle
 import { STATION_RADIO_DEFAULTS_ARAL_BODELSHAUSEN } from '../constants/stationRadioDefaults.js'
 import { TABLET_RADIO_DEFAULT_PRESET_ID } from '../constants/tabletRadioPresetIds.js'
 import { ensureDefaultUserStationAccess, ensureKnownStationsAndWorkAreas } from '../services/stationAccessService.js'
+import { seedAllStationsShiftCloseChecklistDefsIfMissing } from '../services/stationShiftChecklistDefService.js'
 import { calculateVacationImpact, normalizeAbsenceDbType } from '../utils/vacationImpactCalculator.js'
 
 function employeesColumnNames(db: Database.Database): Set<string> {
@@ -151,6 +152,9 @@ export function runMigrations(db: Database.Database) {
   ensurePayrollAdjustmentsTable(db)
   mergePayrollExportPermission(db)
   ensureShiftCloseChecklistCashDifferenceColumn(db)
+  ensureShiftCloseStructuredChecklistTables(db)
+  ensureStationShiftCloseChecklistDefsTable(db)
+  seedAllStationsShiftCloseChecklistDefsIfMissing(db)
   ensurePayrollAdjustmentsUpdatedAtColumn(db)
   ensureStationTabletDevicesTable(db)
   mergeStationTabletPermissionsIntoAccess(db)
@@ -401,6 +405,64 @@ function ensureShiftCloseChecklistCashDifferenceColumn(db: Database.Database) {
   if (!cols.has('cash_difference')) {
     db.exec(`ALTER TABLE shift_close_checklists ADD COLUMN cash_difference REAL`)
   }
+}
+
+function ensureShiftCloseStructuredChecklistTables(db: Database.Database) {
+  db.exec(`CREATE TABLE IF NOT EXISTS shift_close_checklist_runs (
+    id TEXT PRIMARY KEY,
+    time_entry_id TEXT NOT NULL,
+    employee_id TEXT NOT NULL,
+    station_id TEXT NOT NULL,
+    checklist_type TEXT NOT NULL,
+    cash_difference REAL,
+    truth_confirmed INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT,
+    FOREIGN KEY (time_entry_id) REFERENCES time_entries(id),
+    FOREIGN KEY (employee_id) REFERENCES employees(id),
+    FOREIGN KEY (station_id) REFERENCES stations(id)
+  )`)
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_shift_close_cl_runs_te ON shift_close_checklist_runs(time_entry_id)`)
+  db.exec(`CREATE TABLE IF NOT EXISTS shift_close_checklist_items (
+    id TEXT PRIMARY KEY,
+    checklist_id TEXT NOT NULL,
+    time_entry_id TEXT NOT NULL,
+    employee_id TEXT NOT NULL,
+    station_id TEXT NOT NULL,
+    checklist_type TEXT NOT NULL,
+    item_key TEXT NOT NULL,
+    item_label TEXT NOT NULL,
+    answer TEXT NOT NULL,
+    reason TEXT,
+    created_at TEXT,
+    FOREIGN KEY (checklist_id) REFERENCES shift_close_checklist_runs(id) ON DELETE CASCADE,
+    FOREIGN KEY (time_entry_id) REFERENCES time_entries(id),
+    FOREIGN KEY (employee_id) REFERENCES employees(id),
+    FOREIGN KEY (station_id) REFERENCES stations(id)
+  )`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_shift_close_cl_items_checklist ON shift_close_checklist_items(checklist_id)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_shift_close_cl_items_te ON shift_close_checklist_items(time_entry_id)`)
+}
+
+function ensureStationShiftCloseChecklistDefsTable(db: Database.Database) {
+  db.exec(`CREATE TABLE IF NOT EXISTS station_shift_close_checklist_defs (
+    id TEXT PRIMARY KEY,
+    station_id TEXT NOT NULL,
+    checklist_type TEXT NOT NULL,
+    item_key TEXT NOT NULL,
+    label TEXT NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    answer_mode TEXT NOT NULL DEFAULT 'yes_no',
+    group_id TEXT,
+    group_label TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT,
+    updated_at TEXT,
+    FOREIGN KEY (station_id) REFERENCES stations(id) ON DELETE CASCADE,
+    UNIQUE (station_id, checklist_type, item_key)
+  )`)
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_ssccd_station_type_active ON station_shift_close_checklist_defs(station_id, checklist_type, active, sort_order)`,
+  )
 }
 
 function ensurePayrollAdjustmentsUpdatedAtColumn(db: Database.Database) {

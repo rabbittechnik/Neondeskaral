@@ -142,3 +142,38 @@ export function updateShiftChecklistReviewItems(
     }
   }
 }
+
+/** Dynamische Punkte aus neuer Schichtende-Checkliste (Übergabe / Ladenschluss). */
+export function syncReviewItemsFromShiftCloseItems(
+  db: Database,
+  p: {
+    timeEntryId: string
+    employeeId: string
+    stationId: string
+    items: { itemKey: string; itemLabel: string; answer: 'yes' | 'no' | 'not_relevant' }[]
+  },
+) {
+  const ts = nowIso()
+  db.prepare(`DELETE FROM shift_checklist_review_items WHERE time_entry_id = ?`).run(p.timeEntryId)
+  const ins = db.prepare(
+    `INSERT INTO shift_checklist_review_items (
+      id, time_entry_id, employee_id, station_id, checklist_key, label,
+      employee_checked, review_checked, review_comment, reviewed_by, reviewed_at, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?)`,
+  )
+  for (const it of p.items) {
+    const empOk = it.answer !== 'no'
+    ins.run(
+      `scri-${randomUUID()}`,
+      p.timeEntryId,
+      p.employeeId,
+      p.stationId,
+      it.itemKey,
+      it.itemLabel,
+      empOk ? 1 : 0,
+      empOk ? 1 : 0,
+      ts,
+      ts,
+    )
+  }
+}

@@ -15,8 +15,9 @@ import {
 } from 'lucide-react'
 import { employeeAccessGet, employeeAccessGetQuery, employeeAccessPost } from '../../services/api'
 import type { Task, TaskLog } from '../../types/task'
-import type { ShiftCloseChecklist, TimeEntry } from '../../types/timeTracking'
-import { ShiftCloseChecklistModal } from '../../components/terminal/ShiftCloseChecklistModal'
+import type { TimeEntry } from '../../types/timeTracking'
+import { ShiftCloseChecklistModal, type ShiftCloseCatalogItem, type ShiftCloseWizardGroup } from '../../components/terminal/ShiftCloseChecklistModal'
+import { normalizeShiftCloseCatalogItems, parseShiftCloseWizardGroups } from '../../utils/shiftCloseChecklistClient'
 import { ShiftCloseSuccessCard } from '../../components/terminal/ShiftCloseSuccessCard'
 import { Button } from '../../components/ui/Button'
 import { calculateWorkedMinutes, formatWorkedDuration } from '../../utils/timeTrackingUtils'
@@ -164,6 +165,11 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
 
   const [checklistOpen, setChecklistOpen] = useState(false)
   const [checkoutEntry, setCheckoutEntry] = useState<TimeEntry | null>(null)
+  const [checkoutCatalog, setCheckoutCatalog] = useState<{
+    checklistType: 'handover' | 'closing'
+    items: ShiftCloseCatalogItem[]
+    wizardGroups?: ShiftCloseWizardGroup[]
+  } | null>(null)
   const [outOk, setOutOk] = useState<{ name: string; end: string; dur: string } | null>(null)
 
   const load = useCallback(async () => {
@@ -355,9 +361,19 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
         return
       }
       if (raw.ok === true && raw.data && typeof raw.data === 'object') {
-        const d = raw.data as { timeEntry?: TimeEntry }
-        if (d.timeEntry) {
+        const d = raw.data as {
+          timeEntry?: TimeEntry
+          checklistType?: string
+          items?: unknown[]
+          wizardGroups?: unknown
+        }
+        if (d.timeEntry && d.checklistType && Array.isArray(d.items) && d.items.length > 0) {
           setCheckoutEntry(d.timeEntry)
+          setCheckoutCatalog({
+            checklistType: d.checklistType === 'closing' ? 'closing' : 'handover',
+            items: normalizeShiftCloseCatalogItems(d.items),
+            wizardGroups: parseShiftCloseWizardGroups(d.wizardGroups),
+          })
           setChecklistOpen(true)
         }
         setBusy(false)
@@ -370,31 +386,13 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
     setBusy(false)
   }
 
-  const completeCheckout = async (checklist: ShiftCloseChecklist) => {
+  const completeCheckout = async (checklist: Record<string, unknown>) => {
     if (!checkoutEntry || !payload) return
     setBusy(true)
     try {
       const raw = await employeeAccessPost(t, 'check-out-complete', {
         timeEntryId: checkoutEntry.id,
-        checklist: {
-          fridgeFronted: checklist.fridgeFronted,
-          drinksFilled: checklist.drinksFilled,
-          cigarettesFilled: checklist.cigarettesFilled,
-          shelvesFilled: checklist.shelvesFilled,
-          trashEmptied: checklist.trashEmptied,
-          counterClean: checklist.counterClean,
-          coffeeAreaClean: checklist.coffeeAreaClean,
-          outsideChecked: checklist.outsideChecked,
-          incidentsNoted: checklist.incidentsNoted,
-          handoverPossible: checklist.handoverPossible,
-          closingReady: checklist.closingReady,
-          everythingOk: checklist.everythingOk,
-          incidentNote: checklist.incidentNote,
-          cashDifference:
-            checklist.cashDifference != null && Number.isFinite(checklist.cashDifference)
-              ? checklist.cashDifference
-              : 0,
-        },
+        checklist,
       })
       if (raw.result === 'invalid_token') {
         setPayload(null)
@@ -410,6 +408,7 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
         setOutOk({ name, end, dur: formatWorkedDuration(mins) })
         setChecklistOpen(false)
         setCheckoutEntry(null)
+        setCheckoutCatalog(null)
         await load()
       } else {
         setMsg(String(raw.error ?? 'Abschluss fehlgeschlagen'))
@@ -1028,15 +1027,19 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
         </div>
       ) : null}
 
-      {checkoutEntry ? (
+      {checkoutEntry && checkoutCatalog ? (
         <ShiftCloseChecklistModal
           open={checklistOpen}
           employeeName={employee.displayName}
           timeEntryId={checkoutEntry.id}
           employeeId={employee.id}
+          checklistType={checkoutCatalog.checklistType}
+          catalogItems={checkoutCatalog.items}
+          wizardGroups={checkoutCatalog.wizardGroups}
           onClose={() => {
             setChecklistOpen(false)
             setCheckoutEntry(null)
+            setCheckoutCatalog(null)
           }}
           onComplete={(c) => void completeCheckout(c)}
         />

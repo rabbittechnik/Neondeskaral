@@ -12,7 +12,8 @@ import { TerminalActionButtons } from '../../components/terminal/TerminalActionB
 import { CashRegisterNumberModal } from '../../components/terminal/CashRegisterNumberModal'
 import { TerminalResultMessage } from '../../components/terminal/TerminalResultMessage'
 import { RunningStaffPanel } from '../../components/terminal/RunningStaffPanel'
-import { ShiftCloseChecklistModal } from '../../components/terminal/ShiftCloseChecklistModal'
+import { ShiftCloseChecklistModal, type ShiftCloseCatalogItem, type ShiftCloseWizardGroup } from '../../components/terminal/ShiftCloseChecklistModal'
+import { normalizeShiftCloseCatalogItems, parseShiftCloseWizardGroups } from '../../utils/shiftCloseChecklistClient'
 import { ShiftCloseSuccessCard } from '../../components/terminal/ShiftCloseSuccessCard'
 import { Button } from '../../components/ui/Button'
 import { addDays, startOfWeekMonday } from '../../components/schedule/scheduleWeekUtils'
@@ -77,6 +78,7 @@ export function StaffTerminalPage() {
   const [modal, setModal] = useState<ModalMode>(null)
   const [checkInStep, setCheckInStep] = useState<CheckInEvaluation | null>(null)
   const lastCheckInCardRef = useRef('')
+  const lastCheckOutCardRef = useRef('')
   const [checkInSecurity, setCheckInSecurity] = useState<{
     employeeId: string
     displayName: string
@@ -89,8 +91,14 @@ export function StaffTerminalPage() {
   } | null>(null)
   const [checkOutMsg, setCheckOutMsg] = useState<CheckOutEvaluation | null>(null)
   const [checkOutEntry, setCheckOutEntry] = useState<TimeEntry | null>(null)
+  const [checkoutCatalog, setCheckoutCatalog] = useState<{
+    checklistType: 'handover' | 'closing'
+    items: ShiftCloseCatalogItem[]
+    wizardGroups?: ShiftCloseWizardGroup[]
+  } | null>(null)
   const [inSuccess, setInSuccess] = useState<{ name: string; time: string } | null>(null)
   const [outSuccess, setOutSuccess] = useState<{ name: string; end: string; dur: string } | null>(null)
+  const [checkoutStartBusy, setCheckoutStartBusy] = useState(false)
   const [pendingShiftWarnings, setPendingShiftWarnings] = useState<{
     employeeId: string
     note?: string
@@ -172,6 +180,8 @@ export function StaffTerminalPage() {
     setCheckOutMsg(null)
     setCheckInSecurity(null)
     setCheckoutSecurity(null)
+    setCheckOutEntry(null)
+    setCheckoutCatalog(null)
     setPendingShiftWarnings(null)
   }
 
@@ -341,6 +351,7 @@ export function StaffTerminalPage() {
         return
       }
       setModal(null)
+      lastCheckOutCardRef.current = card
       setCheckoutSecurity({
         entry: ev.entry,
         displayName: ev.employee.displayName,
@@ -763,12 +774,62 @@ export function StaffTerminalPage() {
                 type="button"
                 variant="primary"
                 className="flex-1"
+                disabled={checkoutStartBusy}
                 onClick={() => {
-                  setCheckOutEntry(checkoutSecurity.entry)
-                  setCheckoutSecurity(null)
+                  void (async () => {
+                    const sid = stationId ?? DEFAULT_TABLET_STATION_ID
+                    const card = lastCheckOutCardRef.current.trim()
+                    if (!card) {
+                      window.alert('Kartennummer fehlt. Bitte erneut scannen.')
+                      return
+                    }
+                    setCheckoutStartBusy(true)
+                    try {
+                      const res = await fetch(`${API_BASE}/terminal/check-out-start`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          cardNumber: card,
+                          stationId: sid,
+                          ...(tabletToken ? { tabletToken } : {}),
+                        }),
+                      })
+                      const json = (await res.json()) as {
+                        ok?: boolean
+                        data?: {
+                          timeEntry?: TimeEntry
+                          checklistType?: string
+                          items?: unknown[]
+                          wizardGroups?: unknown
+                        }
+                        error?: string
+                      }
+                      if (!json.ok || !json.data?.timeEntry) {
+                        window.alert(json.error ?? 'Auscheck konnte nicht gestartet werden.')
+                        return
+                      }
+                      const { checklistType, items, wizardGroups } = json.data
+                      if (!checklistType || !Array.isArray(items) || items.length === 0) {
+                        window.alert('Ungültige Server-Antwort für die Schichtende-Checkliste.')
+                        return
+                      }
+                      const ct = checklistType === 'closing' ? 'closing' : 'handover'
+                      setCheckOutEntry(json.data.timeEntry)
+                      setCheckoutCatalog({
+                        checklistType: ct,
+                        items: normalizeShiftCloseCatalogItems(items),
+                        wizardGroups: parseShiftCloseWizardGroups(wizardGroups),
+                      })
+                      setCheckoutSecurity(null)
+                    } catch (e) {
+                      window.alert(e instanceof Error ? e.message : 'Netzwerkfehler')
+                    } finally {
+                      setCheckoutStartBusy(false)
+                    }
+                  })()
                 }}
               >
-                Ja, Schicht beenden
+                {checkoutStartBusy ? 'Lade…' : 'Ja, Schicht beenden'}
               </Button>
             </div>
           </div>
@@ -804,17 +865,27 @@ export function StaffTerminalPage() {
 
       <CashRegisterNumberModal open={modal !== null} mode={modal === 'check-out' ? 'check-out' : 'check-in'} onClose={closeModal} onSubmit={onCardSubmit} />
 
-      {checkOutEntry ? (
+      {checkOutEntry && checkoutCatalog ? (
         <ShiftCloseChecklistModal
           open
           employeeName={employees.find((e) => e.id === checkOutEntry.employeeId)?.displayName ?? 'Mitarbeiter'}
           timeEntryId={checkOutEntry.id}
           employeeId={checkOutEntry.employeeId}
-          onClose={() => setCheckOutEntry(null)}
+          checklistType={checkoutCatalog.checklistType}
+          catalogItems={checkoutCatalog.items}
+          wizardGroups={checkoutCatalog.wizardGroups}
+          onClose={() => {
+            setCheckOutEntry(null)
+            setCheckoutCatalog(null)
+          }}
           onComplete={async (checklist) => {
             const end = new Date().toISOString()
             try {
-              await completeShiftWithChecklist(checkOutEntry.id, checklist)
+              await completeShiftWithChecklist(
+                checkOutEntry.id,
+                checklist,
+                lastCheckOutCardRef.current.trim() || undefined,
+              )
             } catch (err) {
               window.alert(err instanceof Error ? err.message : 'Ausstempeln fehlgeschlagen')
               return
@@ -823,6 +894,7 @@ export function StaffTerminalPage() {
             const name = employees.find((e) => e.id === checkOutEntry.employeeId)?.displayName ?? ''
             const endLabel = new Date(end).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
             setCheckOutEntry(null)
+            setCheckoutCatalog(null)
             setOutSuccess({ name, end: endLabel, dur: formatWorkedDuration(mins) })
             log({
               cardNumber: employees.find((e) => e.id === checkOutEntry.employeeId)?.cashRegisterCardNumber ?? '',

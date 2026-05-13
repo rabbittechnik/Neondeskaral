@@ -107,6 +107,32 @@ export function acknowledgeShiftWarning(
   ).run(ts, opts?.acknowledgedOnTimeEntryId ?? null, warningId)
 }
 
+/** Hinweise für den nächsten Check-in, wenn Punkte mit „Nein“ ausgestempelt wurden. */
+export function createShiftWarningsFromShiftCloseCheckout(
+  db: Database,
+  p: {
+    stationId: string
+    employeeId: string
+    sourceTimeEntryId: string
+    items: { itemKey: string; itemLabel: string; answer: 'yes' | 'no' | 'not_relevant'; reason?: string }[]
+  },
+) {
+  for (const it of p.items) {
+    if (it.answer !== 'no') continue
+    const base = `In deiner letzten Schicht wurde nicht erledigt: ${it.itemLabel}. Bitte heute besonders beachten.`
+    const msg = it.reason ? `${base} (${it.reason})` : base
+    createShiftWarningFromReview(db, {
+      stationId: p.stationId,
+      employeeId: p.employeeId,
+      sourceTimeEntryId: p.sourceTimeEntryId,
+      checklistKey: it.itemKey,
+      label: it.itemLabel,
+      message: msg,
+      createdBy: 'Schichtende-Checkliste',
+    })
+  }
+}
+
 export function acknowledgeShiftWarningByAdmin(db: Database, warningId: string, employeeId: string) {
   const row = db.prepare(`SELECT * FROM employee_shift_warnings WHERE id = ?`).get(warningId) as EmployeeShiftWarningRow | undefined
   if (!row || row.employee_id !== employeeId) throw new Error('Hinweis nicht gefunden')

@@ -1100,6 +1100,13 @@ export function employeeHistoryCounts(db: Database, employeeId: string) {
       )
       .get(employeeId, employeeId) as { c: number }
   ).c
+  const chkRuns = (
+    db
+      .prepare(
+        `SELECT COUNT(*) as c FROM shift_close_checklist_runs WHERE employee_id = ? OR time_entry_id IN (SELECT id FROM time_entries WHERE employee_id = ?)`,
+      )
+      .get(employeeId, employeeId) as { c: number }
+  ).c
   const appDevices = (
     db.prepare(`SELECT COUNT(*) as c FROM employee_app_devices WHERE employee_id = ?`).get(employeeId) as {
       c: number
@@ -1125,13 +1132,14 @@ export function employeeHistoryCounts(db: Database, employeeId: string) {
   } catch {
     checklistReviews = 0
   }
-  const total = shifts + times + abs + logs + chk + appDevices + shiftWarnings + checklistReviews
+  const total = shifts + times + abs + logs + chk + chkRuns + appDevices + shiftWarnings + checklistReviews
   return {
     shifts,
     times,
     abs,
     logs,
     chk,
+    chkRuns,
     appDevices,
     shiftWarnings,
     checklistReviews,
@@ -1161,6 +1169,9 @@ export function deleteEmployeeHardOrFallback(
   }
   const tx = db.transaction(() => {
     db.prepare(`DELETE FROM employee_app_devices WHERE employee_id = ?`).run(id)
+    db.prepare(
+      `DELETE FROM shift_close_checklist_runs WHERE employee_id = ? OR time_entry_id IN (SELECT id FROM time_entries WHERE employee_id = ?)`,
+    ).run(id, id)
     db.prepare(
       `DELETE FROM shift_checklist_review_items WHERE employee_id = ? OR time_entry_id IN (SELECT id FROM time_entries WHERE employee_id = ?)`,
     ).run(id, id)

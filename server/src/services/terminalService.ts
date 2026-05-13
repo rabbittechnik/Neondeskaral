@@ -67,16 +67,24 @@ export function terminalCheckOutStart(db: Database, body: { cardNumber: string; 
 
 export function terminalCheckOutComplete(
   db: Database,
-  body: { timeEntryId: string; checklist: Record<string, unknown> },
+  body: { timeEntryId: string; checklist: Record<string, unknown>; cardNumber?: string },
 ) {
-  const out = clockCheckOutComplete(db, {
-    timeEntryId: body.timeEntryId,
-    checklist: body.checklist,
-    endedBy: 'Terminal',
-  })
+  const card = String(body.cardNumber ?? '').trim()
+  const teBefore = getTimeEntry(db, body.timeEntryId)
+  const out = clockCheckOutComplete(
+    db,
+    {
+      timeEntryId: body.timeEntryId,
+      checklist: body.checklist,
+      endedBy: 'Terminal',
+    },
+    card && teBefore
+      ? { logCardOnSuccess: { cardNumber: card, stationId: teBefore.stationId, employeeId: teBefore.employeeId } }
+      : undefined,
+  )
   if (!out.ok) return out
   const te = getTimeEntry(db, body.timeEntryId)
-  if (te) {
+  if (te && !card) {
     logCardEvent(db, {
       cardNumber: '',
       employeeId: te.employeeId,

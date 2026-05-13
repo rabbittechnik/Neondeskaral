@@ -8,10 +8,14 @@ import {
   getRunningForEmployee,
   getTimeEntry,
   insertChecklist,
+  insertShiftCloseChecklistParsed,
   logCardEvent,
 } from './timeTrackingService.js'
 import { syncReviewItemsFromCloseChecklist } from './shiftChecklistReviewService.js'
 import { listActiveShiftWarningsForEmployee } from './employeeShiftWarningService.js'
+import { buildShiftCloseChecklistStartPayload } from './stationShiftChecklistDefService.js'
+import { resolveShiftCloseChecklistKind } from '../utils/shiftCloseChecklistResolve.js'
+import { isStructuredShiftClosePayload, validateStructuredShiftCloseChecklistForStation } from '../utils/shiftCloseChecklistValidate.js'
 
 function parseHHMM(t: string): number {
   const [h, m] = t.split(':').map(Number)
@@ -298,12 +302,25 @@ export function clockCheckOutStartByEmployeeId(
     })
   }
 
+  const kind = resolveShiftCloseChecklistKind({
+    db,
+    stationId,
+    employeeId,
+    shiftId: running.shiftId ?? null,
+    timeEntryStartAt: running.startAt,
+    now: new Date(),
+  })
+  const checklistPayload = buildShiftCloseChecklistStartPayload(db, stationId, kind)
+
   return {
     ok: true as const,
     result: 'checklist_required' as const,
     message: 'Bitte Checkliste abschließen',
     employee: emp,
     timeEntry: running,
+    checklistType: checklistPayload.checklistType,
+    checklistItems: checklistPayload.items,
+    wizardGroups: checklistPayload.wizardGroups,
   }
 }
 
@@ -317,9 +334,6 @@ export function clockCheckOutComplete(
   const endedBy = String(body.endedBy ?? 'System').trim() || 'System'
   if (!timeEntryId) throw new Error('timeEntryId erforderlich')
 
-  const v = validateShiftCloseChecklist(checklist)
-  if (!v.ok) return { ok: false as const, error: v.error ?? 'Checkliste unvollständig' }
-
   const row = db.prepare(`SELECT * FROM time_entries WHERE id = ?`).get(timeEntryId) as
     | { id: string; employee_id: string; station_id: string; status: string | null }
     | undefined
@@ -327,13 +341,22 @@ export function clockCheckOutComplete(
     return { ok: false as const, error: 'Kein laufender Zeiteintrag' }
   }
 
-  insertChecklist(db, timeEntryId, row.employee_id, checklist)
-  syncReviewItemsFromCloseChecklist(db, {
-    timeEntryId,
-    employeeId: row.employee_id,
-    stationId: row.station_id,
-    checklist: checklist as Record<string, unknown>,
-  })
+  if (isStructuredShiftClosePayload(checklist as Record<string, unknown>)) {
+    const v = validateStructuredShiftCloseChecklistForStation(db, row.station_id, checklist as Record<string, unknown>)
+    if (!v.ok) return { ok: false as const, error: v.error }
+    insertShiftCloseChecklistParsed(db, timeEntryId, row.employee_id, row.station_id, v.data)
+  } else {
+    const v = validateShiftCloseChecklist(checklist)
+    if (!v.ok) return { ok: false as const, error: v.error ?? 'Checkliste unvollständig' }
+    insertChecklist(db, timeEntryId, row.employee_id, checklist)
+    syncReviewItemsFromCloseChecklist(db, {
+      timeEntryId,
+      employeeId: row.employee_id,
+      stationId: row.station_id,
+      checklist: checklist as Record<string, unknown>,
+    })
+  }
+
   closeTimeEntry(db, timeEntryId, endedBy)
 
   if (options?.logCardOnSuccess) {

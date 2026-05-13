@@ -109,7 +109,7 @@ type TabletTerminalContextValue = {
   refetch: () => Promise<void>
   refetchRunning: () => Promise<void>
   refetchTasks: (employeeId?: string | null) => Promise<void>
-  completeShiftWithChecklist: (timeEntryId: string, checklist: Record<string, unknown>) => Promise<void>
+  completeShiftWithChecklist: (timeEntryId: string, checklist: Record<string, unknown>, cardNumber?: string) => Promise<void>
   completeTask: (taskId: string, body: { date: string; employeeId: string; displayName: string; comment?: string }) => Promise<void>
   fetchFuelPrices: (opts?: { forceRefresh?: boolean }) => Promise<FuelPricesPayload>
 }
@@ -231,7 +231,7 @@ export function TabletTerminalProvider({
   }, [hasTabletSource, refetchRunning])
 
   const completeShiftWithChecklist = useCallback(
-    async (timeEntryId: string, checklist: Record<string, unknown>) => {
+    async (timeEntryId: string, checklist: Record<string, unknown>, cardNumber?: string) => {
       const url = `${API_BASE}/terminal/check-out-complete`
       let res: Response
       try {
@@ -241,6 +241,7 @@ export function TabletTerminalProvider({
           body: JSON.stringify({
             timeEntryId,
             checklist,
+            ...(cardNumber?.trim() ? { cardNumber: cardNumber.trim() } : {}),
             ...(tabletToken ? { tabletToken } : {}),
           }),
         })

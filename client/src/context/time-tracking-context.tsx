@@ -25,7 +25,7 @@ type TimeTrackingContextValue = {
     cardNumber: string,
     options?: { force?: boolean; startNote?: string },
   ) => Promise<TimeEntry>
-  completeShiftWithChecklist: (timeEntryId: string, checklist: ShiftCloseChecklist) => Promise<void>
+  completeShiftWithChecklist: (timeEntryId: string, checklist: Record<string, unknown>) => Promise<void>
   /** Nach Terminal-Aktionen Kartenprotokoll aus der API aktualisieren (serverseitig gespeichert). */
   logCardEvent: (ev: Omit<CashRegisterCardEvent, 'id' | 'scannedAt'> & { scannedAt?: string }) => void
 }
@@ -153,30 +153,11 @@ export function TimeTrackingProvider({ children }: { children: ReactNode }) {
   )
 
   const completeShiftWithChecklist = useCallback(
-    async (timeEntryId: string, checklist: ShiftCloseChecklist) => {
-      const body = {
+    async (timeEntryId: string, checklist: Record<string, unknown>) => {
+      const res = await apiSend<TimeEntry>('POST', '/terminal/check-out-complete', {
         timeEntryId,
-        checklist: {
-          fridgeFronted: checklist.fridgeFronted,
-          drinksFilled: checklist.drinksFilled,
-          cigarettesFilled: checklist.cigarettesFilled,
-          shelvesFilled: checklist.shelvesFilled,
-          trashEmptied: checklist.trashEmptied,
-          counterClean: checklist.counterClean,
-          coffeeAreaClean: checklist.coffeeAreaClean,
-          outsideChecked: checklist.outsideChecked,
-          incidentsNoted: checklist.incidentsNoted,
-          handoverPossible: checklist.handoverPossible,
-          closingReady: checklist.closingReady,
-          everythingOk: checklist.everythingOk,
-          incidentNote: checklist.incidentNote,
-          cashDifference:
-            checklist.cashDifference != null && Number.isFinite(checklist.cashDifference)
-              ? checklist.cashDifference
-              : 0,
-        },
-      }
-      const res = await apiSend<TimeEntry>('POST', '/terminal/check-out-complete', body)
+        checklist,
+      })
       if (!res.ok) throw new Error(res.error)
       await refetch()
       await refetchCardEvents()

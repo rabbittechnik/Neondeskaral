@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, ClipboardCheck } from 'lucide-react'
+import { ArrowLeft, ClipboardCheck, AlertTriangle } from 'lucide-react'
 import { useAuth } from '../../context/auth-context'
 import { apiGet, apiSend } from '../../services/api'
 import { useStation } from '../../context/station-context'
@@ -23,10 +23,26 @@ type ChecklistReviewItem = {
   reviewedAt?: string
 }
 
+type ShiftCloseStructuredItem = {
+  itemKey: string
+  itemLabel: string
+  answer: string
+  reason?: string
+}
+
+type ShiftCloseStructuredDetail = {
+  checklistType: string
+  cashDifference: number
+  truthConfirmed: boolean
+  createdAt: string
+  items: ShiftCloseStructuredItem[]
+}
+
 type DetailPayload = {
   timeEntry: TimeEntry
   employeeName: string
   checklist: Record<string, unknown> | null
+  shiftCloseStructured?: ShiftCloseStructuredDetail | null
   checklistReviewItems?: ChecklistReviewItem[]
   plannedShift: { id: string; date: string; startTime: string; endTime: string } | null
 }
@@ -309,7 +325,53 @@ export function TimeApprovalsPage() {
               </div>
             </dl>
 
-            {detail.checklist ? (
+            {detail.shiftCloseStructured ? (
+              <div className="mt-4 rounded-md border border-orange-400/25 bg-orange-500/5 p-3 text-xs text-[var(--text-muted)]">
+                <div className="flex flex-wrap items-center gap-2">
+                  {detail.shiftCloseStructured.items.some((i) => i.answer === 'no') ? (
+                    <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" aria-hidden />
+                  ) : null}
+                  <p className="font-semibold text-[var(--text-main)]">
+                    Schichtende-Checkliste (
+                    {detail.shiftCloseStructured.checklistType === 'closing' ? 'Ladenschluss' : 'Übergabe ca. 14:00'})
+                  </p>
+                </div>
+                <ul className="mt-2 max-h-[40vh] space-y-1.5 overflow-y-auto">
+                  {detail.shiftCloseStructured.items.map((it) => {
+                    const ans =
+                      it.answer === 'yes' ? 'Ja' : it.answer === 'no' ? 'Nein' : it.answer === 'not_relevant' ? 'Nicht relevant' : it.answer
+                    const isNo = it.answer === 'no'
+                    return (
+                      <li
+                        key={it.itemKey}
+                        className={`rounded border px-2 py-1.5 ${isNo ? 'border-amber-400/40 bg-amber-500/10' : 'border-white/10 bg-black/20'}`}
+                      >
+                        <div className="flex flex-wrap justify-between gap-2">
+                          <span className="text-[var(--text-main)]">{it.itemLabel}</span>
+                          <span className={isNo ? 'font-semibold text-amber-200' : 'text-cyan-200/90'}>{ans}</span>
+                        </div>
+                        {isNo && it.reason ? (
+                          <p className="mt-1 text-[11px] font-medium text-amber-100/95">Begründung: {it.reason}</p>
+                        ) : null}
+                        {!isNo && it.reason ? (
+                          <p className="mt-1 text-[11px] text-[var(--text-faint)]">Hinweis: {it.reason}</p>
+                        ) : null}
+                      </li>
+                    )
+                  })}
+                </ul>
+                <p className="mt-2 text-[var(--text-main)]">
+                  Kassendifferenz:{' '}
+                  <span className="font-semibold tabular-nums">
+                    {new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(
+                      Number(detail.shiftCloseStructured.cashDifference ?? 0),
+                    )}
+                  </span>
+                </p>
+              </div>
+            ) : null}
+
+            {!detail.shiftCloseStructured && detail.checklist ? (
               <div className="mt-4 rounded-md border border-white/10 bg-black/20 p-3 text-xs text-[var(--text-muted)]">
                 <p className="font-semibold text-[var(--text-main)]">Abschluss-Checkliste</p>
                 <ul className="mt-2 list-inside list-disc space-y-0.5">
