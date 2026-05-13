@@ -1,19 +1,22 @@
 type Props = {
   value: string
   onChange: (v: string) => void
-  onKey: (key: string) => void
+  /** Wenn false: kein OK auf dem Pad (Submit nur über den Hauptbutton / Enter). */
+  showOkKey?: boolean
 }
 
-const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'del', '0', 'ok'] as const
+const KEYS_WITH_OK = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'del', '0', 'ok'] as const
+const KEYS_NO_OK = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'del', '0'] as const
 
-export function OnScreenNumberPad({ value, onChange, onKey }: Props) {
+export function OnScreenNumberPad({ value, onChange, showOkKey = false }: Props) {
+  const KEYS = showOkKey ? KEYS_WITH_OK : KEYS_NO_OK
+
   const press = (k: string) => {
     if (k === 'del') {
       onChange(value.slice(0, -1))
       return
     }
     if (k === 'ok') {
-      onKey('ok')
       return
     }
     if (value.length >= 8) return

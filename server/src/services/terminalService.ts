@@ -16,6 +16,12 @@ export function terminalCheckIn(
   const card = String(body.cardNumber ?? '').trim()
   const force = Boolean(body.force)
   const emp = getEmployeeByCard(db, card, stationId)
+  console.log('terminal check-in employee lookup', {
+    stationId,
+    cardLen: card.length,
+    found: Boolean(emp),
+    employeeId: emp?.id,
+  })
   if (!emp) {
     logCardEvent(db, {
       cardNumber: card,

@@ -490,6 +490,8 @@ export function getEmployeeByCard(db: Database, cardNumber: string, stationId = 
     .prepare(
       `SELECT * FROM employees WHERE station_id = ? AND trim(cash_register_card_number) = trim(?)
        AND (COALESCE(active, 1) = 1)
+       AND (COALESCE(terminal_enabled, 1) = 1)
+       AND (COALESCE(time_tracking_enabled, 1) = 1)
        AND (COALESCE(deleted_at, '') = '' OR trim(deleted_at) = '')
        AND lower(trim(COALESCE(status, ''))) NOT IN ('deleted', 'geloescht', 'inactive', 'inaktiv')`,
     )

@@ -79,12 +79,6 @@ export function StaffTerminalPage() {
   const [checkInStep, setCheckInStep] = useState<CheckInEvaluation | null>(null)
   const lastCheckInCardRef = useRef('')
   const lastCheckOutCardRef = useRef('')
-  const [checkInSecurity, setCheckInSecurity] = useState<{
-    employeeId: string
-    displayName: string
-    plannedLabel: string
-    force: boolean
-  } | null>(null)
   const [checkoutSecurity, setCheckoutSecurity] = useState<{
     entry: TimeEntry
     displayName: string
@@ -114,23 +108,36 @@ export function StaffTerminalPage() {
   const startShiftForEmployee = useCallback(
     async (cardNumber: string, options?: { force?: boolean; startNote?: string }) => {
       const sid = stationId ?? DEFAULT_TABLET_STATION_ID
-      const res = await fetch(`${API_BASE}/terminal/check-in`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          cardNumber: cardNumber.trim(),
-          stationId: sid,
-          force: Boolean(options?.force),
-          ...(tabletToken ? { tabletToken } : {}),
-        }),
-      })
-      const json = (await res.json()) as {
+      let res: Response
+      try {
+        res = await fetch(`${API_BASE}/terminal/check-in`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            cardNumber: cardNumber.trim(),
+            stationId: sid,
+            force: Boolean(options?.force),
+            ...(tabletToken ? { tabletToken } : {}),
+          }),
+        })
+      } catch {
+        throw new Error('Server nicht erreichbar. Bitte Verbindung prüfen.')
+      }
+      let json: {
         ok?: boolean
         data?: { timeEntry?: TimeEntry }
         error?: string
         timeEntry?: TimeEntry
         result?: string
         warnings?: unknown
+      } = {}
+      try {
+        json = (await res.json()) as typeof json
+      } catch {
+        throw new Error('Server nicht erreichbar. Bitte Verbindung prüfen.')
+      }
+      if (!res.ok) {
+        throw new Error(json.error ?? `Serverfehler (${res.status})`)
       }
       if (!json.ok) {
         if (json.result === 'shift_warnings_pending') {
@@ -139,7 +146,7 @@ export function StaffTerminalPage() {
           ;(err as Error & { code: string; warnings?: unknown }).warnings = json.warnings
           throw err
         }
-        throw new Error(json.error ?? 'Check-in fehlgeschlagen')
+        throw new Error(json.error ?? 'Fehler beim Starten der Schicht.')
       }
       const entry = json.data?.timeEntry ?? json.timeEntry
       if (!entry) throw new Error('Keine Zeiterfassung in der Antwort')
@@ -178,7 +185,6 @@ export function StaffTerminalPage() {
     setModal(null)
     setCheckInStep(null)
     setCheckOutMsg(null)
-    setCheckInSecurity(null)
     setCheckoutSecurity(null)
     setCheckOutEntry(null)
     setCheckoutCatalog(null)
@@ -186,7 +192,8 @@ export function StaffTerminalPage() {
   }
 
   const acknowledgeShiftWarningsAndRetry = async () => {
-    if (!pendingShiftWarnings || !stationId) return
+    if (!pendingShiftWarnings) return
+    const sid = stationId ?? DEFAULT_TABLET_STATION_ID
     const card = lastCheckInCardRef.current.trim()
     if (!card) {
       window.alert('Kartennummer fehlt. Bitte erneut scannen.')
@@ -198,7 +205,7 @@ export function StaffTerminalPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           cardNumber: card,
-          stationId,
+          stationId: sid,
           warningId: w.id,
           ...(tabletToken ? { tabletToken } : {}),
         }),
@@ -226,7 +233,6 @@ export function StaffTerminalPage() {
       const t = new Date(entry.startAt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
       setCheckInStep(null)
       setModal(null)
-      setCheckInSecurity(null)
       setInSuccess({ name: emp?.displayName ?? 'Mitarbeiter', time: t })
       void refetchTasks(employeeId)
       setTab('tasks')
@@ -258,19 +264,29 @@ export function StaffTerminalPage() {
     }
   }
 
-  const onCardSubmit = (card: string) => {
-    setCheckOutMsg(null)
-    if (modal === 'check-in') {
-      lastCheckInCardRef.current = card
-      const ev = evaluateCheckIn(card, employees, shifts, timeEntries, new Date())
+  const handleCashCardSubmit = async (card: string) => {
+    const digits = card.replace(/\D/g, '').trim()
+    const currentModal = modal
+    console.log('terminal submit', {
+      mode: currentModal,
+      cashCardNumber: digits,
+      tabletStationId: stationId ?? null,
+      tabletTokenPresent: Boolean(tabletToken),
+    })
+
+    if (currentModal === 'check-in') {
+      setCheckOutMsg(null)
+      lastCheckInCardRef.current = digits
+      const ev = evaluateCheckIn(digits, employees, shifts, timeEntries, new Date())
+      setModal(null)
       if (ev.kind === 'unknown_card') {
-        log({ cardNumber: card, actionType: 'check_in', result: 'unknown_card', message: 'Kassenkarte unbekannt' })
+        log({ cardNumber: digits, actionType: 'check_in', result: 'unknown_card', message: 'Kassenkarte unbekannt' })
         setCheckInStep(ev)
         return
       }
       if (ev.kind === 'already_checked_in') {
         log({
-          cardNumber: card,
+          cardNumber: digits,
           employeeId: ev.employee.id,
           actionType: 'check_in',
           result: 'already_checked_in',
@@ -281,7 +297,7 @@ export function StaffTerminalPage() {
       }
       if (ev.kind === 'not_scheduled') {
         log({
-          cardNumber: card,
+          cardNumber: digits,
           employeeId: ev.employee.id,
           actionType: 'check_in',
           result: 'not_scheduled',
@@ -292,7 +308,7 @@ export function StaffTerminalPage() {
       }
       if (ev.kind === 'too_early') {
         log({
-          cardNumber: card,
+          cardNumber: digits,
           employeeId: ev.employee.id,
           actionType: 'check_in',
           result: 'too_early',
@@ -303,25 +319,19 @@ export function StaffTerminalPage() {
       }
       if (ev.kind === 'ready') {
         log({
-          cardNumber: card,
+          cardNumber: digits,
           employeeId: ev.employee.id,
           actionType: 'check_in',
           result: 'success',
-          message: 'Check-in (Bestätigung)',
+          message: 'Check-in',
         })
-        setModal(null)
         setCheckInStep(null)
-        setCheckInSecurity({
-          employeeId: ev.employee.id,
-          displayName: ev.employee.displayName,
-          plannedLabel: ev.planned ? `${ev.planned.startTime} – ${ev.planned.endTime}` : '—',
-          force: false,
-        })
+        await finalizeCheckIn(ev.employee.id, undefined, false)
         return
       }
       if (ev.kind === 'too_late') {
         log({
-          cardNumber: card,
+          cardNumber: digits,
           employeeId: ev.employee.id,
           actionType: 'check_in',
           result: 'too_late',
@@ -330,18 +340,20 @@ export function StaffTerminalPage() {
         setCheckInStep(ev)
         return
       }
+      return
     }
 
-    if (modal === 'check-out') {
-      const ev = evaluateCheckOut(card, employees, timeEntries)
+    if (currentModal === 'check-out') {
+      const ev = evaluateCheckOut(digits, employees, timeEntries)
+      setModal(null)
       if (ev.kind === 'unknown_card') {
-        log({ cardNumber: card, actionType: 'check_out', result: 'unknown_card', message: 'Kassenkarte unbekannt' })
+        log({ cardNumber: digits, actionType: 'check_out', result: 'unknown_card', message: 'Kassenkarte unbekannt' })
         setCheckOutMsg(ev)
         return
       }
       if (ev.kind === 'not_checked_in') {
         log({
-          cardNumber: card,
+          cardNumber: digits,
           employeeId: ev.employee.id,
           actionType: 'check_out',
           result: 'not_checked_in',
@@ -350,14 +362,13 @@ export function StaffTerminalPage() {
         setCheckOutMsg(ev)
         return
       }
-      setModal(null)
-      lastCheckOutCardRef.current = card
+      lastCheckOutCardRef.current = digits
       setCheckoutSecurity({
         entry: ev.entry,
         displayName: ev.employee.displayName,
       })
       log({
-        cardNumber: card,
+        cardNumber: digits,
         employeeId: ev.employee.id,
         actionType: 'check_out',
         result: 'checklist_required',
@@ -505,7 +516,6 @@ export function StaffTerminalPage() {
                 setCheckInStep(null)
                 setCheckOutMsg(null)
                 setInSuccess(null)
-                setCheckInSecurity(null)
                 setCheckoutSecurity(null)
                 setPendingShiftWarnings(null)
                 setModal('check-in')
@@ -513,7 +523,6 @@ export function StaffTerminalPage() {
               onCheckOut={() => {
                 setCheckInStep(null)
                 setCheckOutMsg(null)
-                setCheckInSecurity(null)
                 setCheckoutSecurity(null)
                 setPendingShiftWarnings(null)
                 setModal('check-out')
@@ -706,40 +715,6 @@ export function StaffTerminalPage() {
         </div>
       ) : null}
 
-      {checkInSecurity ? (
-        <div className="fixed inset-0 z-[135] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-emerald-400/35 bg-[var(--bg-card)] p-6 shadow-[0_0_40px_rgba(52,211,153,0.15)]">
-            <h2 className="text-lg font-semibold text-[var(--text-main)]">Schicht wirklich starten?</h2>
-            <p className="mt-2 text-sm text-[var(--text-muted)]">Möchtest du dich wirklich zur Schicht anmelden?</p>
-            <div className="mt-4 space-y-1 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-[var(--text-main)]">
-              <p>
-                <span className="text-[var(--text-faint)]">Mitarbeiter:</span> {checkInSecurity.displayName}
-              </p>
-              <p>
-                <span className="text-[var(--text-faint)]">Geplante Schicht:</span> {checkInSecurity.plannedLabel}
-              </p>
-              <p>
-                <span className="text-[var(--text-faint)]">Aktuelle Uhrzeit:</span>{' '}
-                {nowTick.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
-              </p>
-            </div>
-            <div className="mt-5 flex flex-wrap gap-2">
-              <Button type="button" variant="ghost" className="flex-1" onClick={() => setCheckInSecurity(null)}>
-                Abbrechen
-              </Button>
-              <Button
-                type="button"
-                variant="primary"
-                className="flex-1"
-                onClick={() => void finalizeCheckIn(checkInSecurity.employeeId, undefined, checkInSecurity.force)}
-              >
-                Ja, Schicht starten
-              </Button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
       {checkoutSecurity ? (
         <div className="fixed inset-0 z-[135] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-2xl border border-orange-400/35 bg-[var(--bg-card)] p-6 shadow-[0_0_40px_rgba(251,146,60,0.12)]">
@@ -863,7 +838,12 @@ export function StaffTerminalPage() {
         </div>
       ) : null}
 
-      <CashRegisterNumberModal open={modal !== null} mode={modal === 'check-out' ? 'check-out' : 'check-in'} onClose={closeModal} onSubmit={onCardSubmit} />
+      <CashRegisterNumberModal
+        open={modal !== null}
+        mode={modal === 'check-out' ? 'check-out' : 'check-in'}
+        onClose={closeModal}
+        onSubmit={handleCashCardSubmit}
+      />
 
       {checkOutEntry && checkoutCatalog ? (
         <ShiftCloseChecklistModal

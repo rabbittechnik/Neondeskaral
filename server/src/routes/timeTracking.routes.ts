@@ -231,10 +231,17 @@ terminalRouter.post('/check-in', (req, res) => {
       return jsonErr(res, 'stationId oder gültiger tabletToken erforderlich', 400)
     }
     raw.stationId = stationFromToken
+    const card = String((raw as { cardNumber?: string }).cardNumber ?? '').trim()
+    console.log('terminal check-in request', { stationId: stationFromToken, cashCardNumber: card })
     const out = terminal.terminalCheckIn(getDb(), raw as { cardNumber: string; stationId: string; force?: boolean })
     if (!out.ok) {
+      console.log('terminal check-in rejected', { stationId: stationFromToken, result: (out as { result?: string }).result })
       return res.status(200).json(terminalCheckInErrorBody(out as unknown as Record<string, unknown>))
     }
+    console.log('terminal check-in ok', {
+      stationId: stationFromToken,
+      employeeId: (out as { employee?: { id?: string } }).employee?.id,
+    })
     jsonOk(res, { result: out.result, message: out.message, employee: out.employee, timeEntry: out.timeEntry })
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
