@@ -11,6 +11,7 @@ import {
   listTabletTimeEntriesWide,
   listTabletWorkAreas,
 } from '../services/tabletDataService.js'
+import { buildTabletCheckInSuggestions } from '../services/tabletCheckInSuggestionsService.js'
 import { confirmTaskFromTablet } from '../services/taskService.js'
 import type { StationTabletDeviceRow } from '../services/stationTabletDeviceService.js'
 import { touchTabletByToken } from '../services/stationTabletDeviceService.js'
@@ -118,6 +119,16 @@ tabletRouter.get('/employees', (req, res) => {
     const sid = resolveTabletStationId(req, res)
     if (!sid) return
     jsonOk(res, listEmployeesTabletClock(getDb(), sid))
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
+  }
+})
+
+tabletRouter.get('/check-in-suggestions', (req, res) => {
+  try {
+    const sid = resolveTabletStationId(req, res)
+    if (!sid) return
+    jsonOk(res, buildTabletCheckInSuggestions(getDb(), sid, new Date()))
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
   }

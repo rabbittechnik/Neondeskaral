@@ -242,7 +242,7 @@ terminalRouter.post('/check-in', (req, res) => {
     console.log('terminal check-in request', { stationId: stationFromToken, cashCardNumber: card, employeeId: empId || undefined })
     const out = terminal.terminalCheckIn(
       getDb(),
-      raw as { cardNumber?: string; employeeId?: string; stationId: string; force?: boolean },
+      raw as { cardNumber?: string; employeeId?: string; stationId: string; force?: boolean; shiftId?: string },
     )
     if (!out.ok) {
       console.log('terminal check-in rejected', { stationId: stationFromToken, result: (out as { result?: string }).result })

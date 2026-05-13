@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useStation } from '../../context/station-context'
-import { useTabletTerminal } from '../../context/tablet-terminal-context'
+import { useTabletTerminal, tabletGet } from '../../context/tablet-terminal-context'
 import { calculateWorkedMinutes, formatWorkedDuration } from '../../utils/timeTrackingUtils'
 import type { TimeEntry } from '../../types/timeTracking'
 import type { CashRegisterCardEvent } from '../../types/timeTracking'
@@ -24,6 +24,7 @@ import { TabletFuelPricesTab } from '../../components/terminal/TabletFuelPricesT
 import { TabletRadioTab } from '../../components/terminal/TabletRadioTab'
 import { TabletRadioMiniPlayer } from '../../components/terminal/TabletRadioMiniPlayer'
 import { TabletPwaUpdateControls } from '../../components/terminal/TabletPwaUpdateControls'
+import type { TabletCheckInSuggestionsPayload } from '../../types/tabletCheckInSuggestions'
 
 type ModalMode = null | 'check-in' | 'check-out'
 
@@ -31,6 +32,7 @@ type ShiftWarningLite = { id: string; label: string; message: string }
 
 type CheckInApiConfirm = {
   employeeId: string
+  shiftId?: string
   result: string
   reason?: string
   message: string
@@ -111,18 +113,63 @@ export function StaffTerminalPage() {
   const [checkoutStartBusy, setCheckoutStartBusy] = useState(false)
   const [pendingShiftWarnings, setPendingShiftWarnings] = useState<{
     employeeId: string
+    shiftId?: string
     note?: string
     force: boolean
     warnings: ShiftWarningLite[]
   } | null>(null)
+
+  const [checkInSuggestionsPayload, setCheckInSuggestionsPayload] = useState<TabletCheckInSuggestionsPayload | null>(null)
+  const [checkInSugLoading, setCheckInSugLoading] = useState(false)
+  const [checkInSugErr, setCheckInSugErr] = useState<string | null>(null)
+
+  const tabletStationQuery = useMemo((): Record<string, string> => {
+    const t = tabletToken?.trim()
+    if (t) return { tabletToken: t }
+    if (stationId) return { stationId }
+    return {}
+  }, [tabletToken, stationId])
 
   useEffect(() => {
     const id = window.setInterval(() => setNowTick(new Date()), 1000)
     return () => window.clearInterval(id)
   }, [])
 
+  useEffect(() => {
+    if (modal !== 'check-in') {
+      setCheckInSuggestionsPayload(null)
+      setCheckInSugErr(null)
+      setCheckInSugLoading(false)
+      return
+    }
+    const q = tabletStationQuery
+    if (!Object.keys(q).length) {
+      setCheckInSuggestionsPayload(null)
+      setCheckInSugErr(null)
+      setCheckInSugLoading(false)
+      return
+    }
+    let cancelled = false
+    setCheckInSugLoading(true)
+    setCheckInSugErr(null)
+    void (async () => {
+      const res = await tabletGet<TabletCheckInSuggestionsPayload>('/tablet/check-in-suggestions', q)
+      if (cancelled) return
+      setCheckInSugLoading(false)
+      if (!res.ok) {
+        setCheckInSugErr(res.error)
+        setCheckInSuggestionsPayload(null)
+        return
+      }
+      setCheckInSuggestionsPayload(res.data)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [modal, tabletStationQuery])
+
   const startShiftByEmployeeId = useCallback(
-    async (employeeId: string, force: boolean) => {
+    async (employeeId: string, force: boolean, shiftId?: string) => {
       const sid = stationId ?? DEFAULT_TABLET_STATION_ID
       let res: Response
       try {
@@ -133,6 +180,7 @@ export function StaffTerminalPage() {
             employeeId,
             stationId: sid,
             force,
+            ...(shiftId ? { shiftId } : {}),
             ...(tabletToken ? { tabletToken } : {}),
           }),
         })
@@ -221,6 +269,9 @@ export function StaffTerminalPage() {
     setCheckoutCatalog(null)
     setPendingShiftWarnings(null)
     setCheckoutEndConfirm(null)
+    setCheckInSuggestionsPayload(null)
+    setCheckInSugErr(null)
+    setCheckInSugLoading(false)
   }
 
   const acknowledgeShiftWarningsAndRetry = async () => {
@@ -245,17 +296,18 @@ export function StaffTerminalPage() {
         return
       }
     }
-    const { employeeId, force } = pendingShiftWarnings
+    const { employeeId, force, shiftId } = pendingShiftWarnings
     setPendingShiftWarnings(null)
-    await finalizeCheckInByEmployee(employeeId, force)
+    await finalizeCheckInByEmployee(employeeId, force, shiftId)
   }
 
-  const finalizeCheckInByEmployee = async (employeeId: string, force = false) => {
+  const finalizeCheckInByEmployee = async (employeeId: string, force = false, shiftId?: string) => {
     try {
-      const out = await startShiftByEmployeeId(employeeId, force)
+      const out = await startShiftByEmployeeId(employeeId, force, shiftId)
       if ('needsConfirm' in out && out.needsConfirm) {
         setCheckInApiConfirm({
           employeeId: out.employeeId,
+          shiftId,
           result: out.result,
           reason: out.reason,
           message: out.message,
@@ -294,7 +346,7 @@ export function StaffTerminalPage() {
               }))
               .filter((w) => w.id)
           : []
-        setPendingShiftWarnings({ employeeId, force, warnings })
+        setPendingShiftWarnings({ employeeId, force, shiftId, warnings })
         return
       }
       window.alert(err instanceof Error ? err.message : 'Check-in fehlgeschlagen')
@@ -376,7 +428,7 @@ export function StaffTerminalPage() {
     }
     return (
       <TerminalResultMessage variant="warning" title={title} message={`${name}\n\n${body}`}>
-        <Button variant="primary" type="button" onClick={() => void finalizeCheckInByEmployee(p.employeeId, true)}>
+        <Button variant="primary" type="button" onClick={() => void finalizeCheckInByEmployee(p.employeeId, true, p.shiftId)}>
           Schicht trotzdem beginnen
         </Button>
         <Button variant="ghost" type="button" onClick={() => setCheckInApiConfirm(null)}>
@@ -729,10 +781,14 @@ export function StaffTerminalPage() {
         employees={employees}
         runningPresence={runningPresence}
         shifts={shifts}
+        checkInSuggestions={checkInSuggestionsPayload?.suggestions ?? []}
+        checkInAllEmployees={checkInSuggestionsPayload?.allEmployees}
+        checkInSuggestionsLoading={checkInSugLoading}
+        checkInSuggestionsError={checkInSugErr}
         checkoutBusy={modal === 'check-out' ? checkoutStartBusy : false}
         checkoutError={modal === 'check-out' ? checkOutErr : null}
         onClose={closeModal}
-        onConfirmCheckIn={(employeeId) => void finalizeCheckInByEmployee(employeeId, false)}
+        onConfirmCheckIn={(employeeId, sid) => void finalizeCheckInByEmployee(employeeId, false, sid)}
         onPickCheckOut={(row) => void startCheckoutChecklistForEmployee(row.employeeId)}
       />
 

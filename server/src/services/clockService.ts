@@ -156,6 +156,8 @@ export function clockCheckInByEmployeeId(
     startedBy: string
     /** Nur für Terminal-Logging (Kartennummer) */
     cardNumberForLog?: string
+    /** Optional: konkrete Plan-Schicht (Tablet-Vorschlag); sonst früheste Schicht heute. */
+    shiftId?: string | null
   },
 ) {
   const { employeeId, stationId, force, source, startedBy } = p
@@ -234,7 +236,39 @@ export function clockCheckInByEmployeeId(
   const now = new Date()
   const today = toISODateLocal(now)
   const shiftRows = listShiftRowsForStationDateRange(db, stationId, today, today)
-  const planned = getPlannedShiftToday(shiftRows, employeeId, today)
+  const wantedShiftId = String(p.shiftId ?? '').trim()
+  let planned: ShiftRow | null = null
+  if (wantedShiftId) {
+    const hit = shiftRows.find((s) => s.id === wantedShiftId)
+    const okHit =
+      hit &&
+      (hit.published ?? 0) === 1 &&
+      String(hit.employee_id ?? '').trim() === employeeId &&
+      hit.station_id === stationId &&
+      hit.date === today &&
+      hit.shift_type !== 'frei' &&
+      Boolean(hit.start_time) &&
+      Boolean(hit.end_time)
+    if (!okHit) {
+      if (card)
+        logCardEvent(db, {
+          cardNumber: card,
+          employeeId,
+          stationId,
+          actionType: 'check_in',
+          result: 'error',
+          message: 'Ungültige Schichtzuordnung',
+        })
+      return {
+        ok: false as const,
+        result: 'error' as const,
+        message: 'Diese Schicht ist für heute nicht gültig oder passt nicht zu dir.',
+      }
+    }
+    planned = hit
+  } else {
+    planned = getPlannedShiftToday(shiftRows, employeeId, today)
+  }
 
   if (!planned && !force) {
     if (card)

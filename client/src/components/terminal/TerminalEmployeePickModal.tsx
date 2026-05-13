@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { X } from 'lucide-react'
 import { Button } from '../ui/Button'
 import type { ClockCardEmployee } from '../../utils/timeTrackingUtils'
 import type { TabletRunningRow } from '../../context/tablet-terminal-context'
 import type { ScheduleShift } from '../../data/mockSchedule'
 import { toISODateLocal } from '../../utils/taskUtils'
+import type { TabletCheckInAllEmployeeRow, TabletCheckInSuggestion } from '../../types/tabletCheckInSuggestions'
 
 type Mode = 'check-in' | 'check-out'
 
@@ -14,12 +15,16 @@ type Props = {
   employees: ClockCardEmployee[]
   runningPresence: TabletRunningRow[]
   shifts: ScheduleShift[]
+  checkInSuggestions?: TabletCheckInSuggestion[]
+  checkInAllEmployees?: TabletCheckInAllEmployeeRow[]
+  checkInSuggestionsLoading?: boolean
+  checkInSuggestionsError?: string | null
   /** Beim Schichtende: Server-Antwort lädt (Checkliste vorbereiten). */
   checkoutBusy?: boolean
   /** Beim Schichtende: Fehler vom check-out-start. */
   checkoutError?: string | null
   onClose: () => void
-  onConfirmCheckIn: (employeeId: string) => void
+  onConfirmCheckIn: (employeeId: string, shiftId?: string) => void
   onPickCheckOut: (row: TabletRunningRow) => void
 }
 
@@ -43,12 +48,27 @@ function isClockedIn(runningPresence: TabletRunningRow[], employeeId: string): b
   return runningPresence.some((r) => r.employeeId === employeeId)
 }
 
+function suggestionHint(s: TabletCheckInSuggestion): string {
+  if (s.status === 'starts_soon') {
+    return `Start in ${Math.abs(s.deviationMinutes)} Min.`
+  }
+  if (s.status === 'should_have_started') {
+    if (s.deviationMinutes <= 0) return 'Geplanter Beginn jetzt'
+    return `${s.deviationMinutes} Min. später als geplant`
+  }
+  return `${s.deviationMinutes} Min. nach geplantem Beginn (Schicht läuft)`
+}
+
 export function TerminalEmployeePickModal({
   open,
   mode,
   employees,
   runningPresence,
   shifts,
+  checkInSuggestions = [],
+  checkInAllEmployees,
+  checkInSuggestionsLoading = false,
+  checkInSuggestionsError = null,
   checkoutBusy = false,
   checkoutError = null,
   onClose,
@@ -59,12 +79,30 @@ export function TerminalEmployeePickModal({
   const [q, setQ] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
-  const listIn = useMemo(() => {
-    const base = employees.filter((e) => e.terminalEnabled && e.timeTrackingEnabled)
+  useEffect(() => {
+    if (open) {
+      setQ('')
+      setSelectedId(null)
+    }
+  }, [open, mode])
+
+  const rowsAll = useMemo((): TabletCheckInAllEmployeeRow[] => {
+    if (checkInAllEmployees && checkInAllEmployees.length > 0) return checkInAllEmployees
+    return employees
+      .filter((e) => e.terminalEnabled && e.timeTrackingEnabled)
+      .map((e) => ({
+        employeeId: e.id,
+        employeeName: e.displayName,
+        role: [e.role, e.employmentRole].filter(Boolean).join(' · '),
+        isClockedIn: isClockedIn(runningPresence, e.id),
+      }))
+  }, [checkInAllEmployees, employees, runningPresence])
+
+  const listAllFiltered = useMemo(() => {
     const t = q.trim().toLowerCase()
-    if (!t) return base
-    return base.filter((e) => e.displayName.toLowerCase().includes(t))
-  }, [employees, q])
+    if (!t) return rowsAll
+    return rowsAll.filter((r) => r.employeeName.toLowerCase().includes(t))
+  }, [rowsAll, q])
 
   if (!open) return null
 
@@ -150,13 +188,63 @@ export function TerminalEmployeePickModal({
         <div className="flex items-start justify-between gap-2">
           <div>
             <h2 className="text-xl font-bold text-[var(--text-main)] sm:text-2xl">Schicht beginnen</h2>
-            <p className="mt-1 text-sm text-[var(--text-muted)]">Tippe auf deinen Namen, dann auf „Schicht beginnen“.</p>
+            <p className="mt-1 text-sm text-[var(--text-muted)]">Vorschlag aus dem Schichtplan oder unten alle Mitarbeitenden.</p>
           </div>
           <button type="button" onClick={onClose} className="rounded-lg p-2 text-[var(--text-muted)] hover:bg-white/10" aria-label="Schließen">
             <X className="h-6 w-6" />
           </button>
         </div>
-        <label className="mt-4 block text-sm text-[var(--text-muted)]">
+
+        <section className="mt-5 rounded-2xl border border-cyan-500/25 bg-cyan-500/[0.07] p-4">
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-cyan-200/95">Vorgeschlagen laut Schichtplan</h3>
+          {checkInSuggestionsLoading ? (
+            <p className="mt-3 text-sm text-[var(--text-muted)]">Schichtplan wird geprüft …</p>
+          ) : null}
+          {checkInSuggestionsError ? (
+            <p className="mt-3 rounded-lg border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+              {checkInSuggestionsError}
+            </p>
+          ) : null}
+          {!checkInSuggestionsLoading && !checkInSuggestionsError && checkInSuggestions.length === 0 ? (
+            <p className="mt-3 text-sm text-[var(--text-muted)]">
+              Aktuell ist laut Schichtplan niemand direkt zum Start vorgesehen.
+            </p>
+          ) : null}
+          {!checkInSuggestionsLoading && checkInSuggestions.length > 0 ? (
+            <ul className="mt-4 grid gap-3 sm:grid-cols-2">
+              {checkInSuggestions.map((s) => (
+                <li key={s.shiftId}>
+                  <div className="flex min-h-[168px] flex-col rounded-2xl border-2 border-cyan-400/75 bg-black/35 p-4 shadow-[0_0_22px_rgba(34,211,238,0.22)]">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-lg font-semibold text-[var(--text-main)]">{s.employeeName}</span>
+                      <span className="rounded-full border border-cyan-400/50 bg-cyan-500/20 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-cyan-100">
+                        Jetzt geplant
+                      </span>
+                    </div>
+                    <p className="mt-2 text-xl font-semibold tabular-nums text-cyan-100">
+                      {s.plannedStart} – {s.plannedEnd} Uhr
+                    </p>
+                    <p className="mt-1 text-sm text-amber-200/95">{suggestionHint(s)}</p>
+                    <div className="mt-auto pt-4">
+                      <Button
+                        type="button"
+                        variant="primary"
+                        className="w-full min-h-[48px] text-base font-semibold"
+                        onClick={() => onConfirmCheckIn(s.employeeId, s.shiftId)}
+                      >
+                        Schicht beginnen
+                      </Button>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </section>
+
+        <h3 className="mt-8 text-sm font-semibold uppercase tracking-wide text-[var(--text-muted)]">Alle Mitarbeiter anzeigen</h3>
+
+        <label className="mt-3 block text-sm text-[var(--text-muted)]">
           Mitarbeiter suchen
           <input
             type="search"
@@ -169,37 +257,39 @@ export function TerminalEmployeePickModal({
             className="mt-1 w-full rounded-xl border border-white/15 bg-black/30 px-4 py-3 text-lg text-[var(--text-main)]"
           />
         </label>
-        <ul className="mt-4 grid max-h-[min(50vh,440px)] gap-3 overflow-y-auto sm:grid-cols-2">
-          {listIn.map((e) => {
-            const sub = [e.role, e.employmentRole].filter(Boolean).join(' · ')
-            const planned = todayShiftLine(shifts, e.id, todayIso)
-            const stamped = isClockedIn(runningPresence, e.id)
-            const active = selectedId === e.id
+        <ul className="mt-4 grid max-h-[min(42vh,360px)] gap-3 overflow-y-auto sm:grid-cols-2">
+          {listAllFiltered.map((row) => {
+            const planned = todayShiftLine(shifts, row.employeeId, todayIso)
+            const active = selectedId === row.employeeId
+            const disabled = row.isClockedIn
             return (
-              <li key={e.id}>
+              <li key={row.employeeId}>
                 <button
                   type="button"
-                  onClick={() => setSelectedId(e.id)}
+                  disabled={disabled}
+                  onClick={() => !disabled && setSelectedId(row.employeeId)}
                   className={`flex min-h-[100px] w-full flex-col items-start rounded-2xl border px-4 py-4 text-left transition sm:min-h-[112px] ${
-                    active
-                      ? 'border-cyan-400/60 bg-cyan-500/15 ring-2 ring-cyan-400/35'
-                      : 'border-white/12 bg-black/30 hover:border-cyan-400/35'
+                    disabled
+                      ? 'cursor-not-allowed border-white/10 bg-black/20 opacity-45'
+                      : active
+                        ? 'border-cyan-400/60 bg-cyan-500/15 ring-2 ring-cyan-400/35'
+                        : 'border-white/12 bg-black/30 hover:border-cyan-400/35'
                   }`}
                 >
-                  <span className="text-lg font-semibold text-[var(--text-main)]">{e.displayName}</span>
-                  {sub ? <span className="mt-0.5 text-sm text-[var(--text-muted)]">{sub}</span> : null}
+                  <span className="text-lg font-semibold text-[var(--text-main)]">{row.employeeName}</span>
+                  {row.role ? <span className="mt-0.5 text-sm text-[var(--text-muted)]">{row.role}</span> : null}
                   <span className="mt-2 text-sm text-cyan-100/85">{planned}</span>
-                  {stamped ? (
-                    <span className="mt-1 text-xs font-semibold uppercase tracking-wide text-amber-300">Aktuell eingestempelt</span>
+                  {row.isClockedIn ? (
+                    <span className="mt-1 text-xs font-semibold uppercase tracking-wide text-amber-300">Bereits eingestempelt</span>
                   ) : (
-                    <span className="mt-1 text-xs font-medium text-[var(--text-faint)]">Geplant / nicht eingestempelt</span>
+                    <span className="mt-1 text-xs font-medium text-[var(--text-faint)]">Antippen zur Auswahl</span>
                   )}
                 </button>
               </li>
             )
           })}
         </ul>
-        {listIn.length === 0 ? <p className="mt-4 text-center text-[var(--text-muted)]">Keine Treffer.</p> : null}
+        {listAllFiltered.length === 0 ? <p className="mt-4 text-center text-[var(--text-muted)]">Keine Treffer.</p> : null}
         <div className="mt-6 flex flex-wrap justify-end gap-3 border-t border-white/10 pt-4">
           <Button variant="ghost" type="button" onClick={onClose}>
             Abbrechen
@@ -208,7 +298,7 @@ export function TerminalEmployeePickModal({
             variant="primary"
             type="button"
             className="min-h-[52px] min-w-[200px] text-lg font-semibold"
-            disabled={!selectedId}
+            disabled={!selectedId || rowsAll.some((r) => r.employeeId === selectedId && r.isClockedIn)}
             onClick={() => {
               if (selectedId) onConfirmCheckIn(selectedId)
             }}

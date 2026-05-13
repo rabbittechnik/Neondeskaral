@@ -28,7 +28,7 @@ function buildQuery(params?: Record<string, string | undefined>): string {
   return s ? `?${s}` : ''
 }
 
-async function tabletGet<T>(
+export async function tabletGet<T>(
   path: string,
   params?: Record<string, string | undefined>,
 ): Promise<{ ok: true; data: T } | { ok: false; error: string }> {

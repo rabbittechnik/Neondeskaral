@@ -53,10 +53,11 @@ function resolveEmployeeForTerminal(
 
 export function terminalCheckIn(
   db: Database,
-  body: { cardNumber?: string; employeeId?: string; stationId: string; force?: boolean },
+  body: { cardNumber?: string; employeeId?: string; stationId: string; force?: boolean; shiftId?: string },
 ) {
   const stationId = body.stationId || 'aral-bodelshausen'
   const force = Boolean(body.force)
+  const shiftId = String(body.shiftId ?? '').trim() || undefined
   const res = resolveEmployeeForTerminal(db, stationId, body, 'check_in')
   if (!res.ok) {
     return {
@@ -77,6 +78,7 @@ export function terminalCheckIn(
     source: 'tablet',
     startedBy: 'Terminal',
     cardNumberForLog: res.cardForLog || undefined,
+    shiftId,
   })
 }
 
