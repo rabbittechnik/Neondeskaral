@@ -475,6 +475,7 @@ const statements = [
     currency TEXT DEFAULT 'EUR',
     raw_json TEXT,
     fetched_at TEXT,
+    last_tankerkoenig_fetch_at TEXT,
     created_at TEXT,
     updated_at TEXT
   )`,

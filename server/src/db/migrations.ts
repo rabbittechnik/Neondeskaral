@@ -435,6 +435,31 @@ function ensureFuelPriceCacheAndStationTankerkoenig(db: Database.Database) {
   )`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_fuel_price_cache_station ON fuel_price_cache(station_id)`)
 
+  const cacheCols = new Set(
+    (db.prepare(`PRAGMA table_info(fuel_price_cache)`).all() as { name: string }[]).map((r) => r.name),
+  )
+  if (!cacheCols.has('last_tankerkoenig_fetch_at')) {
+    db.exec(`ALTER TABLE fuel_price_cache ADD COLUMN last_tankerkoenig_fetch_at TEXT`)
+  }
+  db.prepare(
+    `UPDATE fuel_price_cache SET last_tankerkoenig_fetch_at = fetched_at
+     WHERE last_tankerkoenig_fetch_at IS NULL AND fetched_at IS NOT NULL AND trim(fetched_at) != ''`,
+  ).run()
+
+  const tsFk = nowIso()
+  db.prepare(
+    `UPDATE stations SET tankerkoenig_station_id = (
+       SELECT f.provider_station_id FROM fuel_price_cache f
+       WHERE f.station_id = stations.id AND trim(COALESCE(f.provider_station_id, '')) != ''
+       LIMIT 1
+     ), updated_at = ?
+     WHERE (tankerkoenig_station_id IS NULL OR trim(tankerkoenig_station_id) = '')
+       AND EXISTS (
+         SELECT 1 FROM fuel_price_cache f2
+         WHERE f2.station_id = stations.id AND trim(COALESCE(f2.provider_station_id, '')) != ''
+       )`,
+  ).run(tsFk)
+
   const stationCols = new Set(
     (db.prepare(`PRAGMA table_info(stations)`).all() as { name: string }[]).map((r) => r.name),
   )

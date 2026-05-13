@@ -68,10 +68,10 @@ export type { TabletRadioConfig } from '../types/tabletRadioSession'
 export type FuelPricesPayload =
   | {
       ok: true
-      configured: true
-      provider: string
       stationId: string
-      providerStationId: string
+      providerStationId?: string
+      provider?: string
+      configured?: true
       station: {
         name: string
         brand: string
@@ -82,12 +82,15 @@ export type FuelPricesPayload =
       }
       prices: { diesel: number; e5: number; e10: number }
       isOpen: boolean
-      currency: string
+      currency?: string
       source: string
       fetchedAt: string
+      /** true = keine neue Tankerkönig-Anfrage in den letzten 60 s */
+      fromCache: boolean
       cacheWarning?: string
+      infoMessage?: string
     }
-  | { ok: false; configured: boolean; message: string; cacheWarning?: string }
+  | { ok: false; stationId?: string; configured: boolean; message: string; cacheWarning?: string }
 
 type TabletTerminalContextValue = {
   employees: ClockCardEmployee[]
@@ -288,7 +291,7 @@ export function TabletTerminalProvider({
       })
       let res: Response
       try {
-        res = await fetch(`${API_BASE}/fuel-prices${q}`)
+        res = await fetch(`${API_BASE}/fuel-prices/current${q}`)
       } catch {
         return { ok: false as const, configured: true, message: 'Server nicht erreichbar. Bitte Verbindung prüfen.' }
       }
