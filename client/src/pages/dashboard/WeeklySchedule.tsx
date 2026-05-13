@@ -141,7 +141,7 @@ export function WeeklySchedule() {
 
   return (
     <Card
-      className="min-w-0 max-w-full border-cyan-500/25 shadow-[0_0_28px_rgba(34,211,238,0.12)]"
+      className="min-w-0 w-full max-w-full border-cyan-500/25 shadow-[0_0_28px_rgba(34,211,238,0.12)]"
       padding="md"
     >
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">

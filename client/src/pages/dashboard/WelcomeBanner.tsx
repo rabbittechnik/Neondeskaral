@@ -10,7 +10,7 @@ export function WelcomeBanner() {
   return (
     <Card
       padding="none"
-      className="relative min-h-[160px] overflow-hidden border-cyan-500/20 md:min-h-[180px]"
+      className="relative min-h-[120px] overflow-hidden border-cyan-500/20 md:min-h-[140px]"
     >
       <div
         className="absolute inset-0 bg-cover bg-center opacity-35"
@@ -19,8 +19,8 @@ export function WelcomeBanner() {
             'linear-gradient(105deg, rgba(5,9,20,0.92) 0%, rgba(5,9,20,0.55) 45%, rgba(5,9,20,0.85) 100%), url("https://images.unsplash.com/photo-1549923746-c502d488b3db?w=1200&q=60")',
         }}
       />
-      <div className="relative z-10 flex h-full flex-col justify-center p-5 md:p-6 lg:p-8">
-        <h2 className="text-2xl font-semibold tracking-tight md:text-3xl">
+      <div className="relative z-10 flex h-full flex-col justify-center p-4 md:p-5 lg:p-6">
+        <h2 className="text-xl font-semibold tracking-tight md:text-2xl">
           {name ? (
             <>
               Willkommen zurück, {name}{' '}

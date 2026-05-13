@@ -12,42 +12,39 @@ import { WeeklySchedule } from './WeeklySchedule'
 import { WelcomeBanner } from './WelcomeBanner'
 import { TuvReportDashboardReminder } from '../../components/tuv/TuvReportDashboardReminder'
 
+const dashboardCardGrid =
+  'grid min-w-0 gap-3 [grid-template-columns:repeat(auto-fit,minmax(280px,1fr))]'
+
 export function DashboardPage() {
   return (
-    <div className="min-w-0 max-w-full space-y-4 pb-6">
-      <section className="grid min-w-0 grid-cols-1 gap-3 min-[1400px]:grid-cols-12 min-[1400px]:items-stretch">
-        <div className="min-w-0 space-y-3 min-[1400px]:col-span-8">
-          <TuvReportDashboardReminder />
+    <div className="min-w-0 w-full max-w-full space-y-4 overflow-x-hidden pb-6">
+      <TuvReportDashboardReminder />
+
+      <section className="flex min-w-0 flex-col gap-3 xl:flex-row xl:items-stretch xl:gap-4">
+        <div className="min-w-0 w-full flex-1 xl:min-w-0">
           <WelcomeBanner />
         </div>
-        <div className="min-w-0 min-[1400px]:col-span-4">
+        <div className="min-w-0 w-full shrink-0 xl:w-[min(100%,26rem)]">
           <DashboardStats />
         </div>
       </section>
 
       <ActiveAttendanceBar />
 
-      <section className="grid min-w-0 grid-cols-1 gap-3 min-[1400px]:grid-cols-12 min-[1400px]:items-stretch">
-        <div className="min-w-0 space-y-3 min-[1400px]:col-span-8">
-          <WeeklySchedule />
-        </div>
-        <div className="min-w-0 space-y-3 min-[1400px]:col-span-4">
-          <PendingTimeApprovalsCard />
-          <PendingAbsencesCard />
-          <UnfilledShiftsCard />
-        </div>
+      <section className="min-w-0 w-full">
+        <WeeklySchedule />
       </section>
 
-      <section className="grid min-w-0 grid-cols-1 gap-3 min-[1024px]:grid-cols-2 min-[1400px]:grid-cols-12">
-        <div className="min-w-0 min-[1400px]:col-span-4">
-          <QuickActions />
-        </div>
-        <div className="min-w-0 min-[1400px]:col-span-4">
-          <BirthdaysCard />
-        </div>
-        <div className="min-w-0 min-[1400px]:col-span-4">
-          <WeatherCard />
-        </div>
+      <section className={dashboardCardGrid} aria-label="Aktuelle Freigaben und offene Schichten">
+        <PendingTimeApprovalsCard />
+        <PendingAbsencesCard />
+        <UnfilledShiftsCard />
+      </section>
+
+      <section className={dashboardCardGrid} aria-label="Weitere Dashboard-Infos">
+        <QuickActions />
+        <BirthdaysCard />
+        <WeatherCard />
       </section>
     </div>
   )

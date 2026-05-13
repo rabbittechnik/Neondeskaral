@@ -37,7 +37,11 @@ function displayNameForEntry(e: TimeEntry, employeeDisplayName: string | undefin
   return fromApi || fromCtx || 'Mitarbeiter'
 }
 
-export function ActiveAttendanceBar() {
+type ActiveAttendanceBarProps = {
+  className?: string
+}
+
+export function ActiveAttendanceBar({ className }: ActiveAttendanceBarProps) {
   const { stationId } = useStation()
   const { employees } = useEmployees()
   const [running, setRunning] = useState<TimeEntry[]>([])
@@ -95,7 +99,7 @@ export function ActiveAttendanceBar() {
 
   return (
     <section
-      className="rounded-[var(--radius-md)] border border-emerald-400/30 bg-gradient-to-r from-emerald-500/[0.12] via-cyan-500/[0.08] to-emerald-500/[0.12] px-4 py-3 shadow-[0_0_28px_rgba(52,211,153,0.12),inset_0_1px_0_rgba(255,255,255,0.06)]"
+      className={`w-full min-w-0 rounded-[var(--radius-md)] border border-emerald-400/30 bg-gradient-to-r from-emerald-500/[0.12] via-cyan-500/[0.08] to-emerald-500/[0.12] px-4 py-3 shadow-[0_0_28px_rgba(52,211,153,0.12),inset_0_1px_0_rgba(255,255,255,0.06)] ${className ?? ''}`}
       aria-label="Aktuell eingestempelt"
     >
       <div className="flex min-w-0 flex-wrap items-center gap-3">

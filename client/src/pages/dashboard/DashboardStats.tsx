@@ -7,7 +7,7 @@ import { countOpenTasks, countOverdueTasks, getTaskStatusForDate, toISODateLocal
 import { DashboardOpenShiftsDetailModal } from './DashboardOpenShiftsDetailModal'
 import { useDashboardLiveStats } from './useDashboardLiveStats'
 
-function OpenTasksStat() {
+function OpenTasksStatCompact() {
   const { tasks, logs, loading, error } = useTasks()
   const date = toISODateLocal(new Date())
   const now = new Date()
@@ -24,7 +24,7 @@ function OpenTasksStat() {
         if (d !== 0) return d
         return (prOrder[b.t.priority] ?? 0) - (prOrder[a.t.priority] ?? 0)
       })
-      .slice(0, 5)
+      .slice(0, 3)
       .map((x) => x.t)
   }, [tasks, logs, date, now])
 
@@ -36,51 +36,51 @@ function OpenTasksStat() {
     String(open)
   )
 
+  const compactFooter = error ? (
+    <p className="text-rose-300/90">{error}</p>
+  ) : loading ? (
+    <p className="text-[var(--text-muted)]">Aufgaben werden geladen…</p>
+  ) : open === 0 && top.length === 0 ? (
+    <p className="text-[var(--text-muted)]">Keine offenen Aufgaben.</p>
+  ) : (
+    <div className="space-y-1.5">
+      <p className={overdue > 0 ? 'text-red-300/95' : 'text-emerald-200/85'}>
+        {overdue > 0 ? `${overdue} überfällig` : 'Keine Überfälligen'}
+      </p>
+      {top.length > 0 ? (
+        <ul className="max-h-[3.25rem] space-y-0.5 overflow-y-auto text-[10px] leading-snug text-[var(--text-muted)]">
+          {top.map((t) => (
+            <li key={t.id} className="truncate">
+              · {t.title}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <div className="flex flex-wrap gap-1.5 pt-0.5">
+        <Link
+          to="/tasks"
+          className="inline-flex items-center rounded border border-cyan-400/40 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-medium text-cyan-100 hover:bg-cyan-500/20"
+        >
+          Aufgaben öffnen
+        </Link>
+        <Link
+          to="/tasks"
+          className="inline-flex items-center rounded border border-white/12 px-2 py-0.5 text-[10px] text-[var(--text-muted)] hover:bg-white/5"
+        >
+          Neue Aufgabe
+        </Link>
+      </div>
+    </div>
+  )
+
   return (
     <StatCard
       title="Offene Aufgaben"
       value={valueNode}
-      density="feature"
-      className="h-full w-full"
-      hint={
-        <div className="flex min-h-0 flex-1 flex-col gap-2">
-          {error ? (
-            <p className="shrink-0 text-sm text-rose-300">{error}</p>
-          ) : loading ? (
-            <p className="shrink-0 text-sm text-[var(--text-muted)]">Aufgaben werden geladen…</p>
-          ) : open === 0 && top.length === 0 ? (
-            <p className="shrink-0 text-sm text-[var(--text-muted)]">Keine offenen Aufgaben.</p>
-          ) : (
-            <>
-              <p className={`shrink-0 text-sm ${overdue > 0 ? 'text-red-300' : 'text-emerald-200/90'}`}>
-                {overdue > 0 ? `${overdue} überfällig` : 'Keine Überfälligen'}
-              </p>
-              <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto text-[11px] leading-snug text-[var(--text-muted)]">
-                {top.map((t) => (
-                  <li key={t.id} className="truncate border-b border-white/[0.04] pb-1 last:border-0">
-                    · {t.title}
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-          <div className="mt-auto flex shrink-0 flex-wrap gap-2 pt-1">
-            <Link
-              to="/tasks"
-              className="inline-flex items-center justify-center rounded-md border border-cyan-400/40 bg-cyan-500/10 px-3 py-1.5 text-xs font-medium text-cyan-100 hover:bg-cyan-500/20"
-            >
-              Aufgaben öffnen
-            </Link>
-            <Link
-              to="/tasks"
-              className="inline-flex items-center justify-center rounded-md border border-white/12 px-3 py-1.5 text-xs text-[var(--text-muted)] hover:bg-white/5"
-            >
-              Neue Aufgabe
-            </Link>
-          </div>
-        </div>
-      }
-      icon={<ClipboardList className="h-5 w-5 text-lime-200" />}
+      density="compact"
+      compactFooter={compactFooter}
+      className="min-h-0"
+      icon={<ClipboardList className="h-[18px] w-[18px] text-lime-200" />}
       accentClass="neon-border-lime"
     />
   )
@@ -135,7 +135,7 @@ export function DashboardStats() {
   }, [loading, openShiftsWeek, openThisWeek, shiftError])
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       <DashboardOpenShiftsDetailModal
         open={openShiftsModal}
         onClose={() => setOpenShiftsModal(false)}
@@ -154,35 +154,31 @@ export function DashboardStats() {
           </button>
         </div>
       ) : null}
-      <div className="grid grid-cols-1 gap-3 md:min-h-[288px] md:grid-cols-[minmax(260px,360px)_1fr] md:items-stretch md:gap-3">
-        <div className="flex flex-col gap-3 md:min-h-[288px]">
-          <StatCard
-            density="compact"
-            title="Heute im Dienst"
-            value={dienstValue}
-            icon={<CalendarClock className="h-[18px] w-[18px] text-cyan-200" />}
-            accentClass="neon-border-cyan"
-          />
-          <StatCard
-            density="compact"
-            title="Abwesenheiten"
-            value={abwValue}
-            icon={<Plane className="h-[18px] w-[18px] text-pink-200" />}
-            accentClass="neon-border-pink"
-          />
-          <StatCard
-            density="compact"
-            title="Offene Schichten"
-            value={offenValue}
-            compactFooter={offenFooter}
-            onClick={shiftError || loading ? undefined : () => setOpenShiftsModal(true)}
-            icon={<OffeneSchichtenIcon />}
-            accentClass="neon-border-amber"
-          />
-        </div>
-        <div className="flex h-full min-h-[260px] flex-col md:min-h-[288px]">
-          <OpenTasksStat />
-        </div>
+      <div className="grid w-full min-w-0 grid-cols-[repeat(auto-fit,minmax(132px,1fr))] gap-2">
+        <StatCard
+          density="compact"
+          title="Heute im Dienst"
+          value={dienstValue}
+          icon={<CalendarClock className="h-[18px] w-[18px] text-cyan-200" />}
+          accentClass="neon-border-cyan"
+        />
+        <StatCard
+          density="compact"
+          title="Abwesenheiten"
+          value={abwValue}
+          icon={<Plane className="h-[18px] w-[18px] text-pink-200" />}
+          accentClass="neon-border-pink"
+        />
+        <StatCard
+          density="compact"
+          title="Offene Schichten"
+          value={offenValue}
+          compactFooter={offenFooter}
+          onClick={shiftError || loading ? undefined : () => setOpenShiftsModal(true)}
+          icon={<OffeneSchichtenIcon />}
+          accentClass="neon-border-amber"
+        />
+        <OpenTasksStatCompact />
       </div>
       {!loading && !shiftError && totalToday === 0 ? (
         <p className="text-center text-xs text-[var(--text-faint)]">Heute keine Schichten geplant.</p>
