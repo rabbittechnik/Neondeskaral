@@ -19,6 +19,9 @@ type Props = {
   checkInAllEmployees?: TabletCheckInAllEmployeeRow[]
   checkInSuggestionsLoading?: boolean
   checkInSuggestionsError?: string | null
+  checkInSubmitting?: boolean
+  checkInSubmitError?: string | null
+  onClearCheckInSubmitError?: () => void
   /** Beim Schichtende: Server-Antwort lädt (Checkliste vorbereiten). */
   checkoutBusy?: boolean
   /** Beim Schichtende: Fehler vom check-out-start. */
@@ -69,6 +72,9 @@ export function TerminalEmployeePickModal({
   checkInAllEmployees,
   checkInSuggestionsLoading = false,
   checkInSuggestionsError = null,
+  checkInSubmitting = false,
+  checkInSubmitError = null,
+  onClearCheckInSubmitError,
   checkoutBusy = false,
   checkoutError = null,
   onClose,
@@ -185,6 +191,16 @@ export function TerminalEmployeePickModal({
     <div className="fixed inset-0 z-[130] flex items-center justify-center overflow-y-auto p-4">
       <button type="button" className="absolute inset-0 bg-black/85 backdrop-blur-sm" aria-label="Schließen" onClick={onClose} />
       <div className="relative w-full max-w-2xl rounded-2xl border border-cyan-500/30 bg-[var(--bg-card)] p-5 shadow-xl sm:p-6">
+        {checkInSubmitting ? (
+          <div
+            className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 rounded-2xl bg-black/55 px-4 backdrop-blur-[2px]"
+            aria-live="polite"
+          >
+            <div className="h-10 w-10 animate-spin rounded-full border-2 border-cyan-400/30 border-t-cyan-300" aria-hidden />
+            <p className="text-center text-base font-semibold text-cyan-100">Schicht wird gestartet …</p>
+            <p className="text-center text-sm text-[var(--text-muted)]">Bitte warten</p>
+          </div>
+        ) : null}
         <div className="flex items-start justify-between gap-2">
           <div>
             <h2 className="text-xl font-bold text-[var(--text-main)] sm:text-2xl">Schicht beginnen</h2>
@@ -194,6 +210,18 @@ export function TerminalEmployeePickModal({
             <X className="h-6 w-6" />
           </button>
         </div>
+
+        {checkInSubmitError ? (
+          <div className="mt-4 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-100">
+            <p className="font-semibold">Schicht konnte nicht gestartet werden.</p>
+            <p className="mt-1">{checkInSubmitError}</p>
+            {onClearCheckInSubmitError ? (
+              <button type="button" className="mt-2 text-xs font-medium text-rose-200 underline" onClick={onClearCheckInSubmitError}>
+                Hinweis ausblenden
+              </button>
+            ) : null}
+          </div>
+        ) : null}
 
         <section className="mt-5 rounded-2xl border border-cyan-500/25 bg-cyan-500/[0.07] p-4">
           <h3 className="text-sm font-semibold uppercase tracking-wide text-cyan-200/95">Vorgeschlagen laut Schichtplan</h3>
@@ -230,6 +258,7 @@ export function TerminalEmployeePickModal({
                         type="button"
                         variant="primary"
                         className="w-full min-h-[48px] text-base font-semibold"
+                        disabled={checkInSubmitting}
                         onClick={() => onConfirmCheckIn(s.employeeId, s.shiftId)}
                       >
                         Schicht beginnen
@@ -252,6 +281,7 @@ export function TerminalEmployeePickModal({
             onChange={(e) => {
               setQ(e.target.value)
               setSelectedId(null)
+              onClearCheckInSubmitError?.()
             }}
             placeholder="Name eingeben…"
             className="mt-1 w-full rounded-xl border border-white/15 bg-black/30 px-4 py-3 text-lg text-[var(--text-main)]"
@@ -267,7 +297,11 @@ export function TerminalEmployeePickModal({
                 <button
                   type="button"
                   disabled={disabled}
-                  onClick={() => !disabled && setSelectedId(row.employeeId)}
+                  onClick={() => {
+                    if (disabled) return
+                    setSelectedId(row.employeeId)
+                    onClearCheckInSubmitError?.()
+                  }}
                   className={`flex min-h-[100px] w-full flex-col items-start rounded-2xl border px-4 py-4 text-left transition sm:min-h-[112px] ${
                     disabled
                       ? 'cursor-not-allowed border-white/10 bg-black/20 opacity-45'
@@ -291,19 +325,24 @@ export function TerminalEmployeePickModal({
         </ul>
         {listAllFiltered.length === 0 ? <p className="mt-4 text-center text-[var(--text-muted)]">Keine Treffer.</p> : null}
         <div className="mt-6 flex flex-wrap justify-end gap-3 border-t border-white/10 pt-4">
-          <Button variant="ghost" type="button" onClick={onClose}>
+          <Button variant="ghost" type="button" disabled={checkInSubmitting} onClick={onClose}>
             Abbrechen
           </Button>
           <Button
             variant="primary"
             type="button"
             className="min-h-[52px] min-w-[200px] text-lg font-semibold"
-            disabled={!selectedId || rowsAll.some((r) => r.employeeId === selectedId && r.isClockedIn)}
+            disabled={
+              !selectedId ||
+              checkInSubmitting ||
+              rowsAll.some((r) => r.employeeId === selectedId && r.isClockedIn)
+            }
             onClick={() => {
-              if (selectedId) onConfirmCheckIn(selectedId)
+              if (!selectedId || checkInSubmitting) return
+              onConfirmCheckIn(selectedId)
             }}
           >
-            Schicht beginnen
+            {checkInSubmitting ? 'Schicht wird gestartet…' : 'Schicht beginnen'}
           </Button>
         </div>
       </div>

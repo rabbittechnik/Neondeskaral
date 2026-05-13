@@ -53,6 +53,20 @@ type CheckoutEndConfirm = {
   message: string
 }
 
+/** Erste heutige Schicht-ID für Plan-Verknüpfung (wenn kein Vorschlags-shiftId). */
+function firstShiftIdTodayForEmployee(shifts: ScheduleShift[], employeeId: string, todayYmd: string): string | undefined {
+  const list = shifts.filter(
+    (s) =>
+      s.employeeId === employeeId &&
+      s.date === todayYmd &&
+      s.shiftType !== 'frei' &&
+      Boolean(s.startTime) &&
+      Boolean(s.endTime),
+  )
+  list.sort((a, b) => String(a.startTime).localeCompare(String(b.startTime)))
+  return list[0]?.id
+}
+
 type TabId = 'stamp' | 'schedule' | 'tasks' | 'fuel' | 'radio'
 
 export function StaffTerminalPage() {
@@ -67,6 +81,7 @@ export function StaffTerminalPage() {
     error,
     tabletToken,
     refetch,
+    refetchRunning,
     refetchTasks,
     completeShiftWithChecklist,
     completeTask,
@@ -122,6 +137,8 @@ export function StaffTerminalPage() {
   const [checkInSuggestionsPayload, setCheckInSuggestionsPayload] = useState<TabletCheckInSuggestionsPayload | null>(null)
   const [checkInSugLoading, setCheckInSugLoading] = useState(false)
   const [checkInSugErr, setCheckInSugErr] = useState<string | null>(null)
+  const [checkInSubmitting, setCheckInSubmitting] = useState(false)
+  const [checkInSubmitError, setCheckInSubmitError] = useState<string | null>(null)
 
   const tabletStationQuery = useMemo((): Record<string, string> => {
     const t = tabletToken?.trim()
@@ -170,19 +187,22 @@ export function StaffTerminalPage() {
 
   const startShiftByEmployeeId = useCallback(
     async (employeeId: string, force: boolean, shiftId?: string) => {
-      const sid = stationId ?? DEFAULT_TABLET_STATION_ID
+      const fallbackStation = stationId ?? DEFAULT_TABLET_STATION_ID
+      const tt = tabletToken?.trim()
+      const body: Record<string, unknown> = {
+        employeeId,
+        force,
+        ...(shiftId ? { shiftId } : {}),
+      }
+      if (tt) body.tabletToken = tt
+      else body.stationId = fallbackStation
+
       let res: Response
       try {
         res = await fetch(`${API_BASE}/terminal/check-in`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            employeeId,
-            stationId: sid,
-            force,
-            ...(shiftId ? { shiftId } : {}),
-            ...(tabletToken ? { tabletToken } : {}),
-          }),
+          body: JSON.stringify(body),
         })
       } catch {
         throw new Error('Server nicht erreichbar. Bitte Verbindung prüfen.')
@@ -193,6 +213,12 @@ export function StaffTerminalPage() {
       } catch {
         throw new Error('Server nicht erreichbar. Bitte Verbindung prüfen.')
       }
+      console.log('[terminal] check-in response', {
+        httpOk: res.ok,
+        jsonOk: json.ok,
+        result: json.result,
+        requiresConfirmation: json.requiresConfirmation,
+      })
       if (!res.ok) {
         throw new Error(String(json.error ?? `Serverfehler (${res.status})`))
       }
@@ -229,12 +255,13 @@ export function StaffTerminalPage() {
         const entry = (json.data as { timeEntry?: TimeEntry }).timeEntry
         if (!entry) throw new Error('Keine Zeiterfassung in der Antwort')
         await refetch()
+        void refetchRunning()
         notifyRunningEntriesRefresh()
         return { ok: true as const, entry }
       }
       throw new Error(String(json.error ?? 'Ungültige Server-Antwort'))
     },
-    [refetch, stationId, tabletToken],
+    [refetch, refetchRunning, stationId, tabletToken],
   )
 
   const shiftsInWeek = useMemo(() => {
@@ -242,6 +269,15 @@ export function StaffTerminalPage() {
     const sun = toISODate(addDays(weekMonday, 6))
     return shifts.filter((s) => s.date >= mon && s.date <= sun)
   }, [shifts, weekMonday])
+
+  const resolveShiftIdForCheckIn = useCallback(
+    (employeeId: string, explicitShiftId?: string) => {
+      const ex = explicitShiftId?.trim()
+      if (ex) return ex
+      return firstShiftIdTodayForEmployee(shifts, employeeId, toISODateLocal(new Date()))
+    },
+    [shifts],
+  )
 
   const activeTaskEmployeeId = runningPresence[0]?.employeeId ?? null
   const activeTaskEmployeeName =
@@ -272,6 +308,8 @@ export function StaffTerminalPage() {
     setCheckInSuggestionsPayload(null)
     setCheckInSugErr(null)
     setCheckInSugLoading(false)
+    setCheckInSubmitting(false)
+    setCheckInSubmitError(null)
   }
 
   const acknowledgeShiftWarningsAndRetry = async () => {
@@ -302,12 +340,30 @@ export function StaffTerminalPage() {
   }
 
   const finalizeCheckInByEmployee = async (employeeId: string, force = false, shiftId?: string) => {
+    const empTrim = employeeId.trim()
+    if (!empTrim) {
+      setCheckInSubmitError('Bitte Mitarbeiter auswählen.')
+      window.alert('Bitte Mitarbeiter auswählen.')
+      return
+    }
+    const effectiveShiftId = resolveShiftIdForCheckIn(empTrim, shiftId)
+    console.log('[terminal] start shift clicked', {
+      employeeId: empTrim,
+      shiftId: effectiveShiftId,
+      force,
+      stationScope: tabletToken?.trim() ? 'tabletToken' : 'stationId',
+      stationId: tabletToken?.trim() ? undefined : stationId ?? DEFAULT_TABLET_STATION_ID,
+      hasTabletToken: Boolean(tabletToken?.trim()),
+    })
+    setCheckInSubmitError(null)
+    setCheckInSubmitting(true)
     try {
-      const out = await startShiftByEmployeeId(employeeId, force, shiftId)
+      const out = await startShiftByEmployeeId(empTrim, force, effectiveShiftId)
       if ('needsConfirm' in out && out.needsConfirm) {
+        setModal(null)
         setCheckInApiConfirm({
           employeeId: out.employeeId,
-          shiftId,
+          shiftId: effectiveShiftId,
           result: out.result,
           reason: out.reason,
           message: out.message,
@@ -318,17 +374,18 @@ export function StaffTerminalPage() {
         return
       }
       const entry = out.entry
-      const emp = employees.find((e) => e.id === employeeId)
+      const emp = employees.find((e) => e.id === empTrim)
       const t = new Date(entry.startAt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
       setCheckInApiConfirm(null)
       setModal(null)
       setInSuccess({ name: emp?.displayName ?? 'Mitarbeiter', time: t })
-      void refetchTasks(employeeId)
+      void refetchTasks(empTrim)
+      void refetchRunning()
       setTab('tasks')
       window.setTimeout(() => setInSuccess(null), 28_000)
       log({
         cardNumber: String(emp?.cashRegisterCardNumber ?? '').trim(),
-        employeeId,
+        employeeId: empTrim,
         actionType: 'check_in',
         result: 'success',
         message: `Schicht gestartet ${t}`,
@@ -346,10 +403,15 @@ export function StaffTerminalPage() {
               }))
               .filter((w) => w.id)
           : []
-        setPendingShiftWarnings({ employeeId, force, shiftId, warnings })
+        setModal(null)
+        setPendingShiftWarnings({ employeeId: empTrim, force, shiftId: effectiveShiftId, warnings })
         return
       }
-      window.alert(err instanceof Error ? err.message : 'Check-in fehlgeschlagen')
+      const msg = err instanceof Error ? err.message : 'Check-in fehlgeschlagen'
+      setCheckInSubmitError(msg)
+      window.alert(msg)
+    } finally {
+      setCheckInSubmitting(false)
     }
   }
 
@@ -427,14 +489,23 @@ export function StaffTerminalPage() {
       body = 'Für dich ist aktuell keine Schicht geplant.'
     }
     return (
-      <TerminalResultMessage variant="warning" title={title} message={`${name}\n\n${body}`}>
-        <Button variant="primary" type="button" onClick={() => void finalizeCheckInByEmployee(p.employeeId, true, p.shiftId)}>
-          Schicht trotzdem beginnen
-        </Button>
-        <Button variant="ghost" type="button" onClick={() => setCheckInApiConfirm(null)}>
-          Abbrechen
-        </Button>
-      </TerminalResultMessage>
+      <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm">
+        <div className="w-full max-w-lg rounded-2xl border border-amber-400/35 bg-[var(--bg-card)] p-5 shadow-xl">
+          <TerminalResultMessage variant="warning" title={title} message={`${name}\n\n${body}`}>
+            <Button
+              variant="primary"
+              type="button"
+              disabled={checkInSubmitting}
+              onClick={() => void finalizeCheckInByEmployee(p.employeeId, true, p.shiftId)}
+            >
+              {checkInSubmitting ? 'Schicht wird gestartet…' : 'Schicht trotzdem beginnen'}
+            </Button>
+            <Button variant="ghost" type="button" disabled={checkInSubmitting} onClick={() => setCheckInApiConfirm(null)}>
+              Abbrechen
+            </Button>
+          </TerminalResultMessage>
+        </div>
+      </div>
     )
   }
 
@@ -525,6 +596,8 @@ export function StaffTerminalPage() {
                 setCheckOutErr(null)
                 setInSuccess(null)
                 setPendingShiftWarnings(null)
+                setCheckInSubmitError(null)
+                setCheckInSubmitting(false)
                 setModal('check-in')
               }}
               onCheckOut={() => {
@@ -565,7 +638,6 @@ export function StaffTerminalPage() {
                 </Button>
               </TerminalResultMessage>
             ) : null}
-            {renderCheckInApiConfirm()}
           </div>
         </>
       ) : null}
@@ -720,6 +792,8 @@ export function StaffTerminalPage() {
         </div>
       ) : null}
 
+      {renderCheckInApiConfirm()}
+
       {checkoutEndConfirm ? (
         <div className="fixed inset-0 z-[136] flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm">
           <div className="w-full max-w-lg rounded-2xl border border-amber-400/35 bg-[var(--bg-card)] p-6 shadow-xl">
@@ -785,6 +859,9 @@ export function StaffTerminalPage() {
         checkInAllEmployees={checkInSuggestionsPayload?.allEmployees}
         checkInSuggestionsLoading={checkInSugLoading}
         checkInSuggestionsError={checkInSugErr}
+        checkInSubmitting={modal === 'check-in' ? checkInSubmitting : false}
+        checkInSubmitError={modal === 'check-in' ? checkInSubmitError : null}
+        onClearCheckInSubmitError={() => setCheckInSubmitError(null)}
         checkoutBusy={modal === 'check-out' ? checkoutStartBusy : false}
         checkoutError={modal === 'check-out' ? checkOutErr : null}
         onClose={closeModal}

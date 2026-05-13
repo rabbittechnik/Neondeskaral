@@ -239,7 +239,15 @@ terminalRouter.post('/check-in', (req, res) => {
     raw.stationId = stationFromToken
     const card = String((raw as { cardNumber?: string }).cardNumber ?? '').trim()
     const empId = String((raw as { employeeId?: string }).employeeId ?? '').trim()
-    console.log('terminal check-in request', { stationId: stationFromToken, cashCardNumber: card, employeeId: empId || undefined })
+    const shiftIdIn = String((raw as { shiftId?: string }).shiftId ?? '').trim()
+    const forceIn = Boolean((raw as { force?: boolean }).force)
+    console.log('terminal check-in request', {
+      stationId: stationFromToken,
+      employeeId: empId || undefined,
+      shiftId: shiftIdIn || undefined,
+      force: forceIn,
+      viaCard: Boolean(card),
+    })
     const out = terminal.terminalCheckIn(
       getDb(),
       raw as { cardNumber?: string; employeeId?: string; stationId: string; force?: boolean; shiftId?: string },
