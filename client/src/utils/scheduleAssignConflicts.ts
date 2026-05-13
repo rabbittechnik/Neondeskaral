@@ -62,7 +62,7 @@ export function evaluateShiftAssignConflicts(params: {
     const t =
       a.type === 'paid_vacation' || a.type === 'unpaid_vacation'
         ? 'Urlaub'
-        : a.type === 'sick' || a.type === 'krankheit' || a.type === 'child_sick' || a.type === 'kind_krank'
+        : a.type === 'sick' || a.type === 'child_sick'
           ? 'Krank'
           : 'Abwesend'
     hard.push(`${emp.displayName} ist an diesem Tag als ${t} markiert (${a.startDate} – ${a.endDate}).`)
