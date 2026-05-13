@@ -9,6 +9,7 @@ import {
 } from '../../components/schedule/scheduleWeekUtils'
 import { buildRequirementGapResolvedBlocks } from '../../data/defaultShiftRequirements'
 import {
+  computePlannedHoursByEmployeeInDateRange,
   computeWeeklyHoursByEmployee,
   resolveShiftsForWeekGrid,
   shiftsInWeek,
