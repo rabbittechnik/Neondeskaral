@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 import type { Task, TaskLog } from '../../types/task'
-import { isTaskDueOnDate, getTaskStatusForDate } from '../../utils/taskUtils'
+import { isTaskDueOnDate, getTaskStatusForDate, taskDisplayTimingLine } from '../../utils/taskUtils'
 import { Badge } from '../ui/Badge'
 import { TaskStatusBadge } from './TaskStatusBadge'
 import { Card } from '../ui/Card'
@@ -26,6 +26,7 @@ export function TodayTasksPanel({ tasks, logs, refDate }: Props) {
         ) : (
           due.map((t) => {
             const st = getTaskStatusForDate(t, logs, refDate, now)
+            const timing = taskDisplayTimingLine(t)
             return (
               <li
                 key={t.id}
@@ -33,9 +34,7 @@ export function TodayTasksPanel({ tasks, logs, refDate }: Props) {
               >
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-[var(--text-main)]">{t.title}</p>
-                  <p className="text-[11px] text-[var(--text-muted)]">
-                    {t.startTime} – {t.endTime}
-                  </p>
+                  {timing ? <p className="text-[11px] text-[var(--text-muted)]">{timing}</p> : null}
                 </div>
                 <div className="shrink-0">{st ? <TaskStatusBadge status={st} /> : null}</div>
               </li>

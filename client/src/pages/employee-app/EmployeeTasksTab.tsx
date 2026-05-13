@@ -1,13 +1,15 @@
 import { useMemo, useState } from 'react'
 import type { Task, TaskLog } from '../../types/task'
-import { getTaskStatusForDate, isTaskDueOnDate, recurrenceSummary } from '../../utils/taskUtils'
-import { addDaysYmd, formatShiftTimeRangeDE, formatWeekdayDateDE, localTodayYmd } from '../../utils/dateFormat'
+import { getTaskStatusForDate, isTaskDueOnDate, recurrenceSummary, taskDisplayTimingLine } from '../../utils/taskUtils'
+import { addDaysYmd, formatWeekdayDateDE, localTodayYmd } from '../../utils/dateFormat'
 import { Button } from '../../components/ui/Button'
 import { employeeAccessPostJson } from '../../services/api'
 
 type Props = {
   accessToken: string
   tasks: Task[]
+  /** Vom Server getrennt: Abschluss-/Pflichtaufgaben zur Schichtbeendigung */
+  tasksShiftClose?: Task[]
   taskLogs: TaskLog[]
   workAreaName: (id: string) => string
   onReload: () => Promise<void>
@@ -27,7 +29,14 @@ function statusLabel(st: string | null): string {
   return map[st] ?? st
 }
 
-export function EmployeeTasksTab({ accessToken, tasks, taskLogs, workAreaName, onReload }: Props) {
+export function EmployeeTasksTab({
+  accessToken,
+  tasks,
+  tasksShiftClose = [],
+  taskLogs,
+  workAreaName,
+  onReload,
+}: Props) {
   const now = new Date()
   const today = localTodayYmd()
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -35,7 +44,7 @@ export function EmployeeTasksTab({ accessToken, tasks, taskLogs, workAreaName, o
   const [comment, setComment] = useState('')
   const [err, setErr] = useState<string | null>(null)
 
-  const { todayDue, openLater, doneRecent } = useMemo(() => {
+  const { todayDue, openLater, shiftCloseOpenToday, doneRecent, noOpenWork } = useMemo(() => {
     const todayDue: Task[] = []
     const openLater: Task[] = []
     const doneRecent: { task: Task; date: string; status: string }[] = []
@@ -78,9 +87,40 @@ export function EmployeeTasksTab({ accessToken, tasks, taskLogs, workAreaName, o
       }
     }
 
+    const shiftCloseOpenToday: Task[] = []
+    for (const task of tasksShiftClose) {
+      if (!task.active) continue
+      if (!isTaskDueOnDate(task, today)) continue
+      const st = getTaskStatusForDate(task, taskLogs, today, now)
+      if (st === 'offen' || st === 'überfällig' || st === 'in_kontrolle') {
+        shiftCloseOpenToday.push(task)
+      }
+      if (st === 'erledigt' || st === 'kontrolliert' || st === 'mangel') {
+        if (!doneRecent.find((x) => x.task.id === task.id && x.date === today)) {
+          doneRecent.push({ task, date: today, status: st })
+        }
+      }
+      for (const log of taskLogs) {
+        if (log.taskId !== task.id) continue
+        if (log.date < addDaysYmd(today, -7)) continue
+        if (log.status === 'erledigt' || log.status === 'kontrolliert' || log.status === 'mangel') {
+          if (!doneRecent.find((x) => x.task.id === task.id && x.date === log.date)) {
+            doneRecent.push({ task, date: log.date, status: log.status })
+          }
+        }
+      }
+    }
+
     doneRecent.sort((a, b) => `${b.date}`.localeCompare(`${a.date}`))
-    return { todayDue, openLater, doneRecent: doneRecent.slice(0, 40) }
-  }, [tasks, taskLogs, today, now])
+    const noOpenWork = todayDue.length === 0 && openLater.length === 0 && shiftCloseOpenToday.length === 0
+    return {
+      todayDue,
+      openLater,
+      shiftCloseOpenToday,
+      doneRecent: doneRecent.slice(0, 40),
+      noOpenWork,
+    }
+  }, [tasks, tasksShiftClose, taskLogs, today, now])
 
   const submitConfirm = async () => {
     if (!confirmTask) return
@@ -106,15 +146,21 @@ export function EmployeeTasksTab({ accessToken, tasks, taskLogs, workAreaName, o
     const st = getTaskStatusForDate(task, taskLogs, due, now)
     const canComplete = st === 'offen' || st === 'überfällig'
     const labelBtn = task.controlRequired ? 'Erledigt melden' : 'Erledigt markieren'
+    const timing = taskDisplayTimingLine(task)
     return (
       <div
         key={`${task.id}-${due}`}
         className="rounded-xl border border-white/12 bg-slate-900/55 p-4 shadow-[0_0_20px_rgba(34,211,238,0.06)]"
       >
         <p className="text-base font-semibold text-white">{task.title}</p>
-        <p className="mt-1 text-sm text-slate-400">
-          {formatShiftTimeRangeDE(task.startTime, task.endTime)} · {recurrenceSummary(task)}
-        </p>
+        {timing ? (
+          <p className="mt-1 text-sm text-slate-400">
+            {timing}
+            {task.recurrenceType !== 'once' ? ` · ${recurrenceSummary(task)}` : ''}
+          </p>
+        ) : (
+          <p className="mt-1 text-sm text-slate-400">{recurrenceSummary(task)}</p>
+        )}
         <p className="mt-1 text-xs text-slate-500">Arbeitsbereich: {workAreaName(task.workAreaId)}</p>
         {task.mandatory ? (
           <span className="mt-2 inline-block rounded border border-amber-400/35 px-2 py-0.5 text-[10px] text-amber-100">
@@ -162,18 +208,25 @@ export function EmployeeTasksTab({ accessToken, tasks, taskLogs, workAreaName, o
     <section className="mt-5 space-y-6">
       <div>
         <h2 className="text-lg font-semibold text-cyan-200">Meine Aufgaben</h2>
-        <p className="mt-1 text-xs text-slate-500">Heute und die nächsten Tage</p>
+        <p className="mt-1 text-xs text-slate-500">Heute, Schichtabschluss und die nächsten Tage</p>
       </div>
 
       {err ? (
         <div className="rounded-xl border border-rose-400/35 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">{err}</div>
       ) : null}
 
+      {noOpenWork ? (
+        <p className="rounded-xl border border-white/10 bg-slate-900/40 px-4 py-3 text-sm text-slate-300">
+          Für deine aktuelle Schicht sind keine zusätzlichen Aufgaben eingetragen. Bitte normalen Schichtablauf und Abschlusscheck
+          beachten.
+        </p>
+      ) : null}
+
       <div>
-        <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Heute fällig</h3>
+        <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Heute / aktuelle Schicht</h3>
         <div className="mt-3 space-y-3">
           {todayDue.length === 0 ? (
-            <p className="text-sm text-slate-500">Keine offenen Aufgaben für heute.</p>
+            <p className="text-sm text-slate-500">Keine offenen Aufgaben für diese Schicht.</p>
           ) : (
             todayDue.map((t) => renderCard(t, today))
           )}
@@ -181,7 +234,19 @@ export function EmployeeTasksTab({ accessToken, tasks, taskLogs, workAreaName, o
       </div>
 
       <div>
-        <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Offen</h3>
+        <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Schichtabschluss</h3>
+        <p className="mt-1 text-xs text-slate-500">Diese Punkte sind beim Beenden der Schicht relevant.</p>
+        <div className="mt-3 space-y-3">
+          {shiftCloseOpenToday.length === 0 ? (
+            <p className="text-sm text-slate-500">Keine zusätzlichen Abschlussaufgaben eingetragen.</p>
+          ) : (
+            shiftCloseOpenToday.map((t) => renderCard(t, today))
+          )}
+        </div>
+      </div>
+
+      <div>
+        <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Demnächst</h3>
         <div className="mt-3 space-y-3">
           {openLater.length === 0 ? (
             <p className="text-sm text-slate-500">Keine weiteren offenen Aufgaben in den nächsten Tagen.</p>

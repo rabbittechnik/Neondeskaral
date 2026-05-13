@@ -14,7 +14,8 @@ import {
 } from './absenceService.js'
 import { saveAbsenceAttachment } from './absenceAttachmentService.js'
 import { normalizeAbsenceDbType } from '../utils/vacationImpactCalculator.js'
-import { confirmTaskFromEmployeeApp, listTaskLogsByTaskIds, listTasks, rowToTaskApi } from './taskService.js'
+import { confirmTaskFromEmployeeApp, listTaskLogsByTaskIds, listTaskRows, rowToTaskApi } from './taskService.js'
+import type { TaskRow } from './taskService.js'
 import { listTimeEntries, rowToTimeEntryApi } from './timeTrackingService.js'
 import { getStation } from './stationService.js'
 import { listWorkAreas } from './workAreaService.js'
@@ -25,6 +26,12 @@ import {
   clockCheckOutStartByEmployeeId,
 } from './clockService.js'
 import { isDeviceRequestBlocked, recordEmployeeAppDeviceVisit } from './employeeAppDeviceService.js'
+import {
+  buildTaskTimeCaption,
+  isTaskDueOnDateRow,
+  taskEligibleForEmployeeRow,
+  type TodayShiftLite,
+} from './taskEligibilityService.js'
 
 export const EMPLOYEE_APP_ACCESS_DENIED_MESSAGE =
   'Dein Mitarbeiterzugang wurde deaktiviert. Bitte wende dich an die Stationsleitung.'
@@ -217,42 +224,6 @@ function employeeWorkAreaIds(db: Database, employeeId: string): string[] {
   return [...new Set(rows.map((r) => String(r.work_area_id ?? '')).filter(Boolean))]
 }
 
-function normalizeRoleToken(s: string): string {
-  return s.trim().toLowerCase().replace(/\s+/g, ' ')
-}
-
-function taskRelevantForEmployee(
-  t: ReturnType<typeof rowToTaskApi>,
-  empId: string,
-  empRole: string,
-  empJobTitle: string,
-  workAreaIds: string[],
-  todayShiftWorkAreaIds: Set<string>,
-): boolean {
-  if (!t.active) return false
-  const type = String(t.assignedType ?? 'all')
-  if (type === 'all') return true
-  if (type === 'employee') return t.assignedEmployeeId === empId
-  if (type === 'role') {
-    const ar = normalizeRoleToken(String(t.assignedRole ?? ''))
-    if (!ar) return false
-    const pool = normalizeRoleToken(`${empRole} ${empJobTitle}`)
-    if (pool.includes(ar)) return true
-    for (const part of ar.split('/')) {
-      const p = part.trim().toLowerCase()
-      if (p && pool.includes(p)) return true
-    }
-    return false
-  }
-  if (type === 'workArea') {
-    const wid = String(t.workAreaId ?? '')
-    if (wid && workAreaIds.includes(wid)) return true
-    if (wid && todayShiftWorkAreaIds.has(wid)) return true
-    return false
-  }
-  return false
-}
-
 function publicStation(db: Database, stationId: string) {
   const r = getStation(db, stationId) as
     | { id: string; name: string; federal_state?: string }
@@ -327,15 +298,37 @@ export function buildEmployeeAccessPayload(db: Database, token: string, meta?: E
   const yNow = new Date().getFullYear()
   const vacationSnapshot = buildVacationSnapshotForEmployee(db, stationId, empId, yNow)
 
-  const tasksAll = listTasks(db, stationId)
-  const tasks = tasksAll.filter((t) =>
-    taskRelevantForEmployee(t, empId, empRole, empJobTitle, ewaIds, todayShiftAreas),
+  const todayShiftsRaw = listShifts(db, { stationId, employeeId: empId, from: todayYmd, to: todayYmd })
+  const todayShiftLites: TodayShiftLite[] = todayShiftsRaw.map((s) => ({
+    startTime: s.startTime,
+    endTime: s.endTime,
+    workAreaId: s.workAreaId,
+    shiftType: s.shiftType,
+  }))
+  const primaryShift = todayShiftLites[0] ?? null
+
+  const taskRows = listTaskRows(db, stationId)
+  const eligible = taskRows.filter(
+    (r) =>
+      isTaskDueOnDateRow(r, todayYmd) &&
+      taskEligibleForEmployeeRow(r, empId, empRole, empJobTitle, ewaIds, todayShiftAreas, todayShiftLites),
   )
+  const isCloseTask = (r: TaskRow) =>
+    String(r.task_kind ?? '').trim().toLowerCase() === 'shift_close' || (r.required_for_shift_close ?? 0) === 1
+  const mainRows = eligible.filter((r) => !isCloseTask(r))
+  const closeRows = eligible.filter((r) => isCloseTask(r))
+  const mapTaskWithCaption = (r: TaskRow) => ({
+    ...rowToTaskApi(r),
+    timeCaption: buildTaskTimeCaption(r, { todayYmd, primaryShift }),
+  })
+  const tasks = mainRows.map(mapTaskWithCaption)
+  const tasksShiftClose = closeRows.map(mapTaskWithCaption)
+
   const logFrom = addDaysToYmd(todayYmd, -7)
   const logTo = addDaysToYmd(todayYmd, 21)
   const taskLogs = listTaskLogsByTaskIds(
     db,
-    tasks.map((x) => x.id),
+    [...mainRows, ...closeRows].map((x) => x.id),
     logFrom,
     logTo,
   )
@@ -363,6 +356,7 @@ export function buildEmployeeAccessPayload(db: Database, token: string, meta?: E
     workAreas,
     shifts,
     tasks,
+    tasksShiftClose,
     taskLogs,
     absences,
     vacationSnapshot,
@@ -556,7 +550,13 @@ export function employeeAccessCheckOutStart(db: Database, token: string, meta?: 
 export function employeeAccessCheckOutComplete(
   db: Database,
   token: string,
-  body: { timeEntryId: string; checklist: Record<string, unknown>; force?: boolean },
+  body: {
+    timeEntryId: string
+    checklist: Record<string, unknown>
+    force?: boolean
+    taskCloseDeclarations?: { taskId: string; outcome: 'done' | 'not_done'; notDoneReason?: string }[]
+    taskCloseAccuracyConfirmed?: boolean
+  },
   meta?: EmployeeAccessRequestMeta,
 ) {
   const ctx = resolveEmployeeAccessContext(db, token, meta)
@@ -577,6 +577,9 @@ export function employeeAccessCheckOutComplete(
     checklist: body.checklist,
     endedBy: row.display_name ?? 'Mitarbeiter-App',
     force: Boolean(body.force),
+    taskCloseDeclarations: body.taskCloseDeclarations,
+    taskCloseAccuracyConfirmed: body.taskCloseAccuracyConfirmed,
+    checkoutSource: 'employee_app',
   })
 }
 
@@ -776,7 +779,7 @@ export function employeeAccessGetTasks(db: Database, token: string, meta?: Emplo
   if (!full.ok) return { ok: false as const, error: 'invalid_token' as const }
   return {
     ok: true as const,
-    data: { tasks: full.tasks, taskLogs: full.taskLogs, workAreas: full.workAreas },
+    data: { tasks: full.tasks, tasksShiftClose: full.tasksShiftClose, taskLogs: full.taskLogs, workAreas: full.workAreas },
   }
 }
 
@@ -803,9 +806,27 @@ export function employeeAccessConfirmTask(
       .filter(Boolean),
   )
   const ewaIds = employeeWorkAreaIds(db, empId)
-  const tasksAll = listTasks(db, stationId)
-  const t = tasksAll.find((x) => x.id === taskId)
-  if (!t || !taskRelevantForEmployee(t, empId, empRole, empJobTitle, ewaIds, todayShiftAreas)) {
+  const todayShiftsRaw = listShifts(db, { stationId, employeeId: empId, from: todayYmd, to: todayYmd })
+  const todayShiftLites: TodayShiftLite[] = todayShiftsRaw.map((s) => ({
+    startTime: s.startTime,
+    endTime: s.endTime,
+    workAreaId: s.workAreaId,
+    shiftType: s.shiftType,
+  }))
+  const taskRow = db.prepare(`SELECT * FROM tasks WHERE id = ?`).get(taskId) as TaskRow | undefined
+  if (
+    !taskRow ||
+    !isTaskDueOnDateRow(taskRow, todayYmd) ||
+    !taskEligibleForEmployeeRow(
+      taskRow,
+      empId,
+      empRole,
+      empJobTitle,
+      ewaIds,
+      todayShiftAreas,
+      todayShiftLites,
+    )
+  ) {
     return { ok: false as const, error: 'not_allowed' as const }
   }
   const label = String(row.display_name ?? `${row.first_name} ${row.last_name}`).trim() || 'Mitarbeiter'

@@ -114,7 +114,14 @@ export function terminalCheckOutStart(
 
 export function terminalCheckOutComplete(
   db: Database,
-  body: { timeEntryId: string; checklist: Record<string, unknown>; cardNumber?: string; force?: boolean },
+  body: {
+    timeEntryId: string
+    checklist: Record<string, unknown>
+    cardNumber?: string
+    force?: boolean
+    taskCloseDeclarations?: { taskId: string; outcome: 'done' | 'not_done'; notDoneReason?: string }[]
+    taskCloseAccuracyConfirmed?: boolean
+  },
 ) {
   const card = String(body.cardNumber ?? '').trim()
   const force = Boolean(body.force)
@@ -126,6 +133,9 @@ export function terminalCheckOutComplete(
       checklist: body.checklist,
       endedBy: 'Terminal',
       force,
+      taskCloseDeclarations: body.taskCloseDeclarations,
+      taskCloseAccuracyConfirmed: body.taskCloseAccuracyConfirmed,
+      checkoutSource: 'tablet',
     },
     card && teBefore
       ? { logCardOnSuccess: { cardNumber: card, stationId: teBefore.stationId, employeeId: teBefore.employeeId } }

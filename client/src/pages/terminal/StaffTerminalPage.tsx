@@ -11,14 +11,14 @@ import { TerminalActionButtons } from '../../components/terminal/TerminalActionB
 import { TerminalEmployeePickModal } from '../../components/terminal/TerminalEmployeePickModal'
 import { TerminalResultMessage } from '../../components/terminal/TerminalResultMessage'
 import { RunningStaffPanel } from '../../components/terminal/RunningStaffPanel'
-import { ShiftCloseChecklistModal, type ShiftCloseCatalogItem, type ShiftCloseWizardGroup } from '../../components/terminal/ShiftCloseChecklistModal'
+import { ShiftCloseChecklistModal, type ShiftCloseCatalogItem, type ShiftCloseWizardGroup, type ShiftCloseTaskCloseDeclaration } from '../../components/terminal/ShiftCloseChecklistModal'
 import { normalizeShiftCloseCatalogItems, parseShiftCloseWizardGroups } from '../../utils/shiftCloseChecklistClient'
 import { ShiftCloseSuccessCard } from '../../components/terminal/ShiftCloseSuccessCard'
 import { Button } from '../../components/ui/Button'
 import { addDays, startOfWeekMonday } from '../../components/schedule/scheduleWeekUtils'
 import { toISODate } from '../../data/mockSchedule'
 import type { ScheduleShift } from '../../data/mockSchedule'
-import { getTaskStatusForDate, toISODateLocal } from '../../utils/taskUtils'
+import { getTaskStatusForDate, taskDisplayTimingLine, toISODateLocal } from '../../utils/taskUtils'
 import type { Task } from '../../types/task'
 import { TabletFuelPricesTab } from '../../components/terminal/TabletFuelPricesTab'
 import { TabletRadioTab } from '../../components/terminal/TabletRadioTab'
@@ -65,6 +65,8 @@ type CheckoutEndConfirm = {
   displayName: string
   startAt: string
   checklist: Record<string, unknown>
+  taskCloseDeclarations?: ShiftCloseTaskCloseDeclaration[]
+  taskCloseAccuracyConfirmed?: boolean
   plannedEnd: string
   actualEnd: string
   deviationMinutes: number
@@ -140,6 +142,7 @@ export function StaffTerminalPage() {
     items: ShiftCloseCatalogItem[]
     wizardGroups?: ShiftCloseWizardGroup[]
   } | null>(null)
+  const [checkoutBlockingTasks, setCheckoutBlockingTasks] = useState<Task[]>([])
   const [inSuccess, setInSuccess] = useState<{ name: string; time: string } | null>(null)
   const [outSuccess, setOutSuccess] = useState<{ name: string; end: string; dur: string } | null>(null)
   const [checkoutEndConfirm, setCheckoutEndConfirm] = useState<CheckoutEndConfirm | null>(null)
@@ -341,6 +344,7 @@ export function StaffTerminalPage() {
     setCheckOutErr(null)
     setCheckOutEntry(null)
     setCheckoutCatalog(null)
+    setCheckoutBlockingTasks([])
     setPendingShiftWarnings(null)
     setCheckoutEndConfirm(null)
     setCheckInSuggestionsPayload(null)
@@ -478,6 +482,7 @@ export function StaffTerminalPage() {
           checklistType?: string
           items?: unknown[]
           wizardGroups?: unknown
+          blockingTasks?: Task[]
         }
         error?: string
       }
@@ -485,16 +490,19 @@ export function StaffTerminalPage() {
         setCheckOutErr(json.error ?? 'Auscheck konnte nicht gestartet werden.')
         return
       }
-      const { checklistType, items, wizardGroups } = json.data
-      if (!checklistType || !Array.isArray(items) || items.length === 0) {
+      const { checklistType, items, wizardGroups, blockingTasks: blockingRaw } = json.data
+      const blockingTasks = Array.isArray(blockingRaw) ? blockingRaw : []
+      const normalizedItems = Array.isArray(items) ? normalizeShiftCloseCatalogItems(items) : []
+      if (!checklistType || (normalizedItems.length === 0 && blockingTasks.length === 0)) {
         setCheckOutErr('Ungültige Server-Antwort für die Schichtende-Checkliste.')
         return
       }
       const ct = checklistType === 'closing' ? 'closing' : 'handover'
       setCheckOutEntry(json.data.timeEntry)
+      setCheckoutBlockingTasks(blockingTasks)
       setCheckoutCatalog({
         checklistType: ct,
-        items: normalizeShiftCloseCatalogItems(items),
+        items: normalizedItems,
         wizardGroups: parseShiftCloseWizardGroups(wizardGroups),
       })
       setModal(null)
@@ -566,6 +574,7 @@ export function StaffTerminalPage() {
     const endLabel = new Date(end).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
     setCheckOutEntry(null)
     setCheckoutCatalog(null)
+    setCheckoutBlockingTasks([])
     setCheckoutEndConfirm(null)
     setOutSuccess({ name, end: endLabel, dur: formatWorkedDuration(mins) })
     log({
@@ -585,6 +594,10 @@ export function StaffTerminalPage() {
         checkoutEndConfirm.checklist,
         undefined,
         true,
+        {
+          taskCloseDeclarations: checkoutEndConfirm.taskCloseDeclarations,
+          taskCloseAccuracyConfirmed: checkoutEndConfirm.taskCloseAccuracyConfirmed,
+        },
       )
     } catch (err) {
       window.alert(err instanceof Error ? err.message : 'Ausstempeln fehlgeschlagen')
@@ -672,8 +685,8 @@ export function StaffTerminalPage() {
                   <p className="font-medium text-emerald-100">Aufgaben für heute</p>
                   {tasks.length === 0 ? (
                     <p>
-                      Du hast heute keine extra Aufgaben. Bitte beachte deinen normalen Arbeitsablauf und den Schlusscheck zum
-                      Feierabend.
+                      Für deine Schicht sind keine zusätzlichen Aufgaben eingetragen. Bitte normalen Ablauf und Abschlusscheck
+                      beachten.
                     </p>
                   ) : (
                     <ul className="list-inside list-disc space-y-1">
@@ -743,20 +756,24 @@ export function StaffTerminalPage() {
           <h2 className="text-center text-xl font-semibold text-[var(--text-main)] sm:text-2xl">
             {activeTaskEmployeeName ? `Aufgaben für ${activeTaskEmployeeName} heute` : 'Aufgaben'}
           </h2>
-          {!activeTaskEmployeeId ? (
-            <p className="mt-4 text-center text-[var(--text-muted)]">
-              Bitte zuerst einstempeln oder Mitarbeiter auswählen.
+          {!activeTaskEmployeeId && tasks.length > 0 ? (
+            <p className="mt-4 text-center text-sm text-[var(--text-muted)]">
+              Allgemeine Stationsaufgaben. Zum Abhaken persönlicher Aufgaben bitte zuerst einstempeln.
+            </p>
+          ) : null}
+          {!activeTaskEmployeeId && tasks.length === 0 ? (
+            <p className="mt-4 text-center text-sm text-[var(--text-muted)]">
+              Bitte einstempeln, um Aufgaben für deine Schicht zu sehen.
             </p>
           ) : null}
           {tasks.length === 0 ? (
-            <p className="mt-6 text-center text-[var(--text-muted)]">
-              Du hast heute keine extra Aufgaben. Bitte beachte deinen normalen Arbeitsablauf und den Schlusscheck zum Feierabend.
-            </p>
+            <p className="mt-6 text-center text-[var(--text-muted)]">Aktuell keine zusätzlichen Aufgaben.</p>
           ) : (
             <ul className="mt-6 space-y-4">
               {tasks.map((t) => {
                 const st = getTaskStatusForDate(t, taskLogs, toISODateLocal(new Date()))
                 const done = st === 'erledigt' || st === 'kontrolliert'
+                const timing = taskDisplayTimingLine(t)
                 return (
                   <li
                     key={t.id}
@@ -765,7 +782,8 @@ export function StaffTerminalPage() {
                     <div>
                       <p className="text-lg font-semibold text-[var(--text-main)]">{t.title}</p>
                       <p className="mt-1 text-sm text-[var(--text-muted)]">
-                        {t.startTime}–{t.endTime} · {workAreaLabel(t.workAreaId)} · Pflicht: {t.mandatory ? 'ja' : 'nein'}
+                        {timing ? `${timing} · ` : ''}
+                        {workAreaLabel(t.workAreaId)} · Pflicht: {t.mandatory ? 'ja' : 'nein'}
                       </p>
                       <p className="mt-1 text-sm text-[var(--text-faint)]">Status: {st ?? '—'}</p>
                     </div>
@@ -929,15 +947,22 @@ export function StaffTerminalPage() {
           checklistType={checkoutCatalog.checklistType}
           catalogItems={checkoutCatalog.items}
           wizardGroups={checkoutCatalog.wizardGroups}
+          blockingTasks={checkoutBlockingTasks.length > 0 ? checkoutBlockingTasks : undefined}
+          submitButtonLabel="Schicht endgültig beenden"
           onClose={() => {
             setCheckOutEntry(null)
             setCheckoutCatalog(null)
+            setCheckoutBlockingTasks([])
           }}
-          onComplete={async (checklist) => {
+          onComplete={async (payload) => {
+            const { checklist, taskCloseDeclarations, taskCloseAccuracyConfirmed } = payload
             const entry = checkOutEntry
             const displayName = employees.find((e) => e.id === entry.employeeId)?.displayName ?? 'Mitarbeiter'
             try {
-              await completeShiftWithChecklist(entry.id, checklist, undefined, false)
+              await completeShiftWithChecklist(entry.id, checklist, undefined, false, {
+                taskCloseDeclarations,
+                taskCloseAccuracyConfirmed,
+              })
             } catch (err) {
               const e = err as Error & { code?: string; detail?: Record<string, unknown> }
               if (e.code === 'checkout_requires_confirmation' && e.detail) {
@@ -948,6 +973,8 @@ export function StaffTerminalPage() {
                   displayName,
                   startAt: entry.startAt,
                   checklist,
+                  taskCloseDeclarations,
+                  taskCloseAccuracyConfirmed,
                   plannedEnd: String(d.plannedEnd ?? ''),
                   actualEnd: String(d.actualEnd ?? ''),
                   deviationMinutes: Number(d.deviationMinutes ?? 0),

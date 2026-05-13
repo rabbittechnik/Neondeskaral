@@ -297,6 +297,7 @@ terminalRouter.post('/check-out-start', (req, res) => {
       checklistType: out.checklistType,
       items: out.checklistItems,
       wizardGroups: out.wizardGroups,
+      blockingTasks: out.blockingTasks,
     })
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
@@ -357,7 +358,14 @@ terminalRouter.post('/check-out-complete', (req, res) => {
     if (tt) touchTabletByToken(getDb(), tt, req)
     const out = terminal.terminalCheckOutComplete(
       getDb(),
-      raw as { timeEntryId: string; checklist: Record<string, unknown>; cardNumber?: string; force?: boolean },
+      raw as {
+        timeEntryId: string
+        checklist: Record<string, unknown>
+        cardNumber?: string
+        force?: boolean
+        taskCloseDeclarations?: { taskId: string; outcome: 'done' | 'not_done'; notDoneReason?: string }[]
+        taskCloseAccuracyConfirmed?: boolean
+      },
     )
     if (!out.ok) {
       if ('requiresConfirmation' in out && out.requiresConfirmation) {

@@ -59,6 +59,11 @@ export type TaskRow = {
   created_by: string | null
   created_at: string | null
   updated_at: string | null
+  task_kind?: string | null
+  employee_self_service?: number | null
+  tablet_station_board?: number | null
+  assigned_shift_type?: string | null
+  required_for_shift_close?: number | null
 }
 
 function normalizeAssignedTypeDb(raw: string | null | undefined): string {
@@ -75,6 +80,8 @@ export function rowToTaskApi(r: TaskRow) {
     weekdays = undefined
   }
   const pr = r.priority ?? 'normal'
+  const st = r.start_time != null && String(r.start_time).trim() !== '' ? String(r.start_time).trim() : ''
+  const en = r.end_time != null && String(r.end_time).trim() !== '' ? String(r.end_time).trim() : ''
   return {
     id: r.id,
     title: r.title,
@@ -88,8 +95,13 @@ export function rowToTaskApi(r: TaskRow) {
     endDate: r.end_date ?? undefined,
     weekdays,
     monthDay: r.month_day ?? undefined,
-    startTime: r.start_time ?? '06:00',
-    endTime: r.end_time ?? '22:00',
+    startTime: st,
+    endTime: en,
+    taskKind: (String(r.task_kind ?? 'standard').trim() || 'standard') as string,
+    employeeSelfService: (r.employee_self_service ?? 0) === 1,
+    tabletStationBoard: (r.tablet_station_board ?? 0) === 1,
+    assignedShiftType: r.assigned_shift_type?.trim() || undefined,
+    requiredForShiftClose: (r.required_for_shift_close ?? 0) === 1,
     confirmRequired: (r.confirm_required ?? 0) === 1,
     controlRequired: (r.control_required ?? 0) === 1,
     mandatory: (r.mandatory ?? 0) === 1,
@@ -134,11 +146,12 @@ export function rowToTaskLogApi(r: TaskLogRow) {
   }
 }
 
+export function listTaskRows(db: Database, stationId = DEFAULT_STATION_ID): TaskRow[] {
+  return db.prepare(`SELECT * FROM tasks WHERE station_id = ? ORDER BY title`).all(stationId) as TaskRow[]
+}
+
 export function listTasks(db: Database, stationId = DEFAULT_STATION_ID) {
-  const rows = db
-    .prepare(`SELECT * FROM tasks WHERE station_id = ? ORDER BY title`)
-    .all(stationId) as TaskRow[]
-  return rows.map(rowToTaskApi)
+  return listTaskRows(db, stationId).map(rowToTaskApi)
 }
 
 export function getTask(db: Database, id: string) {
@@ -154,19 +167,35 @@ export function createTask(db: Database, body: Record<string, unknown>, stationI
   const id = typeof body.id === 'string' && body.id.trim() ? body.id.trim() : `task-${randomUUID()}`
   const ts = nowIso()
   const pr = DE_TO_PRIO[String(body.priority ?? 'normal')] ?? String(body.priority ?? 'normal')
+  const at = String(body.assignedType ?? 'employee').trim()
+  const ess =
+    body.employeeSelfService === true
+      ? 1
+      : body.employeeSelfService === false
+        ? 0
+        : at === 'employee' || at === 'role' || at === 'workArea' || at === 'work_area'
+          ? 1
+          : 0
+  const tsk = String(body.taskKind ?? 'standard').trim() || 'standard'
+  const tsb = body.tabletStationBoard === true ? 1 : 0
+  const rfc = body.requiredForShiftClose === true ? 1 : 0
+  const ast = body.assignedShiftType != null ? String(body.assignedShiftType).trim() || null : null
+  const startT = body.startTime != null && String(body.startTime).trim() ? String(body.startTime).trim() : null
+  const endT = body.endTime != null && String(body.endTime).trim() ? String(body.endTime).trim() : null
   db.prepare(
     `INSERT INTO tasks (
       id, station_id, title, description, work_area_id, assigned_type, assigned_employee_id, assigned_role,
       recurrence_type, start_date, end_date, weekdays_json, month_day, start_time, end_time,
-      confirm_required, control_required, mandatory, priority, active, icon, created_by, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      confirm_required, control_required, mandatory, priority, active, icon, created_by, created_at, updated_at,
+      task_kind, employee_self_service, tablet_station_board, assigned_shift_type, required_for_shift_close
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     stationId,
     title,
     String(body.description ?? '') || null,
     body.workAreaId != null ? String(body.workAreaId) : null,
-    String(body.assignedType ?? 'all'),
+    at,
     body.assignedEmployeeId != null ? String(body.assignedEmployeeId) : null,
     body.assignedRole != null ? String(body.assignedRole) : null,
     recurrence,
@@ -174,8 +203,8 @@ export function createTask(db: Database, body: Record<string, unknown>, stationI
     body.endDate != null ? String(body.endDate) : null,
     body.weekdays != null ? JSON.stringify(body.weekdays) : null,
     body.monthDay != null ? Number(body.monthDay) : null,
-    String(body.startTime ?? '06:00'),
-    String(body.endTime ?? '22:00'),
+    startT,
+    endT,
     body.confirmRequired === true ? 1 : 0,
     body.controlRequired === true ? 1 : 0,
     body.mandatory === true ? 1 : 0,
@@ -185,6 +214,11 @@ export function createTask(db: Database, body: Record<string, unknown>, stationI
     String(body.createdBy ?? 'System'),
     ts,
     ts,
+    tsk,
+    ess,
+    tsb,
+    ast,
+    rfc,
   )
   return getTask(db, id)
 }
@@ -216,6 +250,11 @@ export function updateTask(db: Database, id: string, body: Record<string, unknow
       priority = ?,
       active = COALESCE(?, active),
       icon = ?,
+      task_kind = ?,
+      employee_self_service = ?,
+      tablet_station_board = ?,
+      assigned_shift_type = ?,
+      required_for_shift_close = ?,
       updated_at = ?
     WHERE id = ?`,
   ).run(
@@ -246,14 +285,23 @@ export function updateTask(db: Database, id: string, body: Record<string, unknow
         ? null
         : Number(body.monthDay)
       : existing.month_day,
-    body.startTime != null ? String(body.startTime) : null,
-    body.endTime != null ? String(body.endTime) : null,
+    body.startTime !== undefined ? (body.startTime == null || body.startTime === '' ? null : String(body.startTime)) : existing.start_time,
+    body.endTime !== undefined ? (body.endTime == null || body.endTime === '' ? null : String(body.endTime)) : existing.end_time,
     body.confirmRequired != null ? (body.confirmRequired ? 1 : 0) : null,
     body.controlRequired != null ? (body.controlRequired ? 1 : 0) : null,
     body.mandatory != null ? (body.mandatory ? 1 : 0) : null,
     pr,
     body.active != null ? (body.active ? 1 : 0) : null,
     body.icon !== undefined ? (body.icon == null ? null : String(body.icon)) : existing.icon,
+    body.taskKind != null ? String(body.taskKind) : String(existing.task_kind ?? 'standard'),
+    body.employeeSelfService != null ? (body.employeeSelfService ? 1 : 0) : (existing.employee_self_service ?? 0),
+    body.tabletStationBoard != null ? (body.tabletStationBoard ? 1 : 0) : (existing.tablet_station_board ?? 0),
+    body.assignedShiftType !== undefined
+      ? body.assignedShiftType == null || body.assignedShiftType === ''
+        ? null
+        : String(body.assignedShiftType)
+      : existing.assigned_shift_type ?? null,
+    body.requiredForShiftClose != null ? (body.requiredForShiftClose ? 1 : 0) : (existing.required_for_shift_close ?? 0),
     ts,
     id,
   )
@@ -395,6 +443,59 @@ export function confirmTaskFromTablet(
     ).run(id, taskId, opts.employeeId, date, statusDb, ts, by, comment, stationId, 'tablet', opts.employeeId, ts, ts)
   }
   return listTaskLogs(db, { taskId })
+}
+
+/** Schichtende: Erledigt-Meldung inkl. time_entry_id (Quelle employee_app / tablet). */
+export function upsertTaskLogAtShiftCheckoutDone(
+  db: Database,
+  p: {
+    taskId: string
+    dateYmd: string
+    employeeId: string
+    stationId: string
+    timeEntryId: string
+    source: 'employee_app' | 'tablet'
+    displayName: string
+  },
+) {
+  const taskRow = db.prepare(`SELECT * FROM tasks WHERE id = ?`).get(p.taskId) as TaskRow | undefined
+  if (!taskRow) throw new Error('Aufgabe nicht gefunden')
+  const controlReq = (taskRow.control_required ?? 0) === 1
+  const statusDb = controlReq ? 'in_control' : 'done'
+  const ts = nowIso()
+  const tag = p.source === 'employee_app' ? 'Mitarbeiter-App' : 'Tablet'
+  const by = `${p.displayName} (Schichtende · ${tag})`
+  const srcDb = p.source
+  const existing = db
+    .prepare(`SELECT * FROM task_logs WHERE task_id = ? AND date = ?`)
+    .get(p.taskId, p.dateYmd) as TaskLogRow | undefined
+  const id = existing?.id ?? `tl-${randomUUID()}`
+  const comment = existing?.comment ?? ''
+  if (existing) {
+    db.prepare(
+      `UPDATE task_logs SET status = ?, confirmed_at = ?, confirmed_by = ?, employee_id = COALESCE(employee_id, ?), comment = ?, station_id = ?, source = ?, confirmed_by_employee_id = ?, time_entry_id = ?, updated_at = ? WHERE id = ?`,
+    ).run(statusDb, ts, by, p.employeeId, comment, p.stationId, srcDb, p.employeeId, p.timeEntryId, ts, id)
+  } else {
+    db.prepare(
+      `INSERT INTO task_logs (id, task_id, employee_id, date, status, confirmed_at, confirmed_by, comment, station_id, source, confirmed_by_employee_id, time_entry_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      id,
+      p.taskId,
+      p.employeeId,
+      p.dateYmd,
+      statusDb,
+      ts,
+      by,
+      comment,
+      p.stationId,
+      srcDb,
+      p.employeeId,
+      p.timeEntryId,
+      ts,
+      ts,
+    )
+  }
 }
 
 export function controlTask(

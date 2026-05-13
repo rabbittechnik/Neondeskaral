@@ -17,6 +17,7 @@ import { API_BASE } from '../services/api'
 import { useStation } from './station-context'
 import { notifyRunningEntriesRefresh } from '../utils/runningEntriesSync'
 import type { ClockCardEmployee } from '../utils/timeTrackingUtils'
+import type { ShiftCloseTaskCloseDeclaration } from '../components/terminal/ShiftCloseChecklistModal'
 
 function buildQuery(params?: Record<string, string | undefined>): string {
   if (!params) return ''
@@ -114,6 +115,10 @@ type TabletTerminalContextValue = {
     checklist: Record<string, unknown>,
     cardNumber?: string,
     force?: boolean,
+    taskClose?: {
+      taskCloseDeclarations?: ShiftCloseTaskCloseDeclaration[]
+      taskCloseAccuracyConfirmed?: boolean
+    },
   ) => Promise<void>
   completeTask: (taskId: string, body: { date: string; employeeId: string; displayName: string; comment?: string }) => Promise<void>
   fetchFuelPrices: (opts?: { forceRefresh?: boolean }) => Promise<FuelPricesPayload>
@@ -236,10 +241,20 @@ export function TabletTerminalProvider({
   }, [hasTabletSource, refetchRunning])
 
   const completeShiftWithChecklist = useCallback(
-    async (timeEntryId: string, checklist: Record<string, unknown>, cardNumber?: string, force?: boolean) => {
+    async (
+      timeEntryId: string,
+      checklist: Record<string, unknown>,
+      cardNumber?: string,
+      force?: boolean,
+      taskClose?: {
+        taskCloseDeclarations?: ShiftCloseTaskCloseDeclaration[]
+        taskCloseAccuracyConfirmed?: boolean
+      },
+    ) => {
       const url = `${API_BASE}/terminal/check-out-complete`
       let res: Response
       try {
+        const decl = taskClose?.taskCloseDeclarations
         res = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -249,6 +264,10 @@ export function TabletTerminalProvider({
             force: Boolean(force),
             ...(cardNumber?.trim() ? { cardNumber: cardNumber.trim() } : {}),
             ...(tabletToken ? { tabletToken } : {}),
+            ...(Array.isArray(decl) && decl.length > 0 ? { taskCloseDeclarations: decl } : {}),
+            ...(taskClose?.taskCloseAccuracyConfirmed === true
+              ? { taskCloseAccuracyConfirmed: true }
+              : {}),
           }),
         })
       } catch {

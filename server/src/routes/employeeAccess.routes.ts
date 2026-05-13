@@ -245,8 +245,10 @@ employeeAccessRouter.get('/:token', (req, res) => {
       workAreas: out.workAreas,
       shifts: out.shifts,
       tasks: out.tasks,
+      tasksShiftClose: out.tasksShiftClose,
       taskLogs: out.taskLogs,
       absences: out.absences,
+      vacationSnapshot: out.vacationSnapshot,
       timeEntries: out.timeEntries,
       runningTimeEntry: out.runningTimeEntry,
       activeShiftWarnings: out.activeShiftWarnings,
@@ -314,6 +316,7 @@ employeeAccessRouter.post('/:token/check-out-start', (req, res) => {
       checklistType: out.checklistType,
       items: out.checklistItems,
       wizardGroups: out.wizardGroups,
+      blockingTasks: out.blockingTasks,
     })
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
@@ -323,7 +326,13 @@ employeeAccessRouter.post('/:token/check-out-start', (req, res) => {
 employeeAccessRouter.post('/:token/check-out-complete', (req, res) => {
   try {
     const meta = access.parseEmployeeAccessRequestMeta(req)
-    const body = req.body as { timeEntryId?: string; checklist?: Record<string, unknown>; force?: boolean }
+    const body = req.body as {
+      timeEntryId?: string
+      checklist?: Record<string, unknown>
+      force?: boolean
+      taskCloseDeclarations?: { taskId: string; outcome: 'done' | 'not_done'; notDoneReason?: string }[]
+      taskCloseAccuracyConfirmed?: boolean
+    }
     const out = access.employeeAccessCheckOutComplete(
       getDb(),
       req.params.token,
@@ -331,6 +340,8 @@ employeeAccessRouter.post('/:token/check-out-complete', (req, res) => {
         timeEntryId: String(body.timeEntryId ?? ''),
         checklist: body.checklist ?? {},
         force: Boolean(body.force),
+        taskCloseDeclarations: body.taskCloseDeclarations,
+        taskCloseAccuracyConfirmed: body.taskCloseAccuracyConfirmed,
       },
       meta,
     )

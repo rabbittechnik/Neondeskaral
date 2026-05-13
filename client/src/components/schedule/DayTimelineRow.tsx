@@ -21,7 +21,7 @@ import { getTimelineLayout } from './timelineLayout'
 import { useAbsences } from '../../context/absences-context'
 import { useEmployees } from '../../context/employees-context'
 import { getAbsencesForDate } from '../../utils/absenceQueries'
-import { ABSENCE_TYPE_LABELS } from '../absences/absenceLabels'
+import { ABSENCE_TYPE_LABELS, absenceTypeBadgeClass } from '../absences/absenceLabels'
 
 import type { WeekTimelineEditBridge } from './scheduleTimelineEditTypes'
 
@@ -73,21 +73,7 @@ export function DayTimelineRow({
     () => getAbsencesForDate(absences, dateIso, { statuses: ['genehmigt'] }),
     [absences, dateIso],
   )
-  const vacationAbsences = useMemo(
-    () => approvedDayAbsences.filter((a) => a.type === 'paid_vacation' || a.type === 'unpaid_vacation'),
-    [approvedDayAbsences],
-  )
-  const absenceStripH = 17
-  const absenceStripGap = 4
-
-  const absenceSummaryLine = useMemo(() => {
-    if (approvedDayAbsences.length === 0) return ''
-    const parts = approvedDayAbsences.map((a) => {
-      const name = employees.find((e) => e.id === a.employeeId)?.displayName ?? a.employeeId
-      return `${name} (${ABSENCE_TYPE_LABELS[a.type]})`
-    })
-    return parts.join(' · ')
-  }, [approvedDayAbsences, employees])
+  const absenceCount = approvedDayAbsences.length
 
   const holidayBadge = useMemo(
     () => formatHolidayBadge(dateIso, stationFederalState, { variant }),
@@ -136,15 +122,9 @@ export function DayTimelineRow({
       ? Math.max(30, layout.blockHeight + 6)
       : headerOffsetPx + (maxVisibleRow + 1) * (layout.blockHeight + layout.rowGap)
 
-  const absenceTracksH =
-    vacationAbsences.length > 0
-      ? vacationAbsences.length * (absenceStripH + absenceStripGap) + 6
-      : 0
-
-  const trackBodyHeightPx = shiftAreaHeight + absenceTracksH
-
+  /** Nur Schichtbereich + ggf. „+ weitere“-Leiste; Abwesenheiten nur links — Zeilenhöhe über Grid items-stretch. */
   const moreRowHeight = hiddenShiftCount > 0 ? 22 : 0
-  const trackHeightPx = trackBodyHeightPx + moreRowHeight
+  const trackBodyHeightPx = shiftAreaHeight + moreRowHeight
 
   const blocksForSummary = useMemo(
     () => blocksForLayout.filter((b) => !b.requirementGap),
@@ -183,12 +163,12 @@ export function DayTimelineRow({
       className={`rounded-[var(--radius-md)] border border-[var(--border-subtle)] ${outerSurface}`}
     >
       <div
-        className={`flex flex-col lg:flex-row lg:items-stretch ${layout.dayOuterPadding} ${layout.dayInnerGap}`}
+        className={`grid grid-cols-1 lg:grid-cols-[minmax(11rem,16rem)_minmax(0,1fr)] ${layout.dayOuterPadding} ${layout.dayInnerGap} lg:items-stretch`}
       >
         <div
-          className={`flex min-w-0 shrink-0 flex-col gap-0.5 rounded-l-[calc(var(--radius-md)-2px)] pl-2 lg:pl-3 ${layout.leftColClass} ${leftRail}`}
+          className={`flex min-h-0 flex-col gap-0.5 self-stretch rounded-l-[calc(var(--radius-md)-2px)] pl-2 lg:pl-3 ${layout.leftColClass} min-w-0 w-full lg:!w-full ${leftRail}`}
         >
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <h3 className={`text-[var(--text-main)] ${layout.dayLabelClass}`}>
               {weekday} {formatDayMonthDot(dayDate)}
             </h3>
@@ -207,7 +187,7 @@ export function DayTimelineRow({
 
           {badgeLine ? (
             <div
-              className={`mt-1 w-fit max-w-full rounded-md px-2 py-1 text-left ${holidayBadge.colorClass} ${variant === 'compact' ? 'text-[10px] leading-snug' : 'text-[11px] leading-snug'}`}
+              className={`mt-1 max-w-full min-w-0 rounded-md px-2 py-1 text-left ${holidayBadge.colorClass} ${variant === 'compact' ? 'text-[10px] leading-snug' : 'text-[11px] leading-snug'}`}
             >
               <span className="font-semibold">{badgeLine}</span>
               {holidayBadge.note ? (
@@ -218,27 +198,47 @@ export function DayTimelineRow({
             </div>
           ) : null}
 
-          <p className={`text-[var(--text-muted)] ${layout.summaryClass}`}>
+          <p className={`min-w-0 text-[var(--text-muted)] ${layout.summaryClass}`}>
             {blocksForSummary.length} Schicht{blocksForSummary.length === 1 ? '' : 'en'} · {summaryStr} Std.
             {blocks.some((b) => b.requirementGap) ? (
               <span className="text-rose-200/85"> · Soll-Lücken markiert</span>
             ) : null}
           </p>
-          {absenceSummaryLine ? (
-            <p
-              className={`mt-1 flex items-start gap-1.5 text-[var(--text-faint)] ${variant === 'compact' ? 'text-[9px] leading-snug' : 'text-[10px] leading-snug'}`}
+          {absenceCount > 0 ? (
+            <div
+              className={`mt-1 min-w-0 space-y-1 ${variant === 'compact' ? 'text-[9px]' : 'text-[10px]'}`}
             >
-              <UserX className="mt-0.5 h-3 w-3 shrink-0 text-violet-300/80" aria-hidden />
-              <span>
-                <span className="font-medium text-violet-200/90">Abwesend: </span>
-                <span className="text-[var(--text-muted)]">{absenceSummaryLine}</span>
-              </span>
-            </p>
+              <div className="flex min-w-0 items-center gap-1.5 text-violet-200/90">
+                <UserX className="h-3 w-3 shrink-0 text-violet-300/80" aria-hidden />
+                <span className={`font-semibold ${variant === 'compact' ? 'text-[9px]' : 'text-[10px]'}`}>
+                  Abwesend
+                </span>
+              </div>
+              <ul className="min-w-0 list-none space-y-1 p-0">
+                {approvedDayAbsences.map((a) => {
+                  const name =
+                    employees.find((e) => e.id === a.employeeId)?.displayName ?? a.employeeId
+                  return (
+                    <li key={a.id} className="min-w-0">
+                      <div
+                        className={`rounded-md border px-2 py-1 leading-snug shadow-sm ${absenceTypeBadgeClass(a.type)}`}
+                      >
+                        <span className="min-w-0 break-words font-semibold">{name}</span>
+                        <span className="opacity-70"> · </span>
+                        <span className="min-w-0 break-words font-medium">
+                          {ABSENCE_TYPE_LABELS[a.type]}
+                        </span>
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
           ) : null}
         </div>
 
-        <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden">
-          <div className={`relative ${layout.scrollMinWidthClass}`}>
+        <div className="flex min-h-0 min-w-0 flex-col self-stretch overflow-x-hidden lg:min-h-0">
+          <div className={`relative flex h-full min-h-0 min-w-0 flex-col ${layout.scrollMinWidthClass}`}>
             <TimelineHeader
               variant={variant}
               dayStart={dayStart}
@@ -247,8 +247,8 @@ export function DayTimelineRow({
             />
             <div
               ref={trackRef}
-              className={`relative rounded-b-lg border border-t-0 border-white/10 bg-black/25 ${trackHoliday}`}
-              style={{ minHeight: trackHeightPx }}
+              className={`relative flex min-h-0 flex-1 flex-col rounded-b-lg border border-t-0 border-white/10 bg-black/25 ${trackHoliday}`}
+              style={{ minHeight: trackBodyHeightPx }}
             >
               {ticks.map((m) => {
                 const left = ((m - ds) / span) * 100
@@ -318,28 +318,8 @@ export function DayTimelineRow({
                 )
               )}
 
-              {vacationAbsences.map((a, i) => {
-                const name =
-                  employees.find((e) => e.id === a.employeeId)?.displayName ?? a.employeeId
-                const top = shiftAreaHeight + 4 + i * (absenceStripH + absenceStripGap)
-                return (
-                  <div
-                    key={`vac-${a.id}`}
-                    className="pointer-events-none absolute left-1 right-1 z-[1] overflow-hidden rounded-md border border-zinc-400/25 bg-zinc-600/40 px-2 py-0.5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
-                    style={{ top, height: absenceStripH }}
-                    title={`Urlaub · ${name}`}
-                  >
-                    <span className="text-[10px] font-semibold text-zinc-100">Urlaub</span>
-                    <span className="text-[10px] text-zinc-200/90"> · {name}</span>
-                  </div>
-                )
-              })}
-
               {hiddenShiftCount > 0 ? (
-                <div
-                  className="absolute left-0 right-0 border-t border-white/5 bg-black/20 px-2 py-1 text-center text-[10px] text-[var(--text-faint)]"
-                  style={{ top: shiftAreaHeight + absenceTracksH }}
-                >
+                <div className="pointer-events-none absolute bottom-0 left-0 right-0 z-[3] border-t border-white/5 bg-black/20 px-2 py-1 text-center text-[10px] text-[var(--text-faint)]">
                   + {hiddenShiftCount} weitere
                 </div>
               ) : null}

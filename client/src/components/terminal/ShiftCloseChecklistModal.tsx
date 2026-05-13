@@ -1,6 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { Button } from '../ui/Button'
+import type { Task } from '../../types/task'
+
+export type ShiftCloseTaskCloseDeclaration = { taskId: string; outcome: 'done' | 'not_done'; notDoneReason?: string }
+
+export type ShiftCloseCompletionPayload = {
+  checklist: Record<string, unknown>
+  taskCloseDeclarations?: ShiftCloseTaskCloseDeclaration[]
+  taskCloseAccuracyConfirmed?: boolean
+}
 
 export type ShiftCloseAnswerMode = 'yes_no' | 'yes_no_not_relevant'
 
@@ -37,10 +46,14 @@ type Props = {
   catalogItems: ShiftCloseCatalogItem[]
   /** Wizard-Schritte für Ladenschluss — vom Server vorberechnet, optional */
   wizardGroups?: ShiftCloseWizardGroup[] | null
+  /** Pflicht- und Abschlussaufgaben vor Schichtende (echte DB-Daten) */
+  blockingTasks?: Task[]
   /** Stations-Tablet: eine Seite, schnelle Bestätigung, optional „nicht erledigt“ */
   layout?: 'wizard' | 'tablet'
+  /** Button-Text für den finalen Schichtabschluss */
+  submitButtonLabel?: string
   onClose: () => void
-  onComplete: (checklist: Record<string, unknown>) => void
+  onComplete: (payload: ShiftCloseCompletionPayload) => void
 }
 
 function itemAllowsNotRelevant(it: ShiftCloseCatalogItem): boolean {
@@ -90,7 +103,9 @@ export function ShiftCloseChecklistModal({
   checklistType,
   catalogItems,
   wizardGroups,
+  blockingTasks,
   layout = 'wizard',
+  submitButtonLabel = 'Schicht beenden',
   onClose,
   onComplete,
 }: Props) {
@@ -103,6 +118,8 @@ export function ShiftCloseChecklistModal({
   const [tabletException, setTabletException] = useState(false)
   const [tabletNotDoneKeys, setTabletNotDoneKeys] = useState<Set<string>>(() => new Set())
   const [tabletReasonByKey, setTabletReasonByKey] = useState<Record<string, string>>({})
+  const [blockingOutcome, setBlockingOutcome] = useState<Record<string, 'done' | 'not_done' | ''>>({})
+  const [blockingReason, setBlockingReason] = useState<Record<string, string>>({})
 
   const isClosing = checklistType === 'closing'
 
@@ -125,8 +142,14 @@ export function ShiftCloseChecklistModal({
       setTabletException(false)
       setTabletNotDoneKeys(new Set())
       setTabletReasonByKey({})
+      const bo: Record<string, 'done' | 'not_done' | ''> = {}
+      for (const t of blockingTasks ?? []) {
+        bo[t.id] = ''
+      }
+      setBlockingOutcome(bo)
+      setBlockingReason({})
     }
-  }, [open, _timeEntryId, catalogItems])
+  }, [open, _timeEntryId, catalogItems, blockingTasks])
 
   useEffect(() => {
     if (!open) return
@@ -165,6 +188,15 @@ export function ShiftCloseChecklistModal({
   }
 
   const validationError = (): string | null => {
+    for (const t of blockingTasks ?? []) {
+      const o = blockingOutcome[t.id]
+      if (o !== 'done' && o !== 'not_done') {
+        return 'Bitte alle markierten Aufgaben als „Erledigt“ oder „Nicht erledigt“ kennzeichnen.'
+      }
+      if (o === 'not_done' && !String(blockingReason[t.id] ?? '').trim()) {
+        return `„Warum nicht erledigt?“ ist erforderlich: ${t.title}`
+      }
+    }
     for (const it of catalogItems) {
       const s = itemsState[it.key]
       if (!s || s.answer === '') return 'Bitte alle Punkte beantworten.'
@@ -188,7 +220,7 @@ export function ShiftCloseChecklistModal({
     setError('')
     const cash = parseCashEuro(cashInput)
     if (!cash.ok) return
-    const payload: Record<string, unknown> = {
+    const checklistPayload: Record<string, unknown> = {
       checklistType,
       confirmTruth: true,
       cashDifference: cash.value,
@@ -202,7 +234,19 @@ export function ShiftCloseChecklistModal({
         }
       }),
     }
-    onComplete(payload)
+    const decl =
+      blockingTasks && blockingTasks.length > 0
+        ? blockingTasks.map((t) => ({
+            taskId: t.id,
+            outcome: blockingOutcome[t.id] === 'done' ? ('done' as const) : ('not_done' as const),
+            notDoneReason: blockingOutcome[t.id] === 'not_done' ? blockingReason[t.id]?.trim() : undefined,
+          }))
+        : undefined
+    onComplete({
+      checklist: checklistPayload,
+      taskCloseDeclarations: decl,
+      taskCloseAccuracyConfirmed: blockingTasks && blockingTasks.length > 0 ? truth : undefined,
+    })
   }
 
   const title =
@@ -247,21 +291,56 @@ export function ShiftCloseChecklistModal({
         setError(cash.error)
         return
       }
-      if (!tabletException) {
-        if (!tabletMasterDone) {
-          setError('Bitte bestätigen, dass alle oben genannten Punkte erledigt wurden.')
+      for (const t of blockingTasks ?? []) {
+        const o = blockingOutcome[t.id]
+        if (o !== 'done' && o !== 'not_done') {
+          setError('Bitte alle markierten Aufgaben als „Erledigt“ oder „Nicht erledigt“ kennzeichnen.')
           return
         }
+        if (o === 'not_done' && !String(blockingReason[t.id] ?? '').trim()) {
+          setError(`„Warum nicht erledigt?“ ist erforderlich: ${t.title}`)
+          return
+        }
+      }
+      const buildChecklistItems = (
+        itemsMap: { itemKey: string; itemLabel: string; answer: string; reason?: string }[],
+      ): Record<string, unknown> => ({
+        checklistType,
+        confirmTruth: true,
+        cashDifference: cash.value,
+        items: itemsMap,
+      })
+      const decl =
+        blockingTasks && blockingTasks.length > 0
+          ? blockingTasks.map((t) => ({
+              taskId: t.id,
+              outcome: blockingOutcome[t.id] === 'done' ? ('done' as const) : ('not_done' as const),
+              notDoneReason: blockingOutcome[t.id] === 'not_done' ? blockingReason[t.id]?.trim() : undefined,
+            }))
+          : undefined
+      const pushComplete = (itemsMap: { itemKey: string; itemLabel: string; answer: string; reason?: string }[]) => {
         onComplete({
-          checklistType,
-          confirmTruth: true,
-          cashDifference: cash.value,
-          items: catalogItems.map((it) => ({
+          checklist: buildChecklistItems(itemsMap),
+          taskCloseDeclarations: decl,
+          taskCloseAccuracyConfirmed: blockingTasks?.length ? tabletMasterDone : undefined,
+        })
+      }
+      if (!tabletException) {
+        if (!tabletMasterDone) {
+          setError(
+            blockingTasks?.length
+              ? 'Bitte bestätigen, dass die Angaben zu Aufgaben und Checkliste korrekt sind.'
+              : 'Bitte bestätigen, dass alle oben genannten Punkte erledigt wurden.',
+          )
+          return
+        }
+        pushComplete(
+          catalogItems.map((it) => ({
             itemKey: it.key,
             itemLabel: it.label,
             answer: 'yes',
           })),
-        })
+        )
         return
       }
       if (tabletNotDoneKeys.size === 0) {
@@ -275,17 +354,22 @@ export function ShiftCloseChecklistModal({
           return
         }
       }
-      onComplete({
-        checklistType,
-        confirmTruth: true,
-        cashDifference: cash.value,
-        items: catalogItems.map((it) => ({
+      if (!tabletMasterDone) {
+        setError(
+          blockingTasks?.length
+            ? 'Bitte bestätigen, dass die Angaben zu Aufgaben und Checkliste korrekt sind.'
+            : 'Bitte die Bestätigung am Ende setzen.',
+        )
+        return
+      }
+      pushComplete(
+        catalogItems.map((it) => ({
           itemKey: it.key,
           itemLabel: it.label,
           answer: tabletNotDoneKeys.has(it.key) ? 'no' : 'yes',
           reason: tabletNotDoneKeys.has(it.key) ? tabletReasonByKey[it.key]?.trim() : undefined,
         })),
-      })
+      )
     }
 
     const tabletSectionList =
@@ -325,6 +409,68 @@ export function ShiftCloseChecklistModal({
               <X className="h-6 w-6" />
             </button>
           </div>
+
+          {blockingTasks && blockingTasks.length > 0 ? (
+            <div className="mt-5 rounded-xl border border-amber-400/25 bg-amber-500/5 p-4">
+              <p className="text-sm font-semibold text-amber-100">
+                Vor dem Schichtabschluss müssen noch folgende Aufgaben geprüft werden:
+              </p>
+              <ul className="mt-3 space-y-4">
+                {blockingTasks.map((t) => {
+                  const o = blockingOutcome[t.id] ?? ''
+                  const mandatory = Boolean((t as { blockingMandatory?: boolean }).blockingMandatory)
+                  const close = Boolean((t as { blockingShiftClose?: boolean }).blockingShiftClose)
+                  return (
+                    <li key={t.id} className="rounded-lg border border-white/10 bg-black/25 px-3 py-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-medium text-[var(--text-main)]">{t.title}</p>
+                        {mandatory ? (
+                          <span className="rounded border border-amber-400/40 px-1.5 py-0.5 text-[10px] font-semibold text-amber-100">
+                            Pflicht
+                          </span>
+                        ) : null}
+                        {close ? (
+                          <span className="rounded border border-cyan-400/40 px-1.5 py-0.5 text-[10px] font-semibold text-cyan-100">
+                            Abschluss
+                          </span>
+                        ) : null}
+                      </div>
+                      {t.timeCaption ? <p className="mt-1 text-xs text-[var(--text-muted)]">{t.timeCaption}</p> : null}
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          variant={o === 'done' ? 'primary' : 'outline'}
+                          className="min-h-[44px] flex-1"
+                          onClick={() => setBlockingOutcome((prev) => ({ ...prev, [t.id]: 'done' }))}
+                        >
+                          Erledigt
+                        </Button>
+                        <Button
+                          type="button"
+                          variant={o === 'not_done' ? 'primary' : 'outline'}
+                          className="min-h-[44px] flex-1 border-rose-400/40 text-rose-100"
+                          onClick={() => setBlockingOutcome((prev) => ({ ...prev, [t.id]: 'not_done' }))}
+                        >
+                          Nicht erledigt
+                        </Button>
+                      </div>
+                      {o === 'not_done' ? (
+                        <label className="mt-3 block text-sm text-[var(--text-muted)]">
+                          Warum wurde diese Aufgabe nicht erledigt? <span className="text-rose-300">*</span>
+                          <textarea
+                            value={blockingReason[t.id] ?? ''}
+                            onChange={(e) => setBlockingReason((prev) => ({ ...prev, [t.id]: e.target.value }))}
+                            rows={2}
+                            className="mt-1 w-full rounded-lg border border-rose-400/30 bg-black/40 px-3 py-2 text-[var(--text-main)]"
+                          />
+                        </label>
+                      ) : null}
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          ) : null}
 
           <div className="mt-4 max-h-[min(52vh,480px)] overflow-y-auto pr-1">
             {tabletSectionList.map((sec) => (
@@ -377,7 +523,11 @@ export function ShiftCloseChecklistModal({
                   checked={tabletMasterDone}
                   onChange={(e) => setTabletMasterDone(e.target.checked)}
                 />
-                <span>Ich bestätige, dass alle oben genannten Punkte erledigt wurden.</span>
+                <span>
+                  {blockingTasks?.length
+                    ? 'Ich bestätige, dass die Angaben zu den Aufgaben und der Checkliste korrekt sind.'
+                    : 'Ich bestätige, dass alle oben genannten Punkte erledigt wurden.'}
+                </span>
               </label>
             ) : (
               <button
@@ -431,7 +581,7 @@ export function ShiftCloseChecklistModal({
               className="min-h-[52px] min-w-[200px] text-lg font-semibold"
               onClick={submitTablet}
             >
-              Schicht beenden
+              {submitButtonLabel}
             </Button>
           </div>
         </div>

@@ -6,6 +6,7 @@ import { listShiftRowsForStationDateRange, type ShiftRow } from './shiftService.
 import { listReviewItemsForTimeEntry, syncReviewItemsFromCloseChecklist, syncReviewItemsFromShiftCloseItems } from './shiftChecklistReviewService.js'
 import { createShiftWarningsFromShiftCloseCheckout } from './employeeShiftWarningService.js'
 import type { ParsedStructuredChecklist } from '../utils/shiftCloseChecklistValidate.js'
+import { listShiftCloseTaskResponsesJoined } from './shiftCheckoutBlockingTasksService.js'
 
 export type TimeEntryRow = {
   id: string
@@ -410,12 +411,22 @@ export function getTimeEntryDetail(db: Database, id: string) {
   const emp = db
     .prepare(`SELECT display_name FROM employees WHERE id = ?`)
     .get(row.employee_id) as { display_name: string } | undefined
+  const shiftCloseTaskResponses = listShiftCloseTaskResponsesJoined(db, id).map((r) => ({
+    id: r.id,
+    taskId: r.task_id,
+    taskTitle: r.task_title ?? r.task_id,
+    outcome: r.outcome,
+    notDoneReason: r.not_done_reason ?? undefined,
+    recordedAt: r.recorded_at,
+    source: r.source,
+  }))
   return {
     timeEntry: entry,
     employeeName: emp?.display_name ?? '',
     checklist: chkRaw ? checklistRowToApi(chkRaw) : null,
     shiftCloseStructured,
     checklistReviewItems: reviewItems,
+    shiftCloseTaskResponses,
     plannedShift: planned
       ? {
           id: planned.id,

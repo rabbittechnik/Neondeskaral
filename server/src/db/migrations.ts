@@ -153,6 +153,8 @@ export function runMigrations(db: Database.Database) {
   ensureAbsenceAttachmentsTable(db)
   ensureFuelPriceCacheAndStationTankerkoenig(db)
   ensureTaskLogsTabletColumns(db)
+  ensureTaskScopeAndLifecycleColumns(db)
+  ensureShiftCloseTaskResponsesTable(db)
   removeSeedDemoRunningTimeEntries(db)
   alignAralBodelshausenEmployeeDisplayRoles(db)
   ensurePayrollAdjustmentsTable(db)
@@ -573,6 +575,53 @@ function ensureTaskLogsTabletColumns(db: Database.Database) {
   if (!cols.has('confirmed_by_employee_id')) {
     db.exec(`ALTER TABLE task_logs ADD COLUMN confirmed_by_employee_id TEXT`)
   }
+  if (!cols.has('not_done_reason')) {
+    db.exec(`ALTER TABLE task_logs ADD COLUMN not_done_reason TEXT`)
+  }
+  if (!cols.has('time_entry_id')) {
+    db.exec(`ALTER TABLE task_logs ADD COLUMN time_entry_id TEXT`)
+  }
+}
+
+/** Aufgaben: Sichtbarkeit/Leitung, Stations-Tablet-Board, Schichtbezug; Demo-Seeds deaktivieren. */
+function ensureTaskScopeAndLifecycleColumns(db: Database.Database) {
+  const cols = new Set((db.prepare(`PRAGMA table_info(tasks)`).all() as { name: string }[]).map((r) => r.name))
+  const add = (name: string, ddl: string) => {
+    if (!cols.has(name)) {
+      db.exec(`ALTER TABLE tasks ADD COLUMN ${ddl}`)
+      cols.add(name)
+    }
+  }
+  add('task_kind', `task_kind TEXT DEFAULT 'standard'`)
+  add('employee_self_service', 'employee_self_service INTEGER DEFAULT 0')
+  add('tablet_station_board', 'tablet_station_board INTEGER DEFAULT 0')
+  add('assigned_shift_type', 'assigned_shift_type TEXT')
+  add('required_for_shift_close', 'required_for_shift_close INTEGER DEFAULT 0')
+
+  db.prepare(
+    `UPDATE tasks SET active = 0 WHERE (id LIKE 'task-seed-%' OR trim(COALESCE(created_by,'')) = 'seed') AND active = 1`,
+  ).run()
+}
+
+function ensureShiftCloseTaskResponsesTable(db: Database.Database) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS shift_close_task_responses (
+      id TEXT PRIMARY KEY,
+      time_entry_id TEXT NOT NULL,
+      task_id TEXT NOT NULL,
+      employee_id TEXT NOT NULL,
+      station_id TEXT NOT NULL,
+      shift_id TEXT,
+      outcome TEXT NOT NULL,
+      not_done_reason TEXT,
+      recorded_at TEXT NOT NULL,
+      source TEXT NOT NULL,
+      created_at TEXT,
+      UNIQUE (time_entry_id, task_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_sctr_time_entry ON shift_close_task_responses(time_entry_id);
+    CREATE INDEX IF NOT EXISTS idx_sctr_station ON shift_close_task_responses(station_id);
+  `)
 }
 
 function migrateEmployeeExtendedColumns(db: Database.Database) {

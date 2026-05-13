@@ -18,6 +18,13 @@ import { buildShiftCloseChecklistStartPayload } from './stationShiftChecklistDef
 import { resolveShiftCloseChecklistKind } from '../utils/shiftCloseChecklistResolve.js'
 import { isStructuredShiftClosePayload, validateStructuredShiftCloseChecklistForStation } from '../utils/shiftCloseChecklistValidate.js'
 import {
+  listCheckoutBlockingTaskRows,
+  mapCheckoutBlockingTasksToApi,
+  persistShiftCloseTaskResponsesAndTaskLogs,
+  validateShiftCloseTaskDeclarations,
+  type ShiftCloseTaskDeclaration,
+} from './shiftCheckoutBlockingTasksService.js'
+import {
   addDaysToYmd,
   displayHHMM,
   formatDeviationEarlyLateDe,
@@ -531,6 +538,12 @@ export function clockCheckOutStartByEmployeeId(
   })
   const checklistPayload = buildShiftCloseChecklistStartPayload(db, stationId, kind)
 
+  const blockingTasks = mapCheckoutBlockingTasksToApi(db, {
+    stationId,
+    employeeId,
+    timeEntryStartAt: running.startAt,
+  })
+
   return {
     ok: true as const,
     result: 'checklist_required' as const,
@@ -540,12 +553,21 @@ export function clockCheckOutStartByEmployeeId(
     checklistType: checklistPayload.checklistType,
     checklistItems: checklistPayload.items,
     wizardGroups: checklistPayload.wizardGroups,
+    blockingTasks,
   }
 }
 
 export function clockCheckOutComplete(
   db: Database,
-  body: { timeEntryId: string; checklist: Record<string, unknown>; endedBy: string; force?: boolean },
+  body: {
+    timeEntryId: string
+    checklist: Record<string, unknown>
+    endedBy: string
+    force?: boolean
+    taskCloseDeclarations?: ShiftCloseTaskDeclaration[]
+    taskCloseAccuracyConfirmed?: boolean
+    checkoutSource?: 'employee_app' | 'tablet'
+  },
   options?: { logCardOnSuccess?: { cardNumber: string; stationId: string; employeeId: string } },
 ):
   | { ok: true; data: NonNullable<ReturnType<typeof getTimeEntry>> }
@@ -570,11 +592,20 @@ export function clockCheckOutComplete(
     return { ok: false as const, error: 'Kein laufender Zeiteintrag' }
   }
 
+  const workDate = row.start_at.slice(0, 10)
+  const blockingRows = listCheckoutBlockingTaskRows(db, {
+    stationId: row.station_id,
+    employeeId: row.employee_id,
+    timeEntryStartAt: row.start_at,
+  })
+  const blockingIds = blockingRows.map((t) => t.id)
+  const tv = validateShiftCloseTaskDeclarations(blockingIds, body.taskCloseDeclarations, body.taskCloseAccuracyConfirmed)
+  if (!tv.ok) return { ok: false as const, error: tv.error }
+
   const endTs = nowIso()
   const endNow = new Date(endTs)
   if (!force) {
-    const dateIso = row.start_at.slice(0, 10)
-    const pForEnd = plannedShiftForTimeEntry(db, row.station_id, row.employee_id, dateIso, row.shift_id)
+    const pForEnd = plannedShiftForTimeEntry(db, row.station_id, row.employee_id, workDate, row.shift_id)
     if (pForEnd?.end_time) {
       const endM = parseHHMM(String(pForEnd.end_time).trim())
       const nowM = minutesOfDayLocal(endNow)
@@ -615,8 +646,22 @@ export function clockCheckOutComplete(
     })
   }
 
-  const dateIso = row.start_at.slice(0, 10)
-  const pshift = plannedShiftForTimeEntry(db, row.station_id, row.employee_id, dateIso, row.shift_id)
+  if (blockingIds.length) {
+    const emp = getEmployee(db, row.employee_id, { includeAccessToken: false, includeSensitive: false })
+    const displayName = String(emp?.displayName ?? endedBy).trim() || 'Mitarbeiter'
+    persistShiftCloseTaskResponsesAndTaskLogs(db, {
+      timeEntryId,
+      employeeId: row.employee_id,
+      stationId: row.station_id,
+      shiftId: row.shift_id,
+      source: body.checkoutSource ?? 'tablet',
+      dateYmd: workDate,
+      displayName,
+      items: body.taskCloseDeclarations!,
+    })
+  }
+
+  const pshift = plannedShiftForTimeEntry(db, row.station_id, row.employee_id, workDate, row.shift_id)
   const endMeta = computeEndDeviationPersist(endNow, pshift)
   db.prepare(
     `UPDATE time_entries SET planned_end_at = ?, end_deviation_minutes = ?, end_deviation_type = ? WHERE id = ? AND status = 'running'`,

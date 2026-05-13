@@ -16,7 +16,7 @@ import {
 import { employeeAccessGet, employeeAccessGetQuery, employeeAccessPost } from '../../services/api'
 import type { Task, TaskLog } from '../../types/task'
 import type { TimeEntry } from '../../types/timeTracking'
-import { ShiftCloseChecklistModal, type ShiftCloseCatalogItem, type ShiftCloseWizardGroup } from '../../components/terminal/ShiftCloseChecklistModal'
+import { ShiftCloseChecklistModal, type ShiftCloseCatalogItem, type ShiftCloseCompletionPayload, type ShiftCloseWizardGroup } from '../../components/terminal/ShiftCloseChecklistModal'
 import { normalizeShiftCloseCatalogItems, parseShiftCloseWizardGroups } from '../../utils/shiftCloseChecklistClient'
 import { ShiftCloseSuccessCard } from '../../components/terminal/ShiftCloseSuccessCard'
 import { Button } from '../../components/ui/Button'
@@ -32,7 +32,7 @@ import {
   getMondayOfWeekContaining,
   localTodayYmd,
 } from '../../utils/dateFormat'
-import { getTaskStatusForDate, isTaskDueOnDate } from '../../utils/taskUtils'
+import { getTaskStatusForDate, isTaskDueOnDate, taskDisplayTimingLine } from '../../utils/taskUtils'
 import { setStoredEmployeeAccessSession } from './employeeAppStorage'
 import { EmployeeWeekPlanTab } from './EmployeeWeekPlanTab'
 import type { EmployeeAbsenceRow } from './EmployeeUrlaubTab'
@@ -67,6 +67,7 @@ type Payload = {
   workAreas: { id: string; name: string }[]
   shifts: PubShift[]
   tasks: Task[]
+  tasksShiftClose?: Task[]
   taskLogs: TaskLog[]
   absences: EmployeeAbsenceRow[]
   vacationSnapshot?: {
@@ -165,6 +166,7 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
 
   const [checklistOpen, setChecklistOpen] = useState(false)
   const [checkoutEntry, setCheckoutEntry] = useState<TimeEntry | null>(null)
+  const [checkoutBlockingTasks, setCheckoutBlockingTasks] = useState<Task[]>([])
   const [checkoutCatalog, setCheckoutCatalog] = useState<{
     checklistType: 'handover' | 'closing'
     items: ShiftCloseCatalogItem[]
@@ -366,15 +368,22 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
           checklistType?: string
           items?: unknown[]
           wizardGroups?: unknown
+          blockingTasks?: Task[]
         }
-        if (d.timeEntry && d.checklistType && Array.isArray(d.items) && d.items.length > 0) {
+        const itemsNorm = Array.isArray(d.items) ? normalizeShiftCloseCatalogItems(d.items) : []
+        const blocking = Array.isArray(d.blockingTasks) ? d.blockingTasks : []
+        setCheckoutBlockingTasks(blocking)
+        if (d.timeEntry && d.checklistType && (itemsNorm.length > 0 || blocking.length > 0)) {
           setCheckoutEntry(d.timeEntry)
           setCheckoutCatalog({
             checklistType: d.checklistType === 'closing' ? 'closing' : 'handover',
-            items: normalizeShiftCloseCatalogItems(d.items),
+            items: itemsNorm,
             wizardGroups: parseShiftCloseWizardGroups(d.wizardGroups),
           })
           setChecklistOpen(true)
+        } else {
+          setCheckoutBlockingTasks([])
+          setMsg(String(raw.message ?? 'Ausstempeln nicht möglich'))
         }
         setBusy(false)
         return
@@ -386,13 +395,15 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
     setBusy(false)
   }
 
-  const completeCheckout = async (checklist: Record<string, unknown>) => {
+  const completeCheckout = async (closeBundle: ShiftCloseCompletionPayload) => {
     if (!checkoutEntry || !payload) return
     setBusy(true)
     try {
       const raw = await employeeAccessPost(t, 'check-out-complete', {
         timeEntryId: checkoutEntry.id,
-        checklist,
+        checklist: closeBundle.checklist,
+        taskCloseDeclarations: closeBundle.taskCloseDeclarations,
+        taskCloseAccuracyConfirmed: closeBundle.taskCloseAccuracyConfirmed,
       })
       if (raw.result === 'invalid_token') {
         setPayload(null)
@@ -409,6 +420,7 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
         setChecklistOpen(false)
         setCheckoutEntry(null)
         setCheckoutCatalog(null)
+        setCheckoutBlockingTasks([])
         await load()
       } else {
         setMsg(String(raw.error ?? 'Abschluss fehlgeschlagen'))
@@ -470,7 +482,7 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
     )
   }
 
-  const { employee, station, tasks, absences, workAreas, taskLogs } = payload
+  const { employee, station, tasks, tasksShiftClose, absences, workAreas, taskLogs } = payload
   const running = payload.runningTimeEntry
   const accent = employee.color ?? '#22d3ee'
   const roleBadge = (employee.roleLabel ?? employee.role ?? '').trim()
@@ -699,20 +711,29 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
               </button>
             </div>
             {openTasksPreview.length === 0 ? (
-              <p className="mt-2 text-sm text-slate-500">Keine offenen Aufgaben für heute.</p>
+              <p className="mt-2 text-sm text-slate-500">
+                Für deine aktuelle Schicht sind keine zusätzlichen Aufgaben eingetragen.
+              </p>
             ) : (
               <ul className="mt-3 space-y-2">
-                {openTasksPreview.map((task) => (
+                {openTasksPreview.map((task) => {
+                  const timing = taskDisplayTimingLine(task)
+                  return (
                   <li
                     key={task.id}
                     className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-sm text-slate-200"
                   >
                     <span className="font-medium text-white">{task.title}</span>
-                    <span className="block text-xs text-slate-400">
-                      {formatShiftTimeRangeDE(task.startTime, task.endTime)} · {workAreaName(task.workAreaId)}
-                    </span>
+                    {timing ? (
+                      <span className="block text-xs text-slate-400">
+                        {timing} · {workAreaName(task.workAreaId)}
+                      </span>
+                    ) : (
+                      <span className="block text-xs text-slate-400">{workAreaName(task.workAreaId)}</span>
+                    )}
                   </li>
-                ))}
+                  )
+                })}
               </ul>
             )}
           </div>
@@ -820,6 +841,7 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
         <EmployeeTasksTab
           accessToken={t}
           tasks={tasks}
+          tasksShiftClose={tasksShiftClose ?? []}
           taskLogs={taskLogs}
           workAreaName={workAreaName}
           onReload={load}
@@ -1030,16 +1052,20 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
       {checkoutEntry && checkoutCatalog ? (
         <ShiftCloseChecklistModal
           open={checklistOpen}
+          layout="tablet"
           employeeName={employee.displayName}
           timeEntryId={checkoutEntry.id}
           employeeId={employee.id}
           checklistType={checkoutCatalog.checklistType}
           catalogItems={checkoutCatalog.items}
           wizardGroups={checkoutCatalog.wizardGroups}
+          blockingTasks={checkoutBlockingTasks}
+          submitButtonLabel="Schicht endgültig beenden"
           onClose={() => {
             setChecklistOpen(false)
             setCheckoutEntry(null)
             setCheckoutCatalog(null)
+            setCheckoutBlockingTasks([])
           }}
           onComplete={(c) => void completeCheckout(c)}
         />

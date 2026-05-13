@@ -3,7 +3,14 @@ import { listEmployeesTabletClock, getEmployeeRowInternal, type EmployeeRow } fr
 import { listShifts } from './shiftService.js'
 import { listTimeEntries } from './timeTrackingService.js'
 import { listWorkAreas } from './workAreaService.js'
-import { listTasks, listTaskLogsByTaskIds, rowToTaskApi } from './taskService.js'
+import { listTaskRows, listTaskLogsByTaskIds, rowToTaskApi, type TaskRow } from './taskService.js'
+import {
+  buildTaskTimeCaption,
+  isTaskDueOnDateRow,
+  taskEligibleForEmployeeRow,
+  taskEligibleForTabletStationBoard,
+  type TodayShiftLite,
+} from './taskEligibilityService.js'
 
 function ymdFromDate(d: Date): string {
   const y = d.getFullYear()
@@ -18,10 +25,6 @@ function addDaysToYmd(ymd: string, n: number): string {
   return ymdFromDate(d)
 }
 
-function normalizeRoleToken(s: string): string {
-  return s.trim().toLowerCase().replace(/\s+/g, ' ')
-}
-
 function employeeWorkAreaIds(db: Database, employeeId: string): string[] {
   const rows = db
     .prepare(`SELECT work_area_id FROM employee_work_areas WHERE employee_id = ?`)
@@ -34,61 +37,8 @@ function employmentRoleFromRow(row: EmployeeRow): string {
   return typeof raw === 'string' ? raw.trim() : ''
 }
 
-type TaskApi = ReturnType<typeof rowToTaskApi>
-
-function taskRelevantForEmployee(
-  t: TaskApi,
-  empId: string,
-  empRole: string,
-  empJobTitle: string,
-  workAreaIds: string[],
-  todayShiftWorkAreaIds: Set<string>,
-): boolean {
-  if (!t.active) return false
-  const type = String(t.assignedType ?? 'all')
-  if (type === 'all') return true
-  if (type === 'employee') return t.assignedEmployeeId === empId
-  if (type === 'role') {
-    const ar = normalizeRoleToken(String(t.assignedRole ?? ''))
-    if (!ar) return false
-    const pool = normalizeRoleToken(`${empRole} ${empJobTitle}`)
-    if (pool.includes(ar)) return true
-    for (const part of ar.split('/')) {
-      const p = part.trim().toLowerCase()
-      if (p && pool.includes(p)) return true
-    }
-    return false
-  }
-  if (type === 'workArea') {
-    const wid = String(t.workAreaId ?? '')
-    if (wid && workAreaIds.includes(wid)) return true
-    if (wid && todayShiftWorkAreaIds.has(wid)) return true
-    return false
-  }
-  return false
-}
-
-function isTaskDueOnDate(t: TaskApi, date: string): boolean {
-  if (!t.active) return false
-  if (date < t.startDate) return false
-  if (t.endDate && date > t.endDate) return false
-  switch (t.recurrenceType) {
-    case 'once':
-      return t.startDate === date
-    case 'daily':
-      return true
-    case 'weekly': {
-      const wd = new Date(`${date}T12:00:00`).getDay()
-      const set = t.weekdays?.length ? t.weekdays : [1, 2, 3, 4, 5, 6, 0]
-      return set.includes(wd)
-    }
-    case 'monthly': {
-      const dom = Number(date.slice(8, 10))
-      return dom === (t.monthDay ?? 1)
-    }
-    default:
-      return false
-  }
+function isCloseTaskRow(r: TaskRow): boolean {
+  return String(r.task_kind ?? '').trim().toLowerCase() === 'shift_close' || (r.required_for_shift_close ?? 0) === 1
 }
 
 export function listTabletShiftsRange(db: Database, stationId: string, from: string, to: string) {
@@ -123,36 +73,55 @@ export function getTabletWeekSchedule(db: Database, stationId: string, weekStart
 
 export function getTabletTasksPayload(db: Database, stationId: string, employeeId?: string | null) {
   const todayYmd = ymdFromDate(new Date())
-  const tasksAll = listTasks(db, stationId)
-  let tasks = tasksAll
+  const taskRows = listTaskRows(db, stationId)
 
-  if (employeeId && employeeId.trim()) {
-    const empId = employeeId.trim()
-    const row = getEmployeeRowInternal(db, empId)
+  let eligible: TaskRow[]
+  let primaryShift: TodayShiftLite | null = null
+
+  const empTrim = employeeId?.trim() ? employeeId.trim() : ''
+  if (empTrim) {
+    const row = getEmployeeRowInternal(db, empTrim)
     if (!row || String(row.station_id) !== stationId) {
-      tasks = tasksAll.filter((t) => String(t.assignedType ?? 'all') === 'all')
+      eligible = taskRows.filter((r) => taskEligibleForTabletStationBoard(r, todayYmd))
     } else {
       const empRole = String(row.role ?? '').trim()
       const empJobTitle = employmentRoleFromRow(row)
+      const todayShiftsRaw = listShifts(db, { stationId, employeeId: empTrim, from: todayYmd, to: todayYmd })
+      const todayShiftLites: TodayShiftLite[] = todayShiftsRaw.map((s) => ({
+        startTime: s.startTime,
+        endTime: s.endTime,
+        workAreaId: s.workAreaId,
+        shiftType: s.shiftType,
+      }))
+      primaryShift = todayShiftLites[0] ?? null
       const todayShiftAreas = new Set(
-        listShifts(db, { stationId, employeeId: empId, from: todayYmd, to: todayYmd })
-          .map((s) => s.workAreaId)
-          .filter(Boolean) as string[],
+        todayShiftsRaw.map((s) => s.workAreaId).filter(Boolean) as string[],
       )
-      const ewaIds = employeeWorkAreaIds(db, empId)
-      tasks = tasksAll.filter((t) => taskRelevantForEmployee(t, empId, empRole, empJobTitle, ewaIds, todayShiftAreas))
+      const ewaIds = employeeWorkAreaIds(db, empTrim)
+      eligible = taskRows.filter(
+        (r) =>
+          isTaskDueOnDateRow(r, todayYmd) &&
+          taskEligibleForEmployeeRow(r, empTrim, empRole, empJobTitle, ewaIds, todayShiftAreas, todayShiftLites),
+      )
     }
   } else {
-    tasks = tasksAll.filter((t) => String(t.assignedType ?? 'all') === 'all')
+    eligible = taskRows.filter((r) => taskEligibleForTabletStationBoard(r, todayYmd))
   }
 
-  tasks = tasks.filter((t) => isTaskDueOnDate(t, todayYmd))
+  const mainRows = eligible.filter((r) => !isCloseTaskRow(r))
+  const closeRows = eligible.filter((r) => isCloseTaskRow(r))
+
+  const mapTaskWithCaption = (r: TaskRow) => ({
+    ...rowToTaskApi(r),
+    timeCaption: buildTaskTimeCaption(r, { todayYmd, primaryShift }),
+  })
+  const tasks = mainRows.map(mapTaskWithCaption)
 
   const logFrom = addDaysToYmd(todayYmd, -7)
   const logTo = addDaysToYmd(todayYmd, 21)
   const taskLogs = listTaskLogsByTaskIds(
     db,
-    tasks.map((x) => x.id),
+    [...mainRows, ...closeRows].map((x) => x.id),
     logFrom,
     logTo,
   )

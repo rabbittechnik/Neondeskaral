@@ -45,6 +45,13 @@ export type Task = {
   note?: string
   /** Optional: Hinweis Früh-/Spätschicht (noch ohne Schichtplan-Logik) */
   shiftHint?: TaskShiftHint
+  /** Server: Anzeigezeile (Schichtzeit, Zeitraum, Abschluss …) */
+  timeCaption?: string
+  taskKind?: string
+  employeeSelfService?: boolean
+  tabletStationBoard?: boolean
+  assignedShiftType?: string
+  requiredForShiftClose?: boolean
 }
 
 export type TaskLog = {

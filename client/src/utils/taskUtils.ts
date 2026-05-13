@@ -1,5 +1,6 @@
 import type { Task, TaskLog, TaskRecurrence, TaskShiftHint, TaskStatus } from '../types/task'
 import type { Employee } from '../types/employee'
+import { formatShiftTimeRangeDE } from './dateFormat'
 
 export function toISODateLocal(d: Date): string {
   const y = d.getFullYear()
@@ -9,8 +10,27 @@ export function toISODateLocal(d: Date): string {
 }
 
 export function parseTimeToMinutes(t: string): number {
-  const [h, m] = t.split(':').map(Number)
-  return (h ?? 0) * 60 + (m ?? 0)
+  const [h, m] = String(t ?? '').split(':').map(Number)
+  const hh = Number.isFinite(h) ? h : 0
+  const mm = Number.isFinite(m) ? m : 0
+  return hh * 60 + mm
+}
+
+function isDefaultStationWindow(start: string, end: string): boolean {
+  const st = String(start ?? '').trim()
+  const en = String(end ?? '').trim()
+  return (st === '06:00' && en === '22:00') || (!st && !en)
+}
+
+/** „Überfällig heute“ nur, wenn eine echte Enduhrzeit gesetzt ist (nicht Pauschal-Fenster / Schichtabschluss). */
+function shouldUseEndTimeForOverdueToday(task: Task): boolean {
+  const kind = String(task.taskKind ?? '').toLowerCase()
+  if (kind === 'shift_close' || task.requiredForShiftClose) return false
+  const st = String(task.startTime ?? '').trim()
+  const en = String(task.endTime ?? '').trim()
+  if (!st && !en) return false
+  if (isDefaultStationWindow(st, en)) return false
+  return Boolean(en)
 }
 
 function minutesNow(now: Date): number {
@@ -73,10 +93,12 @@ export function getTaskStatusForDate(
   }
 
   const todayIso = toISODateLocal(now)
-  const endM = parseTimeToMinutes(task.endTime)
   if (date < todayIso) return 'überfällig'
   if (date > todayIso) return 'offen'
-  if (minutesNow(now) > endM) return 'überfällig'
+  if (shouldUseEndTimeForOverdueToday(task)) {
+    const endM = parseTimeToMinutes(task.endTime)
+    if (minutesNow(now) > endM) return 'überfällig'
+  }
   return 'offen'
 }
 
@@ -145,4 +167,12 @@ export function recurrenceSummary(task: Task): string {
   if (task.recurrenceType === 'daily') return 'Täglich'
   if (task.recurrenceType === 'weekly') return `Wöchentlich · ${weekdayLabelsDe(task)}`
   return `Monatlich · Tag ${task.monthDay ?? 1}`
+}
+
+/** Anzeigezeile für Aufgaben (Server-Caption oder echte Uhrzeiten, sonst weglassen). */
+export function taskDisplayTimingLine(task: Task): string | undefined {
+  const cap = task.timeCaption?.trim()
+  if (cap) return cap
+  if (!String(task.startTime ?? '').trim() && !String(task.endTime ?? '').trim()) return undefined
+  return formatShiftTimeRangeDE(task.startTime ?? '', task.endTime ?? '')
 }

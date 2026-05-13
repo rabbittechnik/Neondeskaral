@@ -38,18 +38,29 @@ type ShiftCloseStructuredDetail = {
   items: ShiftCloseStructuredItem[]
 }
 
+type ShiftCloseTaskResponseRow = {
+  id: string
+  taskId: string
+  taskTitle: string
+  outcome: string
+  notDoneReason?: string
+  recordedAt: string
+  source: string
+}
+
 type DetailPayload = {
   timeEntry: TimeEntry
   employeeName: string
   checklist: Record<string, unknown> | null
   shiftCloseStructured?: ShiftCloseStructuredDetail | null
   checklistReviewItems?: ChecklistReviewItem[]
+  shiftCloseTaskResponses?: ShiftCloseTaskResponseRow[]
   plannedShift: { id: string; date: string; startTime: string; endTime: string } | null
 }
 
 function sourceLabel(source: string): string {
   if (source === 'tablet' || source === 'cash_register_card_terminal') return 'Stations-Tablet'
-  if (source === 'employee_mobile_app') return 'Mitarbeiter-App'
+  if (source === 'employee_mobile_app' || source === 'employee_app') return 'Mitarbeiter-App'
   if (source === 'manual') return 'Manuell'
   return source
 }
@@ -397,6 +408,67 @@ export function TimeApprovalsPage() {
                     )}
                   </span>
                 </p>
+              </div>
+            ) : null}
+
+            {detail.shiftCloseTaskResponses && detail.shiftCloseTaskResponses.length > 0 ? (
+              <div
+                className={`mt-4 rounded-md border p-3 text-xs text-[var(--text-muted)] ${
+                  detail.shiftCloseTaskResponses.some((r) => String(r.outcome).toLowerCase() === 'not_done')
+                    ? 'border-amber-400/40 bg-amber-500/10'
+                    : 'border-cyan-500/20 bg-cyan-500/5'
+                }`}
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  {detail.shiftCloseTaskResponses.some((r) => String(r.outcome).toLowerCase() === 'not_done') ? (
+                    <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" aria-hidden />
+                  ) : null}
+                  <p className="font-semibold text-[var(--text-main)]">Pflicht- / Abschlussaufgaben (Schichtende)</p>
+                </div>
+                <p className="mt-1.5 text-[11px] text-[var(--text-faint)]">
+                  Angaben des Mitarbeiters beim Ausstempeln — inkl. Quelle und Zeitpunkt.
+                </p>
+                <ul className="mt-2 max-h-[32vh] space-y-2 overflow-y-auto">
+                  {detail.shiftCloseTaskResponses.map((r) => {
+                    const notDone = String(r.outcome).toLowerCase() === 'not_done'
+                    const done = String(r.outcome).toLowerCase() === 'done'
+                    const statusLabel = done ? 'Erledigt' : notDone ? 'Nicht erledigt' : r.outcome
+                    return (
+                      <li
+                        key={r.id}
+                        className={`rounded border px-2 py-2 ${
+                          notDone ? 'border-amber-400/45 bg-amber-500/15' : 'border-white/10 bg-black/25'
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <span className="font-medium text-[var(--text-main)]">{r.taskTitle}</span>
+                          <span
+                            className={
+                              notDone ? 'shrink-0 font-semibold text-amber-200' : 'shrink-0 font-medium text-emerald-200/90'
+                            }
+                          >
+                            {statusLabel}
+                          </span>
+                        </div>
+                        {notDone && r.notDoneReason ? (
+                          <p className="mt-1.5 text-[11px] font-medium text-amber-100/95">Begründung: {r.notDoneReason}</p>
+                        ) : null}
+                        <p className="mt-1.5 text-[10px] text-[var(--text-faint)]">
+                          Quelle: {sourceLabel(r.source)} ·{' '}
+                          {r.recordedAt
+                            ? new Date(r.recordedAt).toLocaleString('de-DE', {
+                                day: '2-digit',
+                                month: '2-digit',
+                                year: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })
+                            : '—'}
+                        </p>
+                      </li>
+                    )
+                  })}
+                </ul>
               </div>
             ) : null}
 

@@ -332,6 +332,11 @@ const statements = [
     created_by TEXT,
     created_at TEXT,
     updated_at TEXT,
+    task_kind TEXT DEFAULT 'standard',
+    employee_self_service INTEGER DEFAULT 0,
+    tablet_station_board INTEGER DEFAULT 0,
+    assigned_shift_type TEXT,
+    required_for_shift_close INTEGER DEFAULT 0,
     FOREIGN KEY (station_id) REFERENCES stations(id)
   )`,
   `CREATE TABLE IF NOT EXISTS task_logs (
@@ -348,8 +353,29 @@ const statements = [
     comment TEXT,
     created_at TEXT,
     updated_at TEXT,
+    station_id TEXT,
+    source TEXT,
+    confirmed_by_employee_id TEXT,
+    not_done_reason TEXT,
+    time_entry_id TEXT,
     FOREIGN KEY (task_id) REFERENCES tasks(id)
   )`,
+  `CREATE TABLE IF NOT EXISTS shift_close_task_responses (
+    id TEXT PRIMARY KEY,
+    time_entry_id TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    employee_id TEXT NOT NULL,
+    station_id TEXT NOT NULL,
+    shift_id TEXT,
+    outcome TEXT NOT NULL,
+    not_done_reason TEXT,
+    recorded_at TEXT NOT NULL,
+    source TEXT NOT NULL,
+    created_at TEXT,
+    UNIQUE (time_entry_id, task_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_sctr_time_entry ON shift_close_task_responses(time_entry_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_sctr_station ON shift_close_task_responses(station_id)`,
   `CREATE TABLE IF NOT EXISTS time_entries (
     id TEXT PRIMARY KEY,
     station_id TEXT NOT NULL,
