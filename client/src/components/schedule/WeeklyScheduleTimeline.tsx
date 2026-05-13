@@ -24,6 +24,8 @@ type Props = {
   timelineDayEnd?: string
   /** Bundesland der Station für Feiertagsanzeige (Default: Station aus Dummy-Daten) */
   stationFederalState?: GermanState
+  /** Tooltip-Text für offene / Soll-Lücken-Balken */
+  stationName?: string
   variant?: ScheduleTimelineVariant
   /** Vollansicht: Überschrift „Schichtplan – Diese Woche“ oberhalb */
   showTitle?: boolean
@@ -72,6 +74,7 @@ export function WeeklyScheduleTimeline({
   showLegend,
   showFooterLink,
   stationFederalState = STATION_FEDERAL_STATE,
+  stationName,
   shiftEdit,
   viewportDensity = 'comfort',
 }: Props) {
@@ -106,6 +109,7 @@ export function WeeklyScheduleTimeline({
             dayEnd={timelineDayEnd}
             variant={variant}
             stationFederalState={stationFederalState}
+            stationName={stationName}
             onShiftSelect={onShiftSelect}
             shiftEdit={shiftEdit}
             viewportDensity={viewportDensity}

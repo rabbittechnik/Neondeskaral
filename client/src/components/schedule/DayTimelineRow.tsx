@@ -38,6 +38,8 @@ type Props = {
   viewportDensity?: TimelineViewportDensity
   /** Bundesland der Station (z. B. BW) für Feiertagslogik */
   stationFederalState: GermanState
+  /** Anzeige im Tooltip offener / Soll-Lücken-Balken */
+  stationName?: string
   onShiftSelect?: (block: ResolvedShiftBlock) => void
   shiftEdit?: WeekTimelineEditBridge
 }
@@ -54,6 +56,7 @@ export function DayTimelineRow({
   variant = 'full',
   viewportDensity = 'comfort',
   stationFederalState,
+  stationName,
   onShiftSelect,
   shiftEdit,
 }: Props) {
@@ -277,6 +280,7 @@ export function DayTimelineRow({
                       item={item}
                       headerOffsetPx={headerOffsetPx}
                       layout={layout}
+                      stationName={stationName}
                       onSelect={onShiftSelect}
                       shiftEdit={shiftEdit}
                     />

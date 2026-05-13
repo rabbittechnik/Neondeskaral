@@ -155,6 +155,7 @@ export function TimelineShiftBlock({
         }}
         style={{
           height: h,
+          lineHeight: 1.15,
           background: `linear-gradient(145deg, ${hi} 0%, ${accentColor} 42%, ${lo} 100%)`,
           boxShadow: `${seamBefore ? 'inset 1px 0 0 rgba(255,255,255,0.34),' : ''}${
             seamAfter ? 'inset -1px 0 0 rgba(255,255,255,0.38),' : ''
@@ -164,7 +165,7 @@ export function TimelineShiftBlock({
           ['--accent-glow' as string]: glow,
           ['--accent-glow-soft' as string]: glowSoft,
         }}
-        className={`group absolute inset-0 z-[8] overflow-hidden border px-2 py-0.5 text-left text-white transition-[box-shadow,filter,transform,opacity] duration-150 hover:z-[12] hover:brightness-[1.05] hover:shadow-[0_0_20px_var(--accent-glow),0_0_34px_var(--accent-glow-soft),inset_0_1px_0_rgba(255,255,255,0.38)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/60 active:scale-[0.99] ${rL} ${rR} ${
+        className={`group absolute inset-0 z-[8] flex items-center overflow-hidden border px-2 py-[3px] text-left text-white transition-[box-shadow,filter,transform,opacity] duration-150 hover:z-[12] hover:brightness-[1.05] hover:shadow-[0_0_20px_var(--accent-glow),0_0_34px_var(--accent-glow-soft),inset_0_1px_0_rgba(255,255,255,0.38)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/60 active:scale-[0.99] ${rL} ${rR} ${
           seamBefore ? 'border-l-0' : ''
         } ${seamAfter ? 'border-r-0' : ''} ${preview ? 'opacity-90' : ''} ${
           block.conflict ? 'ring-1 ring-orange-400 ring-offset-1 ring-offset-[var(--bg-card)]' : ''
@@ -180,8 +181,8 @@ export function TimelineShiftBlock({
           </span>
         ) : null}
         <div
-          className={`flex h-full min-h-0 min-w-0 items-center gap-1 leading-none ${layout.shiftNameClass} text-white`}
-          style={{ textShadow: textShadowStrong }}
+          className={`flex h-full min-h-0 min-w-0 flex-1 items-center gap-1 whitespace-nowrap ${layout.shiftNameClass} text-white`}
+          style={{ textShadow: textShadowStrong, lineHeight: 1.15 }}
         >
           <span className="min-w-0 truncate font-semibold">{displayName}</span>
           <span className="shrink-0 text-white/70">·</span>

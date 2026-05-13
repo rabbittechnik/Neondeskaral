@@ -469,6 +469,7 @@ export function SchedulePage() {
             <WeeklyScheduleGrid
               variant="full"
               stationFederalState={federalState}
+              stationName={selectedStation?.name}
               weekMonday={weekMonday}
               employees={scheduleRows}
               blocks={gridBlocks}

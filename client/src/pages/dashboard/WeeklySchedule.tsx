@@ -199,6 +199,7 @@ export function WeeklySchedule() {
         blocks={gridBlocks}
         variant="compact"
         stationFederalState={federalState}
+        stationName={selectedStation?.name}
         timelineDayStart={timelineRange.start}
         timelineDayEnd={timelineRange.end}
         viewportDensity={viewportDensity}

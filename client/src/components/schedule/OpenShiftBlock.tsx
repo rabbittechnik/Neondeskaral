@@ -1,5 +1,10 @@
 import type { ResolvedShiftBlock } from '../../data/mockSchedule'
 import { getShiftTypeDef, workAreaLabel } from '../../data/mockSchedule'
+import {
+  buildOpenDbShiftBarLine,
+  buildOpenShiftBlockTooltip,
+  buildRequirementGapBarLine,
+} from './scheduleBlockDisplay'
 import type { TimelineLayout } from './timelineLayout'
 import type { WeekTimelineEditBridge } from './scheduleTimelineEditTypes'
 
@@ -16,11 +21,13 @@ type Props = {
   }
   headerOffsetPx: number
   layout: TimelineLayout
+  /** Für Tooltip bei Soll-Lücken / offenen Schichten */
+  stationName?: string
   onSelect?: (block: ResolvedShiftBlock) => void
   shiftEdit?: WeekTimelineEditBridge
 }
 
-export function OpenShiftBlock({ item, headerOffsetPx, layout, onSelect, shiftEdit }: Props) {
+export function OpenShiftBlock({ item, headerOffsetPx, layout, stationName, onSelect, shiftEdit }: Props) {
   const { block, row, leftPercent, widthPercent, seamBefore = false, seamAfter = false } = item
   const isReqGap = Boolean(block.requirementGap)
   const area = layout.useWorkAreaShortCode
@@ -30,7 +37,6 @@ export function OpenShiftBlock({ item, headerOffsetPx, layout, onSelect, shiftEd
   const h = layout.blockHeight
   const g = layout.rowGap
   const top = headerOffsetPx + row * (h + g)
-  const narrow = widthPercent < 18
   const rL = seamBefore ? 'rounded-l-none' : 'rounded-l-lg'
   const rR = seamAfter ? 'rounded-r-none' : 'rounded-r-lg'
 
@@ -39,20 +45,30 @@ export function OpenShiftBlock({ item, headerOffsetPx, layout, onSelect, shiftEd
   const dimmed = !isReqGap && assignActive && !isDropHover
 
   const lineText = isReqGap
-    ? narrow
-      ? `⚠ ${typeDef.label} · ${block.start}–${block.end}`
-      : `⚠ Unbesetzt · ${block.start}–${block.end} · ${typeDef.label}`
-    : narrow
-      ? `Offen · ${block.start}–${block.end}`
-      : `Offen · ${block.start}–${block.end}${area ? ` · ${area}` : ''}`
+    ? buildRequirementGapBarLine({
+        typeId: block.type,
+        typeLabel: typeDef.label,
+        start: block.start,
+        end: block.end,
+        widthPercent,
+      })
+    : buildOpenDbShiftBarLine({
+        start: block.start,
+        end: block.end,
+        areaLabel: area,
+        widthPercent,
+      })
 
-  const titleBase = isReqGap
-    ? [`Soll unbesetzt · ${typeDef.label}`, `${block.start}–${block.end} Uhr`, area ? `Arbeitsbereich: ${area}` : null]
-        .filter(Boolean)
-        .join('\n')
-    : [`Offene Schicht`, `${block.start}–${block.end} Uhr`, area ? `Arbeitsbereich: ${area}` : null, `Typ: ${typeDef.label}`]
-        .filter(Boolean)
-        .join('\n')
+  const titleBase = buildOpenShiftBlockTooltip({
+    mode: isReqGap ? 'requirement' : 'open',
+    typeId: block.type,
+    typeLabel: typeDef.label,
+    start: block.start,
+    end: block.end,
+    areaLabel: area,
+    dateISO: block.dateISO,
+    stationName,
+  })
 
   const baseGlow = isReqGap
     ? '0 0 12px rgba(248,113,113,0.5), 0 0 22px rgba(220,38,38,0.32)'
@@ -68,6 +84,7 @@ export function OpenShiftBlock({ item, headerOffsetPx, layout, onSelect, shiftEd
       style={{
         top,
         height: h,
+        lineHeight: 1.15,
         left: `${leftPercent}%`,
         width: `${widthPercent}%`,
         background: isReqGap
@@ -79,7 +96,7 @@ export function OpenShiftBlock({ item, headerOffsetPx, layout, onSelect, shiftEd
         borderColor: isReqGap ? '#fecaca' : '#fed7aa',
         textShadow: textShadowStrong,
       }}
-      className={`group absolute z-[2] min-w-[32px] overflow-hidden border px-2 py-0.5 text-left text-white transition-[box-shadow,filter,opacity] duration-150 sm:min-w-[40px] ${rL} ${rR} ${
+      className={`group absolute z-[2] flex min-w-[32px] items-center overflow-hidden border px-2 py-[3px] text-left text-white transition-[box-shadow,filter,opacity] duration-150 sm:min-w-[40px] ${rL} ${rR} ${
         isReqGap
           ? 'cursor-default border-red-200/90 hover:brightness-[1.05] hover:shadow-[0_0_20px_rgba(248,113,113,0.6),0_0_34px_rgba(220,38,38,0.4)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-200 disabled:cursor-default disabled:opacity-100'
           : 'border-orange-200/85 hover:z-[12] hover:brightness-[1.05] hover:shadow-[0_0_20px_rgba(251,146,60,0.65),0_0_34px_rgba(234,88,12,0.42)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-200'
@@ -94,12 +111,12 @@ export function OpenShiftBlock({ item, headerOffsetPx, layout, onSelect, shiftEd
           Hier ablegen
         </span>
       ) : null}
-      <p
-        className={`flex min-w-0 items-center gap-1 truncate whitespace-nowrap font-semibold ${layout.openTitleClass}`}
-        style={{ textShadow: textShadowStrong }}
+      <span
+        className={`min-w-0 flex-1 truncate whitespace-nowrap font-semibold ${layout.openTitleClass}`}
+        style={{ textShadow: textShadowStrong, lineHeight: 1.15 }}
       >
-        <span className="min-w-0 truncate">{lineText}</span>
-      </p>
+        {lineText}
+      </span>
     </button>
   )
 }

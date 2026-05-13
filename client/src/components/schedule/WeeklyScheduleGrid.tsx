@@ -18,6 +18,7 @@ type Props = {
   timelineDayStart?: string
   timelineDayEnd?: string
   stationFederalState?: GermanState
+  stationName?: string
   shiftEdit?: WeekTimelineEditBridge
   viewportDensity?: TimelineViewportDensity
 }
