@@ -6,11 +6,15 @@ import { router } from './routes/router'
 import './styles/globals.css'
 
 if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
-  // Registrieren, sobald die App idle ist (besseres First Paint).
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {
-      /* ignore */
-    })
+    navigator.serviceWorker
+      .register('/sw.js', { updateViaCache: 'none' })
+      .then((reg) => {
+        void reg.update().catch(() => {})
+      })
+      .catch(() => {
+        /* ignore */
+      })
   })
 }
 

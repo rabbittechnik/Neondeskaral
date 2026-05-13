@@ -22,6 +22,7 @@ import { getTaskStatusForDate, toISODateLocal } from '../../utils/taskUtils'
 import type { Task } from '../../types/task'
 import { TabletFuelPricesTab } from '../../components/terminal/TabletFuelPricesTab'
 import { TabletRadioTab } from '../../components/terminal/TabletRadioTab'
+import { TabletPwaUpdateControls } from '../../components/terminal/TabletPwaUpdateControls'
 
 type ModalMode = null | 'check-in' | 'check-out'
 
@@ -445,7 +446,11 @@ export function StaffTerminalPage() {
   }
 
   return (
-    <div className="flex min-h-dvh flex-col items-center px-4 pb-12 pt-8 sm:pt-12">
+    <div
+      className={`flex min-h-dvh flex-col items-center px-4 pt-8 sm:pt-12 ${tabletToken ? 'pb-24' : 'pb-12'}`}
+    >
+      <TabletPwaUpdateControls enabled={Boolean(tabletToken)} />
+
       <p className="text-sm font-medium uppercase tracking-[0.2em] text-cyan-400/80">Rabbit-Technik</p>
       <h1 className="mt-1 text-2xl font-bold text-[var(--text-main)] sm:text-3xl md:text-4xl">
         {selectedStation?.name ?? 'Station'}

@@ -1,23 +1,26 @@
-/* Minimaler Service Worker für Installierbarkeit + Offline-Basis.
-   Wichtig: keine App-Logik hier, nur statische Assets.
-*/
+/**
+ * Stations-PWA: neue Deployments zuverlässig (Network-First für App-Assets).
+ * CACHE_NAME enthält __CACHE_BUILD_ID__ — wird beim Production-Build ersetzt.
+ */
 
-const CACHE_NAME = 'rt-station-sw-v2'
-const CORE_ASSETS = [
-  '/',
-  '/index.html',
-  '/manifest.json',
-  '/favicon.svg',
-  '/pwa-192.svg',
-  '/pwa-512.svg',
-]
+const CACHE_NAME = 'rabbit-technik-station-__CACHE_BUILD_ID__'
+
+const CORE_ASSETS = ['/', '/index.html', '/manifest.json', '/favicon.svg', '/pwa-192.svg', '/pwa-512.svg']
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches
-      .open(CACHE_NAME)
-      .then((cache) => cache.addAll(CORE_ASSETS))
-      .then(() => self.skipWaiting()),
+    (async () => {
+      try {
+        const cache = await caches.open(CACHE_NAME)
+        await cache.addAll(CORE_ASSETS).catch(() => {})
+      } catch (_) {
+        /* ignore */
+      }
+      // Erste Installation: sofort aktivieren. Updates: warten auf SKIP_WAITING (Tablet-Button).
+      if (!self.registration.active) {
+        await self.skipWaiting()
+      }
+    })(),
   )
 })
 
@@ -25,10 +28,30 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
       const keys = await caches.keys()
-      await Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
+      await Promise.all(
+        keys.map((k) => {
+          if (k === CACHE_NAME) return Promise.resolve()
+          if (isManagedCacheKey(k)) return caches.delete(k)
+          return Promise.resolve()
+        }),
+      )
       await self.clients.claim()
     })(),
   )
+})
+
+function isManagedCacheKey(k) {
+  return (
+    k.startsWith('rabbit-technik-station-') ||
+    k.startsWith('rt-station') ||
+    /neonshift|neon-shift|neon/i.test(k)
+  )
+}
+
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting()
+  }
 })
 
 self.addEventListener('fetch', (event) => {
@@ -36,27 +59,56 @@ self.addEventListener('fetch', (event) => {
   if (req.method !== 'GET') return
 
   const url = new URL(req.url)
-  // Nur same-origin Assets cachen; API nicht anfassen.
   if (url.origin !== self.location.origin) return
   if (url.pathname.startsWith('/api/')) return
 
-  event.respondWith(
-    (async () => {
-      const cache = await caches.open(CACHE_NAME)
-      const cached = await cache.match(req)
-      if (cached) return cached
-      try {
-        const res = await fetch(req)
-        // HTML nicht aggressiv cachen (SPA), statische Dateien ja.
-        if (res.ok && !req.headers.get('accept')?.includes('text/html')) {
-          cache.put(req, res.clone())
-        }
-        return res
-      } catch (e) {
-        if (cached) return cached
-        throw e
-      }
-    })(),
-  )
+  const accept = req.headers.get('accept') || ''
+  const isNavigation = req.mode === 'navigate'
+  const isHtml = accept.includes('text/html')
+  const isAsset = url.pathname.startsWith('/assets/')
+
+  if (isNavigation || isHtml || isAsset || url.pathname === '/' || url.pathname.endsWith('.html')) {
+    event.respondWith(networkFirst(req))
+    return
+  }
+
+  event.respondWith(staleWhileRevalidate(req))
 })
 
+async function networkFirst(req) {
+  const cache = await caches.open(CACHE_NAME)
+  try {
+    const res = await fetch(req)
+    if (res && res.ok && res.type === 'basic') {
+      const accept = req.headers.get('accept') || ''
+      const isHtml = accept.includes('text/html') || req.mode === 'navigate'
+      if (!isHtml) {
+        try {
+          await cache.put(req, res.clone())
+        } catch (_) {
+          /* ignore */
+        }
+      }
+    }
+    return res
+  } catch (_) {
+    const c = await cache.match(req)
+    if (c) return c
+    return new Response('Offline', { status: 503, statusText: 'Offline' })
+  }
+}
+
+async function staleWhileRevalidate(req) {
+  const cache = await caches.open(CACHE_NAME)
+  const cached = await cache.match(req)
+  try {
+    const res = await fetch(req)
+    if (res.ok && res.type === 'basic') {
+      cache.put(req, res.clone()).catch(() => {})
+    }
+    return res
+  } catch (_) {
+    if (cached) return cached
+    return new Response('Offline', { status: 503, statusText: 'Offline' })
+  }
+})
