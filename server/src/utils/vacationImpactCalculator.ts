@@ -82,11 +82,7 @@ export function calculateVacationImpact(
   const round2 = (x: number) => Math.round(x * 100) / 100
 
   if (t === 'paid_vacation') {
-    const fromBody = absence.paidHoursPerDay
-    const phpd =
-      fromBody != null && Number.isFinite(Number(fromBody)) && Number(fromBody) >= 0
-        ? Math.round(Number(fromBody) * 100) / 100
-        : defaultPaidHoursPerDayFromEmployee(employee?.vacation_hours_per_day as number | null | undefined)
+    const phpd = defaultPaidHoursPerDayFromEmployee(employee?.vacation_hours_per_day as number | null | undefined)
     const paidHoursTotal = round2(absenceDays * phpd)
     return {
       absenceDays: round2(absenceDays),

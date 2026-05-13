@@ -23,7 +23,10 @@ type VacationDebtDetails = {
   message?: string
   annualVacationDays?: number
   alreadyTakenDays?: number
+  /** Server evaluatePaidVacationRequestDebt */
+  approvedPaidVacationDays?: number
   requestedDays?: number
+  requestedPaidVacationDays?: number
   remainingAfterApproval?: number
   hint?: string
 }
@@ -95,12 +98,32 @@ export function AbsenceRequestsView({ employees, onDetails, federalState }: Prop
                   </div>
                 </div>
                 <p className="mt-2 text-xs text-[var(--text-muted)]">
-                  {formatDateDE(a.startDate)} – {formatDateDE(a.endDate)} · {days} Tag(e)
+                  {formatDateDE(a.startDate)} – {formatDateDE(a.endDate)} · {days} Kalendertag(e)
                 </p>
                 {a.type === 'paid_vacation' ? (
                   <p className="mt-1 text-[11px] text-[var(--text-faint)]">
-                    Bezahlte Stunden: {Number(a.paidHoursPerDay ?? 0).toFixed(2).replace('.', ',')} h/Tag · gesamt{' '}
-                    {Number(a.paidHoursTotal ?? 0).toFixed(2).replace('.', ',')} h
+                    Abziehbare Urlaubstage (System):{' '}
+                    {a.absenceDays != null && Number.isFinite(Number(a.absenceDays))
+                      ? Number(a.absenceDays).toFixed(1).replace('.', ',')
+                      : '—'}{' '}
+                    · voraussichtlich bezahlte Stunden gesamt:{' '}
+                    {Number(a.paidHoursTotal ?? 0).toFixed(2).replace('.', ',')} h (Stunden/Tag intern)
+                  </p>
+                ) : null}
+                {a.type === 'sick' || a.type === 'child_sick' ? (
+                  <p className="mt-1 text-[11px] text-[var(--text-faint)]">
+                    Krankschreibung:{' '}
+                    {a.certificateSource === 'digital_doctor'
+                      ? 'Digital vom Arzt'
+                      : a.certificateSource === 'will_follow'
+                        ? 'Wird nachgereicht'
+                        : a.certificateSource === 'upload'
+                          ? 'Foto hochgeladen'
+                          : a.certificateSource === 'camera'
+                            ? 'Foto (Kamera)'
+                            : a.certificateSource
+                              ? String(a.certificateSource)
+                              : '—'}
                   </p>
                 ) : null}
                 {a.comment ? (
@@ -199,19 +222,23 @@ export function AbsenceRequestsView({ employees, onDetails, federalState }: Prop
                 {formatDateDE(approving.startDate)} – {formatDateDE(approving.endDate)}
               </p>
               <p>
-                <span className="text-[var(--text-faint)]">Tage:</span>{' '}
+                <span className="text-[var(--text-faint)]">Kalendertage:</span>{' '}
                 {countAbsenceDays(approving.startDate, approving.endDate, approving.halfDay)}
               </p>
               {approving.type === 'paid_vacation' ? (
                 <>
                   <p>
-                    <span className="text-[var(--text-faint)]">Bezahlt:</span> ja · Urlaub wird vom Anspruch abgezogen
+                    <span className="text-[var(--text-faint)]">Abziehbare Urlaubstage (System):</span>{' '}
+                    {approving.absenceDays != null && Number.isFinite(Number(approving.absenceDays))
+                      ? Number(approving.absenceDays).toFixed(1).replace('.', ',')
+                      : '—'}
                   </p>
                   <p>
-                    <span className="text-[var(--text-faint)]">Stunden/Tag:</span>{' '}
-                    {Number(approving.paidHoursPerDay ?? 0).toFixed(2).replace('.', ',')} ·{' '}
-                    <span className="text-[var(--text-faint)]">gesamt:</span>{' '}
+                    <span className="text-[var(--text-faint)]">Voraussichtlich bezahlte Stunden gesamt:</span>{' '}
                     {Number(approving.paidHoursTotal ?? 0).toFixed(2).replace('.', ',')}
+                  </p>
+                  <p>
+                    <span className="text-[var(--text-faint)]">Bezahlt:</span> ja · Urlaub wird vom Anspruch abgezogen
                   </p>
                 </>
               ) : approving.type === 'unpaid_vacation' ? (
@@ -226,8 +253,14 @@ export function AbsenceRequestsView({ employees, onDetails, federalState }: Prop
                 <p className="font-medium">{approveVacationDebt.message ?? 'Nicht genügend Resturlaub.'}</p>
                 <ul className="mt-2 list-inside list-disc space-y-1 text-xs text-rose-100/95">
                   <li>Jahresurlaub: {fmt(approveVacationDebt.annualVacationDays)}</li>
-                  <li>Bereits genommen (bezahlt): {fmt(approveVacationDebt.alreadyTakenDays)}</li>
-                  <li>Aktuell beantragt: {fmt(approveVacationDebt.requestedDays)}</li>
+                  <li>
+                    Bereits genommen (bezahlt):{' '}
+                    {fmt(approveVacationDebt.alreadyTakenDays ?? approveVacationDebt.approvedPaidVacationDays)}
+                  </li>
+                  <li>
+                    Aktuell beantragt:{' '}
+                    {fmt(approveVacationDebt.requestedDays ?? approveVacationDebt.requestedPaidVacationDays)}
+                  </li>
                   <li>
                     Rest nach Genehmigung:{' '}
                     <span

@@ -255,11 +255,28 @@ const statements = [
     paid_hours_per_day REAL DEFAULT 0,
     paid_hours_total REAL DEFAULT 0,
     absence_days REAL DEFAULT 0,
+    certificate_source TEXT,
     created_at TEXT,
     updated_at TEXT,
     FOREIGN KEY (station_id) REFERENCES stations(id),
     FOREIGN KEY (employee_id) REFERENCES employees(id)
   )`,
+  `CREATE TABLE IF NOT EXISTS absence_attachments (
+    id TEXT PRIMARY KEY,
+    absence_id TEXT NOT NULL,
+    employee_id TEXT NOT NULL,
+    station_id TEXT NOT NULL,
+    file_name TEXT NOT NULL,
+    file_mime_type TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    uploaded_at TEXT NOT NULL,
+    uploaded_by TEXT,
+    source TEXT,
+    FOREIGN KEY (absence_id) REFERENCES absences(id),
+    FOREIGN KEY (employee_id) REFERENCES employees(id),
+    FOREIGN KEY (station_id) REFERENCES stations(id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_absence_attachments_absence ON absence_attachments(absence_id)`,
   `CREATE TABLE IF NOT EXISTS vacation_blocks (
     id TEXT PRIMARY KEY,
     station_id TEXT NOT NULL,

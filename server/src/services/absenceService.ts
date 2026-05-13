@@ -7,11 +7,13 @@ import {
   calculateVacationImpact,
   normalizeAbsenceDbType,
 } from '../utils/vacationImpactCalculator.js'
+import { calculateVacationDaysForRequest, isStableEmploymentForHolidayExclusion } from '../utils/vacationRequestCalculator.js'
 import {
   calendarYearFromStartDate,
-  paidVacationDaysOfAbsenceInYear,
+  paidVacationDeductibleInCalendarYear,
   sumApprovedPaidVacationDaysInYear,
   sumPendingPaidVacationDaysInYear,
+  type PaidVacationBalanceCtx,
   type AbsenceBalanceRow,
 } from '../utils/vacationBalanceCalculator.js'
 
@@ -57,6 +59,72 @@ function loadEmployeeVacationSlice(db: Database, employeeId: string): EmpVac | u
     .get(employeeId) as EmpVac | undefined
 }
 
+function loadEmployeePolicySlice(
+  db: Database,
+  employeeId: string,
+):
+  | {
+      employment_type: string | null
+      employment_role: string | null
+      vacation_hours_per_day: number | null
+      work_days_json: string | null
+    }
+  | undefined {
+  return db
+    .prepare(
+      `SELECT employment_type, employment_role, vacation_hours_per_day, work_days_json FROM employees WHERE id = ?`,
+    )
+    .get(employeeId) as
+    | {
+        employment_type: string | null
+        employment_role: string | null
+        vacation_hours_per_day: number | null
+        work_days_json: string | null
+      }
+    | undefined
+}
+
+function loadStationFederalState(db: Database, stationId: string): string {
+  const r = db.prepare(`SELECT federal_state FROM stations WHERE id = ?`).get(stationId) as
+    | { federal_state: string | null }
+    | undefined
+  return String(r?.federal_state ?? 'BW')
+    .trim()
+    .toUpperCase()
+    .slice(0, 2) || 'BW'
+}
+
+function computePaidVacationImpactFromPolicy(
+  db: Database,
+  stationId: string,
+  employeeId: string,
+  startDate: string,
+  endDate: string,
+  halfDay: boolean,
+): ReturnType<typeof calculateVacationImpact> {
+  const emp = loadEmployeePolicySlice(db, employeeId)
+  const fed = loadStationFederalState(db, stationId)
+  const calc = calculateVacationDaysForRequest({
+    employmentType: String(emp?.employment_type ?? ''),
+    employmentRole: String(emp?.employment_role ?? ''),
+    federalState: fed,
+    vacationHoursPerDay: emp?.vacation_hours_per_day,
+    startDate,
+    endDate,
+    halfDay,
+    absenceTypeRaw: 'paid_vacation',
+  })
+  const round2 = (x: number) => Math.round(x * 100) / 100
+  return {
+    absenceDays: round2(calc.vacationDaysToDeduct),
+    paidHoursPerDay: calc.paidHoursPerDay,
+    paidHoursTotal: round2(calc.paidHours),
+    countsAgainstVacation: true,
+    paid: true,
+    affectsRemainingVacation: true,
+  }
+}
+
 export function loadAbsenceBalanceRows(
   db: Database,
   stationId: string,
@@ -98,6 +166,7 @@ export type AbsenceRow = {
   paid_hours_per_day: number | null
   paid_hours_total: number | null
   absence_days: number | null
+  certificate_source?: string | null
 }
 
 export function rowToAbsenceApi(r: AbsenceRow) {
@@ -122,6 +191,7 @@ export function rowToAbsenceApi(r: AbsenceRow) {
     paidHoursPerDay: Number(r.paid_hours_per_day ?? 0),
     paidHoursTotal: Number(r.paid_hours_total ?? 0),
     absenceDays: Number(r.absence_days ?? 0),
+    certificateSource: r.certificate_source ? String(r.certificate_source) : undefined,
   }
 }
 
@@ -261,12 +331,36 @@ export function buildVacationSnapshotForEmployee(
   year: number,
 ) {
   const emp = loadEmployeeVacationSlice(db, employeeId)
+  const empPol = loadEmployeePolicySlice(db, employeeId)
   const workCodes = workDayCodesFromEmployeeRow(emp?.work_days_json)
   const rows = loadAbsenceBalanceRows(db, stationId, employeeId, year)
   const annualDays = Number(emp?.annual_vacation_days ?? 0) || 0
-  const approvedPaid = sumApprovedPaidVacationDaysInYear(rows, employeeId, year, VACATION_BALANCE_MODE, workCodes)
-  const pendingPaid = sumPendingPaidVacationDaysInYear(rows, employeeId, year, VACATION_BALANCE_MODE, workCodes)
-  const remainingPaid = Math.round((annualDays - approvedPaid) * 100) / 100
+  const fed = loadStationFederalState(db, stationId)
+  const paidCtx: PaidVacationBalanceCtx = {
+    employmentType: String(empPol?.employment_type ?? ''),
+    employmentRole: String(empPol?.employment_role ?? ''),
+    federalState: fed,
+    vacationHoursPerDay: empPol?.vacation_hours_per_day,
+  }
+  const approvedPaid = sumApprovedPaidVacationDaysInYear(
+    rows,
+    employeeId,
+    year,
+    VACATION_BALANCE_MODE,
+    workCodes,
+    undefined,
+    paidCtx,
+  )
+  const pendingPaid = sumPendingPaidVacationDaysInYear(
+    rows,
+    employeeId,
+    year,
+    VACATION_BALANCE_MODE,
+    workCodes,
+    undefined,
+    paidCtx,
+  )
+  const remainingPaid = Math.round((annualDays - approvedPaid - pendingPaid) * 100) / 100
   return {
     year,
     annualVacationDays: annualDays,
@@ -290,24 +384,35 @@ export function evaluatePaidVacationRequestDebt(
 ) {
   const typeDb = normalizeAbsenceDbType(p.typeInput)
   if (typeDb !== 'paid_vacation') {
-    return { exceeds: false as const }
+    return { exceeds: false as const, previewWarnings: [] as string[] }
   }
   const year = calendarYearFromStartDate(p.startDate)
   const emp = loadEmployeeVacationSlice(db, employeeId)
+  const empPol = loadEmployeePolicySlice(db, employeeId)
   const workCodes = workDayCodesFromEmployeeRow(emp?.work_days_json)
   const annual = Number(emp?.annual_vacation_days ?? 0) || 0
   const rows = loadAbsenceBalanceRows(db, stationId, employeeId, year)
-  const taken = sumApprovedPaidVacationDaysInYear(rows, employeeId, year, VACATION_BALANCE_MODE, workCodes)
-  const pending = sumPendingPaidVacationDaysInYear(rows, employeeId, year, VACATION_BALANCE_MODE, workCodes)
-  const requestDays = paidVacationDaysOfAbsenceInYear(
-    p.startDate,
-    p.endDate,
-    p.halfDay,
-    year,
-    VACATION_BALANCE_MODE,
-    workCodes,
-  )
-  const remaining = Math.round((annual - taken) * 100) / 100
+  const fed = loadStationFederalState(db, stationId)
+  const paidCtx: PaidVacationBalanceCtx = {
+    employmentType: String(empPol?.employment_type ?? ''),
+    employmentRole: String(empPol?.employment_role ?? ''),
+    federalState: fed,
+    vacationHoursPerDay: empPol?.vacation_hours_per_day,
+  }
+  const taken = sumApprovedPaidVacationDaysInYear(rows, employeeId, year, VACATION_BALANCE_MODE, workCodes, undefined, paidCtx)
+  const pending = sumPendingPaidVacationDaysInYear(rows, employeeId, year, VACATION_BALANCE_MODE, workCodes, undefined, paidCtx)
+  const calc = calculateVacationDaysForRequest({
+    employmentType: String(empPol?.employment_type ?? ''),
+    employmentRole: String(empPol?.employment_role ?? ''),
+    federalState: fed,
+    vacationHoursPerDay: empPol?.vacation_hours_per_day,
+    startDate: p.startDate,
+    endDate: p.endDate,
+    halfDay: p.halfDay,
+    absenceTypeRaw: 'paid_vacation',
+  })
+  const requestDays = calc.vacationDaysToDeduct
+  const remaining = Math.round((annual - taken - pending) * 100) / 100
   const afterRequest = Math.round((remaining - requestDays) * 100) / 100
   const exceeds = requestDays > remaining
   return {
@@ -319,6 +424,7 @@ export function evaluatePaidVacationRequestDebt(
     requestedPaidVacationDays: requestDays,
     remainingAfterRequest: afterRequest,
     year,
+    previewWarnings: calc.warnings,
   }
 }
 
@@ -338,7 +444,7 @@ export function assertPaidVacationCreateAllowed(
   if (ack) return
   throw new VacationAckRequiredError({
     message:
-      'Achtung: Dein verfügbarer Resturlaub reicht für diesen Antrag nicht aus. Bitte bestätige den Antrag trotzdem oder brich ab.',
+      'Der Antrag würde dein Urlaubskonto ins Minus bringen. Der fehlende Urlaub kann ggf. vom Folgejahr abgezogen werden. Bitte bestätige den Antrag trotzdem oder brich ab.',
     ...ev,
   })
 }
@@ -353,19 +459,28 @@ export function createAbsence(db: Database, body: Record<string, unknown>, stati
   if (!startDate) throw new Error('start_date erforderlich')
   if (!endDate) throw new Error('end_date erforderlich')
   const halfDay = body.halfDay === true
-  const paidHoursOverride = readPaidHoursFromBody(body)
-  const impact = computeImpactForRow(db, employeeId, typeInput, startDate, endDate, halfDay, paidHoursOverride)
   const typeDb = normalizeAbsenceDbType(typeInput)
+  const impact =
+    typeDb === 'paid_vacation'
+      ? computePaidVacationImpactFromPolicy(db, stationId, employeeId, startDate, endDate, halfDay)
+      : computeImpactForRow(db, employeeId, typeInput, startDate, endDate, halfDay, undefined)
   const id = typeof body.id === 'string' && body.id.trim() ? body.id.trim() : `abs-${randomUUID()}`
   const ts = nowIso()
   const status = statusFromApi(String(body.status ?? 'beantragt')) ?? 'requested'
+  const certificateSource =
+    body.certificateSource != null && String(body.certificateSource).trim()
+      ? String(body.certificateSource).trim().slice(0, 80)
+      : null
   db.prepare(
     `INSERT INTO absences (
        id, station_id, employee_id, type, start_date, end_date, half_day, status, comment,
        requested_at, approved_by, approved_at, rejected_by, rejected_at, rejected_reason,
        paid, counts_against_vacation, paid_hours_per_day, paid_hours_total, absence_days,
+       certificate_source,
        created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, ?, ?, ?, ?, ?,
+       ?,
+       ?, ?)`,
   ).run(
     id,
     stationId,
@@ -382,6 +497,7 @@ export function createAbsence(db: Database, body: Record<string, unknown>, stati
     impact.paidHoursPerDay,
     impact.paidHoursTotal,
     impact.absenceDays,
+    certificateSource,
     ts,
     ts,
   )
@@ -465,9 +581,17 @@ export function approveAbsence(
   if (affects) {
     const year = calendarYearFromStartDate(row.start_date)
     const emp = loadEmployeeVacationSlice(db, row.employee_id)
+    const empPol = loadEmployeePolicySlice(db, row.employee_id)
     const workCodes = workDayCodesFromEmployeeRow(emp?.work_days_json)
     const annual = Number(emp?.annual_vacation_days ?? 0) || 0
     const balRows = loadAbsenceBalanceRows(db, row.station_id, row.employee_id, year)
+    const fed = loadStationFederalState(db, row.station_id)
+    const paidCtx: PaidVacationBalanceCtx = {
+      employmentType: String(empPol?.employment_type ?? ''),
+      employmentRole: String(empPol?.employment_role ?? ''),
+      federalState: fed,
+      vacationHoursPerDay: empPol?.vacation_hours_per_day,
+    }
     const taken = sumApprovedPaidVacationDaysInYear(
       balRows,
       row.employee_id,
@@ -475,14 +599,23 @@ export function approveAbsence(
       VACATION_BALANCE_MODE,
       workCodes,
       id,
+      paidCtx,
     )
-    const currentInYear = paidVacationDaysOfAbsenceInYear(
-      row.start_date,
-      row.end_date,
-      (row.half_day ?? 0) === 1,
+    const currentInYear = paidVacationDeductibleInCalendarYear(
+      {
+        id: row.id,
+        employee_id: row.employee_id,
+        type: row.type,
+        start_date: row.start_date,
+        end_date: row.end_date,
+        half_day: row.half_day,
+        status: row.status,
+        counts_against_vacation: row.counts_against_vacation,
+      },
       year,
       VACATION_BALANCE_MODE,
       workCodes,
+      paidCtx,
     )
     const remainingAfter = Math.round((annual - taken - currentInYear) * 100) / 100
     const ack =
@@ -534,4 +667,64 @@ export function cancelAbsence(db: Database, id: string) {
     .run(ts, id)
   if (r.changes === 0) throw new Error('Abwesenheit nicht gefunden')
   return getAbsence(db, id)
+}
+
+/** Mitarbeiter-App: Urlaubskonto + optionale Live-Vorschau (Query-Parameter). */
+export function buildEmployeeAppVacationBalance(
+  db: Database,
+  stationId: string,
+  employeeId: string,
+  q: {
+    previewStart?: string
+    previewEnd?: string
+    previewHalfDay?: string | boolean
+    previewType?: string
+  },
+) {
+  const y = q.previewStart && /^\d{4}-\d{2}-\d{2}$/.test(q.previewStart)
+    ? calendarYearFromStartDate(q.previewStart)
+    : new Date().getFullYear()
+  const snap = buildVacationSnapshotForEmployee(db, stationId, employeeId, y)
+  const empPol = loadEmployeePolicySlice(db, employeeId)
+  const fed = loadStationFederalState(db, stationId)
+  const appliesHolidayExclusion = isStableEmploymentForHolidayExclusion(
+    String(empPol?.employment_type ?? ''),
+    String(empPol?.employment_role ?? ''),
+  )
+  const out: Record<string, unknown> = {
+    ...snap,
+    appliesHolidayExclusion,
+  }
+  const ps = q.previewStart && /^\d{4}-\d{2}-\d{2}$/.test(String(q.previewStart)) ? String(q.previewStart) : ''
+  const pe = q.previewEnd && /^\d{4}-\d{2}-\d{2}$/.test(String(q.previewEnd)) ? String(q.previewEnd) : ''
+  if (ps && pe && ps <= pe) {
+    const half = q.previewHalfDay === true || String(q.previewHalfDay ?? '').toLowerCase() === 'true'
+    const calc = calculateVacationDaysForRequest({
+      employmentType: String(empPol?.employment_type ?? ''),
+      employmentRole: String(empPol?.employment_role ?? ''),
+      federalState: fed,
+      vacationHoursPerDay: empPol?.vacation_hours_per_day,
+      startDate: ps,
+      endDate: pe,
+      halfDay: half,
+      absenceTypeRaw: q.previewType || 'paid_vacation',
+    })
+    const typeDb = normalizeAbsenceDbType(q.previewType || 'paid_vacation')
+    const debt =
+      typeDb === 'paid_vacation'
+        ? evaluatePaidVacationRequestDebt(db, stationId, employeeId, {
+            startDate: ps,
+            endDate: pe,
+            halfDay: half,
+            typeInput: 'paid_vacation',
+          })
+        : null
+    out.preview = {
+      ...calc,
+      exceedsVacation: debt?.exceeds ?? false,
+      remainingAfterRequest: debt?.remainingAfterRequest,
+      remainingVacationDays: debt?.remainingVacationDays,
+    }
+  }
+  return out
 }

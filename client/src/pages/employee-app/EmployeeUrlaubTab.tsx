@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Palmtree } from 'lucide-react'
 import { ABSENCE_TYPE_LABELS, ABSENCE_STATUS_LABELS } from '../../components/absences/absenceLabels'
 import { Button } from '../../components/ui/Button'
-import { employeeAccessPostJson } from '../../services/api'
+import { employeeAccessGetQuery, employeeAccessPostJson } from '../../services/api'
 import { countAbsenceDays } from '../../utils/absenceQueries'
 import { formatDateDE, formatDateTimeDE } from '../../utils/dateFormat'
 import type { Absence } from '../../types/absence'
@@ -22,15 +22,14 @@ export type EmployeeAbsenceRow = {
   paidHoursPerDay?: number
   paidHoursTotal?: number
   absenceDays?: number
+  certificateSource?: string
 }
 
 const REQUEST_TYPES: { value: string; label: string }[] = [
   { value: 'paid_vacation', label: 'Bezahlter Urlaub' },
   { value: 'unpaid_vacation', label: 'Unbezahlter Urlaub' },
   { value: 'day_off', label: 'Frei' },
-  { value: 'sick', label: 'Krank' },
   { value: 'special_leave', label: 'Sonderurlaub' },
-  { value: 'child_sick', label: 'Kind krank' },
   { value: 'other', label: 'Sonstiges' },
 ]
 
@@ -81,69 +80,97 @@ type VacationSnap = {
   remainingPaidVacationDays: number
 }
 
+type VacationBalanceApi = VacationSnap & {
+  appliesHolidayExclusion?: boolean
+  preview?: {
+    calendarDays: number
+    workingDays: number
+    holidaysExcluded: number
+    holidayDetails?: { date: string; name: string }[]
+    vacationDaysToDeduct: number
+    paidHoursPerDay: number
+    paidHours: number
+    warnings: string[]
+    exceedsVacation?: boolean
+    remainingAfterRequest?: number
+    remainingVacationDays?: number
+  }
+}
+
 type Props = {
   accessToken: string
   absences: EmployeeAbsenceRow[]
   vacationSnapshot?: VacationSnap
   annualVacationDays?: number | null
-  vacationHoursPerDay?: number | null
   onReload: () => Promise<void>
 }
 
-export function EmployeeUrlaubTab({
-  accessToken,
-  absences,
-  vacationSnapshot,
-  annualVacationDays,
-  vacationHoursPerDay,
-  onReload,
-}: Props) {
+function isVacationListType(t: string): boolean {
+  return t !== 'sick' && t !== 'child_sick'
+}
+
+export function EmployeeUrlaubTab({ accessToken, absences, vacationSnapshot, annualVacationDays, onReload }: Props) {
   const [formOpen, setFormOpen] = useState(false)
   const [type, setType] = useState('paid_vacation')
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [halfDay, setHalfDay] = useState(false)
-  const [paidHoursPerDay, setPaidHoursPerDay] = useState(8)
   const [comment, setComment] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [okMsg, setOkMsg] = useState<string | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [vacationAckRequired, setVacationAckRequired] = useState<Record<string, unknown> | null>(null)
-
-  useEffect(() => {
-    const h = vacationHoursPerDay
-    if (h != null && Number.isFinite(Number(h)) && Number(h) > 0) {
-      setPaidHoursPerDay(Math.round(Number(h) * 100) / 100)
-    } else {
-      setPaidHoursPerDay(8)
-    }
-  }, [vacationHoursPerDay, formOpen])
+  const [liveBalance, setLiveBalance] = useState<VacationBalanceApi | null>(null)
 
   const sorted = useMemo(() => {
-    return [...absences].sort((a, b) => String(b.requestedAt ?? '').localeCompare(String(a.requestedAt ?? '')))
+    return [...absences]
+      .filter((a) => isVacationListType(a.type))
+      .sort((a, b) => String(b.requestedAt ?? '').localeCompare(String(a.requestedAt ?? '')))
   }, [absences])
 
-  const roughDays = useMemo(() => {
-    if (!startDate || !endDate || endDate < startDate) return 0
-    return countAbsenceDays(startDate, endDate, halfDay)
-  }, [startDate, endDate, halfDay])
+  useEffect(() => {
+    if (!formOpen || !startDate || !endDate || endDate < startDate) {
+      setLiveBalance(null)
+      return
+    }
+    let cancelled = false
+    const tmr = window.setTimeout(() => {
+      void (async () => {
+        const res = await employeeAccessGetQuery<VacationBalanceApi>(accessToken, 'vacation-balance', {
+          previewStart: startDate,
+          previewEnd: endDate,
+          previewHalfDay: halfDay ? 'true' : 'false',
+          previewType: type,
+        })
+        if (cancelled) return
+        if (res.ok && res.data) setLiveBalance(res.data)
+        else setLiveBalance(null)
+      })()
+    }, 280)
+    return () => {
+      cancelled = true
+      window.clearTimeout(tmr)
+    }
+  }, [formOpen, startDate, endDate, halfDay, type, accessToken])
 
-  const remainingDisplay = vacationSnapshot?.remainingPaidVacationDays ?? null
+  const snap = vacationSnapshot
+  const preview = liveBalance?.preview
 
-  const vacationShortage =
-    type === 'paid_vacation' && remainingDisplay !== null && roughDays > remainingDisplay + 0.0001
+  const vacationShortagePaid =
+    type === 'paid_vacation' &&
+    (preview?.exceedsVacation === true ||
+      (preview?.remainingAfterRequest != null && preview.remainingAfterRequest < -0.0001))
 
   const resetForm = () => {
     setType('paid_vacation')
     setStartDate('')
     setEndDate('')
     setHalfDay(false)
-    const h = vacationHoursPerDay
-    setPaidHoursPerDay(h != null && Number.isFinite(Number(h)) && Number(h) > 0 ? Math.round(Number(h) * 100) / 100 : 8)
     setComment('')
     setErr(null)
     setVacationAckRequired(null)
+    setLiveBalance(null)
   }
 
   const submit = async (withAck: boolean) => {
@@ -156,20 +183,17 @@ export function EmployeeUrlaubTab({
       halfDay,
       comment: comment.trim() || undefined,
     }
-    if (type === 'paid_vacation') {
-      body.paidHoursPerDay = paidHoursPerDay
-      if (withAck) body.acknowledgeVacationDebt = true
-    }
+    if (type === 'paid_vacation' && withAck) body.acknowledgeVacationDebt = true
     const res = await employeeAccessPostJson<Absence>(accessToken, 'absences', body)
     setBusy(false)
     if (!res.ok) {
-      const ext = res as { httpStatus?: number; code?: string; details?: Record<string, unknown> }
+      const ext = res as { httpStatus?: number; code?: string; details?: Record<string, unknown>; error?: string }
       if (ext.httpStatus === 409 && ext.code === 'VACATION_ACK_REQUIRED') {
         setVacationAckRequired(ext.details ?? {})
         setConfirmOpen(true)
         return
       }
-      setErr(res.error)
+      setErr(typeof ext.error === 'string' ? ext.error : 'Antrag konnte nicht gesendet werden.')
       setConfirmOpen(false)
       return
     }
@@ -178,6 +202,24 @@ export function EmployeeUrlaubTab({
     resetForm()
     setOkMsg('Dein Antrag wurde gesendet und wartet auf Prüfung.')
     await onReload()
+  }
+
+  const confirmIntroText = () => {
+    if (vacationAckRequired) {
+      return String(
+        vacationAckRequired.message ??
+          'Der Antrag würde dein Urlaubskonto ins Minus bringen. Der fehlende Urlaub kann ggf. vom Folgejahr abgezogen werden.',
+      )
+    }
+    if (type !== 'paid_vacation') {
+      return 'Möchtest du diesen Antrag wirklich absenden?'
+    }
+    const d0 = preview?.vacationDaysToDeduct ?? countAbsenceDays(startDate, endDate, halfDay)
+    const hol = preview?.holidaysExcluded ?? 0
+    if (hol > 0) {
+      return `Du beantragst bezahlten Urlaub vom ${formatDateDE(startDate)} bis ${formatDateDE(endDate)}. Im Zeitraum liegt ${hol} Feiertag${hol === 1 ? '' : 'e'}. Dieser wird nicht vom Urlaubskontingent abgezogen. Es werden voraussichtlich ${d0.toFixed(1).replace('.', ',')} Urlaubstage abgezogen.`
+    }
+    return `Du beantragst bezahlten Urlaub vom ${formatDateDE(startDate)} bis ${formatDateDE(endDate)}. Es werden voraussichtlich ${d0.toFixed(1).replace('.', ',')} Urlaubstage abgezogen.`
   }
 
   return (
@@ -195,25 +237,40 @@ export function EmployeeUrlaubTab({
       ) : null}
 
       <div className="rounded-2xl border border-cyan-500/25 bg-slate-900/60 p-4">
-        <h2 className="text-sm font-semibold text-cyan-200">Neuer Antrag</h2>
-        <p className="mt-1 text-xs text-slate-500">Urlaub oder andere Abwesenheit beantragen.</p>
-        {vacationSnapshot ? (
-          <p className="mt-2 text-xs text-slate-300">
-            Verfügbarer Resturlaub ({vacationSnapshot.year}):{' '}
-            <span
-              className={
-                vacationSnapshot.remainingPaidVacationDays < 0 ? 'font-semibold text-rose-300' : 'font-medium text-cyan-100'
-              }
-            >
-              {vacationSnapshot.remainingPaidVacationDays.toFixed(1).replace('.', ',')} Tage
-            </span>
-            {vacationSnapshot.remainingPaidVacationDays < 0 ? (
-              <span className="ml-2 text-rose-200/90">(Minus-Urlaub / Vorgriff auf Folgejahr)</span>
-            ) : null}
-          </p>
+        <h2 className="text-sm font-semibold text-cyan-200">Dein Urlaubskonto</h2>
+        {snap ? (
+          <dl className="mt-3 space-y-1 text-xs text-slate-300">
+            <div className="flex justify-between gap-2">
+              <dt>Jahresurlaub</dt>
+              <dd className="font-medium text-cyan-100">{snap.annualVacationDays.toFixed(1).replace('.', ',')} Tage</dd>
+            </div>
+            <div className="flex justify-between gap-2">
+              <dt>Genommen / genehmigt</dt>
+              <dd>{snap.approvedPaidVacationDays.toFixed(1).replace('.', ',')} Tage</dd>
+            </div>
+            <div className="flex justify-between gap-2">
+              <dt>Offen beantragt</dt>
+              <dd>{snap.pendingPaidVacationDays.toFixed(1).replace('.', ',')} Tage</dd>
+            </div>
+            <div className="flex justify-between gap-2 border-t border-white/10 pt-2">
+              <dt className="font-semibold text-slate-200">Verfügbar</dt>
+              <dd
+                className={
+                  snap.remainingPaidVacationDays < 0 ? 'font-semibold text-rose-300' : 'font-semibold text-cyan-100'
+                }
+              >
+                {snap.remainingPaidVacationDays.toFixed(1).replace('.', ',')} Tage
+              </dd>
+            </div>
+          </dl>
         ) : annualVacationDays != null && Number.isFinite(Number(annualVacationDays)) ? (
           <p className="mt-2 text-xs text-slate-400">Jahresurlaub laut Profil: {Number(annualVacationDays).toFixed(1).replace('.', ',')} Tage</p>
-        ) : null}
+        ) : (
+          <p className="mt-2 text-xs text-slate-500">Urlaubskonto wird geladen, sobald dein Profil vollständig ist.</p>
+        )}
+
+        <h2 className="mt-6 text-sm font-semibold text-cyan-200">Neuer Urlaubsantrag</h2>
+        <p className="mt-1 text-xs text-slate-500">Nur Urlaub und Abwesenheit — Krankmeldungen unter „Krank“.</p>
         <Button
           type="button"
           variant="primary"
@@ -228,7 +285,7 @@ export function EmployeeUrlaubTab({
       </div>
 
       <div>
-        <h2 className="text-sm font-semibold text-cyan-200">Meine Anträge</h2>
+        <h2 className="text-sm font-semibold text-cyan-200">Meine Urlaubs- & Abwesenheitsanträge</h2>
         {sorted.length === 0 ? (
           <p className="mt-2 text-slate-400">Noch keine Anträge.</p>
         ) : (
@@ -320,29 +377,51 @@ export function EmployeeUrlaubTab({
                 />
                 Halbtägig
               </label>
-              {type === 'paid_vacation' ? (
-                <label className="block">
-                  <span className="text-xs font-medium text-slate-400">Bezahlte Stunden pro Urlaubstag</span>
-                  <input
-                    type="number"
-                    min={0}
-                    step={0.25}
-                    value={paidHoursPerDay}
-                    onChange={(e) => setPaidHoursPerDay(e.target.value === '' ? 0 : Number(e.target.value))}
-                    className="mt-1 min-h-[48px] w-full rounded-xl border border-white/15 bg-black/30 px-3 text-base text-white"
-                  />
-                </label>
+
+              {startDate && endDate && endDate >= startDate && preview ? (
+                <div className="rounded-lg border border-white/10 bg-black/25 px-3 py-3 text-xs text-slate-200">
+                  <p className="font-medium text-cyan-100/95">Vorschau (vom System berechnet)</p>
+                  <p className="mt-2">
+                    Zeitraum: {formatDateDE(startDate)} – {formatDateDE(endDate)}
+                  </p>
+                  <p className="mt-1">Kalendertage: {preview.calendarDays.toFixed(1).replace('.', ',')}</p>
+                  {type === 'paid_vacation' ? (
+                    <>
+                      <p className="mt-1">
+                        Abziehbare Urlaubstage: {preview.vacationDaysToDeduct.toFixed(1).replace('.', ',')}
+                      </p>
+                      <p className="mt-1">Feiertage im Zeitraum (ohne Abzug): {preview.holidaysExcluded}</p>
+                      {snap ? (
+                        <p className="mt-1">
+                          Verfügbarer Urlaub: {snap.remainingPaidVacationDays.toFixed(1).replace('.', ',')} Tage · Rest nach
+                          Antrag:{' '}
+                          {(preview.remainingAfterRequest ?? snap.remainingPaidVacationDays).toFixed(1).replace('.', ',')}{' '}
+                          Tage
+                        </p>
+                      ) : null}
+                    </>
+                  ) : (
+                    <p className="mt-1 text-slate-400">Für diesen Typ werden keine Urlaubstage automatisch abgezogen.</p>
+                  )}
+                  {preview.warnings?.length ? (
+                    <ul className="mt-2 list-inside list-disc space-y-0.5 text-amber-100/95">
+                      {preview.warnings.map((w, i) => (
+                        <li key={i}>{w}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
               ) : null}
-              {type === 'paid_vacation' && vacationShortage ? (
+
+              {type === 'paid_vacation' && vacationShortagePaid ? (
                 <div className="rounded-lg border border-amber-500/45 bg-amber-950/50 px-3 py-3 text-xs text-amber-100">
-                  <p className="font-semibold text-amber-50">Achtung: Dein verfügbarer Resturlaub reicht für diesen Antrag nicht aus.</p>
-                  <p className="mt-2 text-amber-100/90">
-                    Resturlaub: {remainingDisplay !== null ? remainingDisplay.toFixed(1).replace('.', ',') : '—'} Tage · Beantragt:{' '}
-                    {roughDays.toFixed(1).replace('.', ',')} Tage
+                  <p className="font-semibold text-amber-50">
+                    Du hast für diesen Zeitraum nicht genügend Urlaubstage verfügbar. Bitte sprich mit Chef, Stationsleitung
+                    oder Teamleitung.
                   </p>
                   <p className="mt-2 text-amber-100/85">
-                    Bitte frage vorher bei deinem Chef, der Stationsleitung oder Teamleitung nach. Minus-Urlaubstage können eingetragen
-                    werden und werden später mit dem neuen Jahr verrechnet.
+                    Der Antrag würde dein Urlaubskonto ins Minus bringen. Der fehlende Urlaub kann ggf. vom Folgejahr abgezogen
+                    werden. Du kannst ihn trotzdem einreichen und musst dann die Bestätigung im nächsten Schritt annehmen.
                   </p>
                 </div>
               ) : null}
@@ -384,37 +463,32 @@ export function EmployeeUrlaubTab({
             <h2 className="text-lg font-semibold text-white">
               {vacationAckRequired ? 'Mit Bestätigung absenden?' : 'Urlaubsantrag absenden?'}
             </h2>
-            {vacationAckRequired ? (
-              <p className="mt-2 text-sm text-amber-100/95">
-                {String(vacationAckRequired.message ?? 'Resturlaub reicht nicht aus. Du kannst den Antrag trotzdem senden.')}
-              </p>
-            ) : (
-              <p className="mt-2 text-sm text-slate-300">Möchtest du diesen Antrag wirklich absenden?</p>
-            )}
+            <p className="mt-2 text-sm text-slate-200/95">{confirmIntroText()}</p>
             <div className="mt-4 space-y-1 rounded-lg border border-white/10 bg-black/25 px-3 py-3 text-sm text-slate-100">
-              <p>
-                <span className="text-slate-500">Zeitraum:</span>{' '}
-                {startDate && endDate ? (
-                  <>
-                    {formatDateDE(startDate)} – {formatDateDE(endDate)}
-                  </>
-                ) : (
-                  '—'
-                )}
-              </p>
               <p>
                 <span className="text-slate-500">Typ:</span> {REQUEST_TYPES.find((x) => x.value === type)?.label}
               </p>
-              <p>
-                <span className="text-slate-500">Ca. Tage:</span> {roughDays || '—'}
-                {halfDay && startDate === endDate ? ' (halber Tag)' : ''}
-              </p>
-              {type === 'paid_vacation' ? (
-                <p>
-                  <span className="text-slate-500">Std./Tag:</span> {paidHoursPerDay.toFixed(2).replace('.', ',')}
-                </p>
+              {type === 'paid_vacation' && preview ? (
+                <>
+                  <p>
+                    <span className="text-slate-500">Kalendertage:</span> {preview.calendarDays.toFixed(1).replace('.', ',')}
+                  </p>
+                  <p>
+                    <span className="text-slate-500">Abziehbare Urlaubstage:</span>{' '}
+                    {preview.vacationDaysToDeduct.toFixed(1).replace('.', ',')}
+                  </p>
+                  {preview.holidaysExcluded > 0 ? (
+                    <p className="text-amber-100/95">
+                      Im Zeitraum liegt {preview.holidaysExcluded} Feiertag{preview.holidaysExcluded === 1 ? '' : 'e'}. Dieser
+                      wird nicht vom Urlaubskontingent abgezogen.
+                    </p>
+                  ) : null}
+                </>
               ) : null}
             </div>
+            <p className="mt-3 text-[11px] text-slate-500">
+              Die endgültige Berechnung erfolgt bei der Genehmigung durch Chef oder Stationsleitung.
+            </p>
             <div className="mt-5 flex flex-wrap gap-2">
               <Button type="button" variant="outline" className="flex-1" onClick={() => setConfirmOpen(false)}>
                 Abbrechen

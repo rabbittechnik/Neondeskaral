@@ -69,6 +69,13 @@ employeeAccessRouter.post('/:token/absences', (req, res) => {
     const out = access.employeeAccessCreateAbsence(getDb(), req.params.token, req.body ?? {}, meta)
     if (!out.ok) {
       if (out.error === 'invalid_token') return jsonErr(res, denied(), 403)
+      if (out.error === 'use_sick_tab') {
+        return jsonErr(
+          res,
+          'Krankmeldungen bitte unter dem Tab „Krank“ erfassen, nicht im Urlaubsantrag.',
+          400,
+        )
+      }
       return res.status(409).json({
         ok: false,
         code: 'VACATION_ACK_REQUIRED',
@@ -78,6 +85,71 @@ employeeAccessRouter.post('/:token/absences', (req, res) => {
             : 'Resturlaub reicht nicht aus. Bitte mit Bestätigung erneut senden.',
         details: out.details,
       })
+    }
+    jsonOk(res, out.data, 201)
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
+  }
+})
+
+employeeAccessRouter.get('/:token/vacation-balance', (req, res) => {
+  try {
+    const meta = access.parseEmployeeAccessRequestMeta(req)
+    const q = req.query as Record<string, string | undefined>
+    const out = access.employeeAccessVacationBalance(getDb(), req.params.token, q, meta)
+    if (!out.ok) return jsonErr(res, denied(), 403)
+    jsonOk(res, out.data)
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
+  }
+})
+
+employeeAccessRouter.get('/:token/sick-reports', (req, res) => {
+  try {
+    const meta = access.parseEmployeeAccessRequestMeta(req)
+    const out = access.employeeAccessListSickReports(getDb(), req.params.token, meta)
+    if (!out.ok) return jsonErr(res, denied(), 403)
+    jsonOk(res, out.data)
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
+  }
+})
+
+employeeAccessRouter.post('/:token/sick-reports', (req, res) => {
+  try {
+    const meta = access.parseEmployeeAccessRequestMeta(req)
+    const out = access.employeeAccessCreateSickReport(getDb(), req.params.token, req.body ?? {}, meta)
+    if (!out.ok) {
+      if (out.error === 'invalid_token') return jsonErr(res, denied(), 403)
+      if (out.error === 'invalid_dates') return jsonErr(res, 'Bitte gültiges Start- und Enddatum (YYYY-MM-DD) angeben.', 400)
+      if (out.error === 'invalid_certificate') {
+        return jsonErr(res, 'Bitte angeben, wie die Krankschreibung vorliegt (upload, camera, digital_doctor, will_follow).', 400)
+      }
+      return jsonErr(res, 'Krankmeldung konnte nicht gespeichert werden.', 400)
+    }
+    jsonOk(res, out.data, 201)
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
+  }
+})
+
+employeeAccessRouter.post('/:token/sick-reports/:id/attachments', (req, res) => {
+  try {
+    const meta = access.parseEmployeeAccessRequestMeta(req)
+    const out = access.employeeAccessAddSickReportAttachment(
+      getDb(),
+      req.params.token,
+      req.params.id,
+      req.body ?? {},
+      meta,
+    )
+    if (!out.ok) {
+      if (out.error === 'invalid_token') return jsonErr(res, denied(), 403)
+      if (out.error === 'not_found') return jsonErr(res, 'Eintrag nicht gefunden.', 404)
+      if (out.error === 'not_sick') return jsonErr(res, 'Nur bei Krankmeldungen möglich.', 400)
+      if (out.error === 'no_file') return jsonErr(res, 'Keine Datei (fileBase64) übermittelt.', 400)
+      if (out.error === 'invalid_base64') return jsonErr(res, 'Ungültige Dateiübertragung.', 400)
+      return jsonErr(res, typeof out.error === 'string' ? out.error : 'Upload fehlgeschlagen', 400)
     }
     jsonOk(res, out.data, 201)
   } catch (e) {

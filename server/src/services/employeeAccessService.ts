@@ -5,11 +5,15 @@ import type { EmployeeRow } from './employeeService.js'
 import { getShift, listShifts } from './shiftService.js'
 import {
   assertPaidVacationCreateAllowed,
+  buildEmployeeAppVacationBalance,
   buildVacationSnapshotForEmployee,
   createAbsence,
+  getAbsenceRow,
   listAbsences,
   VacationAckRequiredError,
 } from './absenceService.js'
+import { saveAbsenceAttachment } from './absenceAttachmentService.js'
+import { normalizeAbsenceDbType } from '../utils/vacationImpactCalculator.js'
 import { confirmTaskFromEmployeeApp, listTaskLogsByTaskIds, listTasks, rowToTaskApi } from './taskService.js'
 import { listTimeEntries, rowToTimeEntryApi } from './timeTrackingService.js'
 import { getStation } from './stationService.js'
@@ -297,6 +301,7 @@ export function buildEmployeeAccessPayload(db: Database, token: string, meta?: E
     paidHoursPerDay: a.paidHoursPerDay,
     paidHoursTotal: a.paidHoursTotal,
     absenceDays: a.absenceDays,
+    certificateSource: a.certificateSource,
   }))
 
   const yNow = new Date().getFullYear()
@@ -575,6 +580,7 @@ export function employeeAccessCreateAbsence(
 ):
   | { ok: true; data: ReturnType<typeof createAbsence> }
   | { ok: false; error: 'invalid_token' }
+  | { ok: false; error: 'use_sick_tab' }
   | { ok: false; error: 'vacation_ack_required'; details: Record<string, unknown> } {
   const ctx = resolveEmployeeAccessContext(db, token, meta)
   if (!ctx.ok) {
@@ -583,6 +589,12 @@ export function employeeAccessCreateAbsence(
   const row = ctx.row
   const safe: Record<string, unknown> = { ...(body ?? {}) }
   delete safe.employeeId
+  delete safe.paidHoursPerDay
+  delete safe.paid_hours_per_day
+  const ty = normalizeAbsenceDbType(String(safe.type ?? ''))
+  if (ty === 'sick' || ty === 'child_sick') {
+    return { ok: false as const, error: 'use_sick_tab' as const }
+  }
   try {
     assertPaidVacationCreateAllowed(db, row.station_id, row.id, safe, {
       startDate: String(safe.startDate ?? '').trim(),
@@ -606,6 +618,136 @@ export function employeeAccessCreateAbsence(
     row.station_id,
   )
   return { ok: true as const, data }
+}
+
+export function employeeAccessVacationBalance(
+  db: Database,
+  token: string,
+  q: Record<string, string | undefined>,
+  meta?: EmployeeAccessRequestMeta,
+) {
+  const ctx = resolveEmployeeAccessContext(db, token, meta)
+  if (!ctx.ok) {
+    return { ok: false as const, error: 'invalid_token' as const }
+  }
+  const row = ctx.row
+  const data = buildEmployeeAppVacationBalance(db, row.station_id, row.id, {
+    previewStart: q.previewStart,
+    previewEnd: q.previewEnd,
+    previewHalfDay: q.previewHalfDay,
+    previewType: q.previewType,
+  })
+  return { ok: true as const, data }
+}
+
+export function employeeAccessListSickReports(db: Database, token: string, meta?: EmployeeAccessRequestMeta) {
+  const ctx = resolveEmployeeAccessContext(db, token, meta)
+  if (!ctx.ok) {
+    return { ok: false as const, error: 'invalid_token' as const }
+  }
+  const row = ctx.row
+  const all = listAbsences(db, { stationId: row.station_id, employeeId: row.id })
+  const data = all
+    .filter((a) => {
+      const t = normalizeAbsenceDbType(a.type)
+      return t === 'sick' || t === 'child_sick'
+    })
+    .map((a) => ({
+      ...a,
+      comment: sanitizeAbsenceCommentForEmployeeApp(a.comment) ?? '',
+    }))
+  return { ok: true as const, data }
+}
+
+export function employeeAccessCreateSickReport(
+  db: Database,
+  token: string,
+  body: Record<string, unknown>,
+  meta?: EmployeeAccessRequestMeta,
+) {
+  const ctx = resolveEmployeeAccessContext(db, token, meta)
+  if (!ctx.ok) {
+    return { ok: false as const, error: 'invalid_token' as const }
+  }
+  const row = ctx.row
+  const startDate = String(body.startDate ?? '').trim()
+  const endDate = String(body.endDate ?? '').trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate) || endDate < startDate) {
+    return { ok: false as const, error: 'invalid_dates' as const }
+  }
+  const kind = String(body.kind ?? body.sickKind ?? '').toLowerCase()
+  const typeDb = kind === 'child' || kind === 'child_sick' ? 'child_sick' : 'sick'
+  const cert = String(body.certificateSource ?? body.certificate_source ?? '').trim()
+  const allowed = new Set(['upload', 'camera', 'digital_doctor', 'will_follow'])
+  if (!allowed.has(cert)) {
+    return { ok: false as const, error: 'invalid_certificate' as const }
+  }
+  const data = createAbsence(
+    db,
+    {
+      employeeId: row.id,
+      type: typeDb,
+      startDate,
+      endDate,
+      halfDay: body.halfDay === true,
+      comment: String(body.comment ?? '').trim(),
+      certificateSource: cert,
+      status: 'beantragt',
+    },
+    row.station_id,
+  )
+  return { ok: true as const, data }
+}
+
+export function employeeAccessAddSickReportAttachment(
+  db: Database,
+  token: string,
+  sickReportId: string,
+  body: Record<string, unknown>,
+  meta?: EmployeeAccessRequestMeta,
+) {
+  const ctx = resolveEmployeeAccessContext(db, token, meta)
+  if (!ctx.ok) {
+    return { ok: false as const, error: 'invalid_token' as const }
+  }
+  const empRow = ctx.row
+  const absRow = getAbsenceRow(db, sickReportId)
+  if (!absRow || absRow.employee_id !== empRow.id || absRow.station_id !== empRow.station_id) {
+    return { ok: false as const, error: 'not_found' as const }
+  }
+  const ty = normalizeAbsenceDbType(absRow.type)
+  if (ty !== 'sick' && ty !== 'child_sick') {
+    return { ok: false as const, error: 'not_sick' as const }
+  }
+  const b64 = String(body.fileBase64 ?? body.data ?? '').trim()
+  if (!b64) {
+    return { ok: false as const, error: 'no_file' as const }
+  }
+  let buf: Buffer
+  try {
+    buf = Buffer.from(b64, 'base64')
+  } catch {
+    return { ok: false as const, error: 'invalid_base64' as const }
+  }
+  const fileName = String(body.fileName ?? 'upload.jpg').trim() || 'upload.jpg'
+  const mimeType = String(body.mimeType ?? body.fileMimeType ?? 'image/jpeg').trim() || 'image/jpeg'
+  const source = String(body.source ?? 'upload').trim().slice(0, 40) || 'upload'
+  try {
+    const saved = saveAbsenceAttachment({
+      db,
+      absenceId: sickReportId,
+      employeeId: empRow.id,
+      stationId: empRow.station_id,
+      fileName,
+      mimeType,
+      buffer: buf,
+      uploadedBy: String(empRow.display_name ?? 'Mitarbeiter-App').slice(0, 120),
+      source,
+    })
+    return { ok: true as const, data: saved }
+  } catch (e) {
+    return { ok: false as const, error: e instanceof Error ? e.message : 'upload_failed' }
+  }
 }
 
 export function employeeAccessGetTasks(db: Database, token: string, meta?: EmployeeAccessRequestMeta) {

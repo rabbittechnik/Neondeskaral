@@ -10,6 +10,7 @@ import {
   Info,
   LogOut,
   Palmtree,
+  Stethoscope,
   Timer,
 } from 'lucide-react'
 import { employeeAccessGet, employeeAccessGetQuery, employeeAccessPost } from '../../services/api'
@@ -35,6 +36,7 @@ import { setStoredEmployeeAccessSession } from './employeeAppStorage'
 import { EmployeeWeekPlanTab } from './EmployeeWeekPlanTab'
 import type { EmployeeAbsenceRow } from './EmployeeUrlaubTab'
 import { EmployeeUrlaubTab } from './EmployeeUrlaubTab'
+import { EmployeeKrankTab } from './EmployeeKrankTab'
 import { EmployeeTasksTab } from './EmployeeTasksTab'
 import { EmployeeZeitenTab } from './EmployeeZeitenTab'
 import {
@@ -104,6 +106,7 @@ export type TabId =
   | 'wochenplan'
   | 'aufgaben'
   | 'urlaub'
+  | 'krank'
   | 'zeiten'
   | 'info'
 
@@ -496,6 +499,7 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
     { id: 'wochenplan' as const, label: 'Wochenplan', Icon: CalendarRange },
     { id: 'aufgaben' as const, label: 'Aufgaben', Icon: CheckSquare },
     { id: 'urlaub' as const, label: 'Urlaub', Icon: Palmtree },
+    { id: 'krank' as const, label: 'Krank', Icon: Stethoscope },
     { id: 'zeiten' as const, label: 'Zeiten', Icon: Timer },
     { id: 'info' as const, label: 'Info', Icon: Info },
   ]
@@ -829,7 +833,14 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
           absences={absences}
           vacationSnapshot={payload?.vacationSnapshot}
           annualVacationDays={payload?.employee?.annualVacationDays ?? null}
-          vacationHoursPerDay={payload?.employee?.vacationHoursPerDay ?? null}
+          onReload={load}
+        />
+      ) : null}
+
+      {tab === 'krank' ? (
+        <EmployeeKrankTab
+          accessToken={t}
+          initialSick={absences.filter((a) => a.type === 'sick' || a.type === 'child_sick')}
           onReload={load}
         />
       ) : null}

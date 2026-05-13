@@ -143,6 +143,7 @@ export function runMigrations(db: Database.Database) {
   mergeEmployeesViewDeletedPermission(db)
   migrateRoleLabelsAndAbsenceRejectColumns(db)
   migrateAbsenceVacationModel(db)
+  ensureAbsenceAttachmentsTable(db)
   ensureFuelPriceCacheAndStationTankerkoenig(db)
   ensureTaskLogsTabletColumns(db)
   removeSeedDemoRunningTimeEntries(db)
@@ -661,6 +662,7 @@ function migrateAbsenceVacationModel(db: Database.Database) {
   addAbs('paid_hours_per_day', 'paid_hours_per_day REAL DEFAULT 0')
   addAbs('paid_hours_total', 'paid_hours_total REAL DEFAULT 0')
   addAbs('absence_days', 'absence_days REAL DEFAULT 0')
+  addAbs('certificate_source', 'certificate_source TEXT')
 
   db.prepare(`UPDATE absences SET type = 'paid_vacation' WHERE lower(trim(type)) = 'vacation'`).run()
   db.prepare(`UPDATE absences SET type = 'unpaid_vacation' WHERE lower(trim(type)) = 'unpaid'`).run()
@@ -714,6 +716,25 @@ function migrateAbsenceVacationModel(db: Database.Database) {
       r.id,
     )
   }
+}
+
+function ensureAbsenceAttachmentsTable(db: Database.Database) {
+  db.exec(`CREATE TABLE IF NOT EXISTS absence_attachments (
+    id TEXT PRIMARY KEY,
+    absence_id TEXT NOT NULL,
+    employee_id TEXT NOT NULL,
+    station_id TEXT NOT NULL,
+    file_name TEXT NOT NULL,
+    file_mime_type TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    uploaded_at TEXT NOT NULL,
+    uploaded_by TEXT,
+    source TEXT,
+    FOREIGN KEY (absence_id) REFERENCES absences(id),
+    FOREIGN KEY (employee_id) REFERENCES employees(id),
+    FOREIGN KEY (station_id) REFERENCES stations(id)
+  )`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_absence_attachments_absence ON absence_attachments(absence_id)`)
 }
 
 function ensureEmployeeAppDevicesTable(db: Database.Database) {

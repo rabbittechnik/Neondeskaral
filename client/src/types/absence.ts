@@ -32,6 +32,7 @@ export type Absence = {
   paidHoursPerDay?: number
   paidHoursTotal?: number
   absenceDays?: number
+  certificateSource?: string
 }
 
 export type VacationBlock = {
