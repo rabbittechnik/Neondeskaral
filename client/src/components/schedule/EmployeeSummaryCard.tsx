@@ -54,7 +54,6 @@ export function EmployeeSummaryCard({
   layoutTight = false,
   onPointerDownCapture,
 }: Props) {
-  const monthHoursShown = monthPlannedHours ?? employee.monthlyHours
   const density = viewportDensity
   const narrow = density !== 'comfort'
   const cramped = density === 'cramped'
