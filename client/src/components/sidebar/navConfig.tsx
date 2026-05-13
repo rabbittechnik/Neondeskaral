@@ -127,7 +127,7 @@ export const navEntries: NavEntry[] = [
     children: [
       { to: '/account', label: 'Profil' },
       { to: '/account/devices', label: 'Geräte & Apps' },
-      { to: '/account/users', label: 'Benutzer verwalten' },
+      { to: '/account/users', label: 'Benutzer verwalten', globalAdminOnly: true },
       { to: '/account/billing', label: 'Rechnungen' },
       { to: '/account/billing-documents', label: 'Abrechnungsunterlagen' },
     ],

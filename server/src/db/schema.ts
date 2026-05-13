@@ -44,6 +44,7 @@ const statements = [
     role_id TEXT,
     global_admin INTEGER DEFAULT 0,
     active INTEGER DEFAULT 1,
+    last_login_at TEXT,
     created_at TEXT,
     updated_at TEXT,
     FOREIGN KEY (role_id) REFERENCES roles(id)
@@ -61,6 +62,17 @@ const statements = [
     FOREIGN KEY (user_id) REFERENCES users(id),
     FOREIGN KEY (station_id) REFERENCES stations(id)
   )`,
+  `CREATE TABLE IF NOT EXISTS user_audit_log (
+    id TEXT PRIMARY KEY,
+    user_id TEXT,
+    action TEXT NOT NULL,
+    target_user_id TEXT,
+    station_id TEXT,
+    details_json TEXT,
+    created_at TEXT NOT NULL,
+    created_by TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_user_audit_log_created ON user_audit_log(created_at)`,
   `CREATE TABLE IF NOT EXISTS employees (
     id TEXT PRIMARY KEY,
     station_id TEXT NOT NULL,

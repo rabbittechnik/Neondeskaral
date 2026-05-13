@@ -361,7 +361,7 @@ export function seedIfEmpty(db: Database.Database) {
     insUser.run(
       'user-mathias-raselowski',
       matUsername,
-      'mathias.raselowski@station.demo',
+      'rabbit.technik@gmail.com',
       hashMathias,
       'Mathias Raselowski',
       'role-station-team-lead',

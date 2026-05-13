@@ -1,7 +1,8 @@
 import type Database from 'better-sqlite3'
-import { randomBytes } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { nowIso } from '../utils/timestamps.js'
 import { TEAMLEAD_PERMISSIONS } from '../constants/permissions.js'
+import { mathiasStationsleiterPermissions } from '../constants/mathiasStationsleiterPermissions.js'
 import { ensureDefaultUserStationAccess, ensureKnownStationsAndWorkAreas } from '../services/stationAccessService.js'
 import { calculateVacationImpact, normalizeAbsenceDbType } from '../utils/vacationImpactCalculator.js'
 
@@ -150,6 +151,59 @@ export function runMigrations(db: Database.Database) {
   ensurePayrollAdjustmentsUpdatedAtColumn(db)
   ensureStationTabletDevicesTable(db)
   mergeStationTabletPermissionsIntoAccess(db)
+  ensureUsersLastLoginAtColumn(db)
+  ensureUserAuditLogTable(db)
+  syncMathiasRaselowskiAccount(db)
+}
+
+function ensureUsersLastLoginAtColumn(db: Database.Database) {
+  const cols = new Set((db.prepare(`PRAGMA table_info(users)`).all() as { name: string }[]).map((c) => c.name))
+  if (!cols.has('last_login_at')) {
+    db.exec(`ALTER TABLE users ADD COLUMN last_login_at TEXT`)
+  }
+}
+
+function ensureUserAuditLogTable(db: Database.Database) {
+  db.exec(`CREATE TABLE IF NOT EXISTS user_audit_log (
+    id TEXT PRIMARY KEY,
+    user_id TEXT,
+    action TEXT NOT NULL,
+    target_user_id TEXT,
+    station_id TEXT,
+    details_json TEXT,
+    created_at TEXT NOT NULL,
+    created_by TEXT
+  )`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_user_audit_log_created ON user_audit_log(created_at)`)
+}
+
+/** Profil, E-Mail, Rechte Stationsleiter nur Aral Bodelshausen — Max Vins unangetastet. */
+function syncMathiasRaselowskiAccount(db: Database.Database) {
+  const matId = 'user-mathias-raselowski'
+  const row = db.prepare(`SELECT id FROM users WHERE id = ?`).get(matId) as { id: string } | undefined
+  if (!row) return
+  const ts = nowIso()
+  db.prepare(`UPDATE users SET email = ?, display_name = ?, global_admin = 0, updated_at = ? WHERE id = ?`).run(
+    'rabbit.technik@gmail.com',
+    'Mathias Raselowski',
+    ts,
+    matId,
+  )
+
+  const perms = JSON.stringify(mathiasStationsleiterPermissions())
+  const acc = db
+    .prepare(`SELECT id FROM user_station_access WHERE user_id = ? AND station_id = ?`)
+    .get(matId, 'aral-bodelshausen') as { id: string } | undefined
+  if (acc) {
+    db.prepare(
+      `UPDATE user_station_access SET role = 'stationsleiter', permissions_json = ?, updated_at = ? WHERE user_id = ? AND station_id = ?`,
+    ).run(perms, ts, matId, 'aral-bodelshausen')
+  } else {
+    db.prepare(
+      `INSERT INTO user_station_access (id, user_id, station_id, role, permissions_json, active, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, 'stationsleiter', ?, 1, NULL, ?, ?)`,
+    ).run(randomUUID(), matId, 'aral-bodelshausen', perms, ts, ts)
+  }
 }
 
 /** Stammdaten-Anzeige-Rollen für Bodelshausen (bestehende DBs, Railway-Deploy). */

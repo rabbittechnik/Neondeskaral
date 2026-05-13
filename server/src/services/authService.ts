@@ -6,6 +6,8 @@ import {
   listAccessibleStationRows,
   listAllActiveStationRows,
 } from './stationAccessService.js'
+import { nowIso } from '../utils/timestamps.js'
+import { appendUserAudit } from './userAuditLogService.js'
 
 export type AuthUserRow = {
   id: string
@@ -14,6 +16,7 @@ export type AuthUserRow = {
   role_id: string | null
   active: number | null
   password_hash: string | null
+  last_login_at?: string | null
 }
 
 const JWT_SECRET = process.env.JWT_SECRET ?? 'neonshift-dev-jwt-secret-change-me'
@@ -155,6 +158,17 @@ export function loginAdminUser(
   )
   const user = buildAuthMeUser(db, row.id)
   if (!user) throw new Error('Benutzerdaten fehlen')
+  const ts = nowIso()
+  try {
+    db.prepare(`UPDATE users SET last_login_at = ? WHERE id = ?`).run(ts, row.id)
+  } catch {
+    /* Spalte kann in sehr alten DB-Dateien fehlen */
+  }
+  try {
+    appendUserAudit(db, { userId: row.id, action: 'login.success', createdBy: row.id })
+  } catch {
+    /* ignore */
+  }
   return {
     token,
     user,

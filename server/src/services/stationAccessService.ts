@@ -2,6 +2,7 @@ import type { Database } from 'better-sqlite3'
 import { randomUUID } from 'node:crypto'
 import { KNOWN_STATIONS } from '../constants/stationIds.js'
 import { TEAMLEAD_PERMISSIONS } from '../constants/permissions.js'
+import { mathiasStationsleiterPermissions } from '../constants/mathiasStationsleiterPermissions.js'
 
 export type UserStationAccessRow = {
   id: string
@@ -174,7 +175,15 @@ export function ensureDefaultUserStationAccess(db: Database, nowIsoStr: string) 
   db.prepare(`DELETE FROM user_station_access WHERE user_id = ?`).run(maxId)
 
   if (!exists.get(matId, 'aral-bodelshausen')) {
-    ins.run(randomUUID(), matId, 'aral-bodelshausen', 'teamleiter', JSON.stringify(TEAMLEAD_PERMISSIONS), nowIsoStr, nowIsoStr)
+    ins.run(
+      randomUUID(),
+      matId,
+      'aral-bodelshausen',
+      'stationsleiter',
+      JSON.stringify(mathiasStationsleiterPermissions()),
+      nowIsoStr,
+      nowIsoStr,
+    )
   }
 
   db.prepare(`UPDATE users SET global_admin = 1, updated_at = ? WHERE id = ?`).run(nowIsoStr, maxId)
