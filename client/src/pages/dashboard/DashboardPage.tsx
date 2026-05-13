@@ -17,14 +17,17 @@ const dashboardCardGrid =
 
 export function DashboardPage() {
   return (
-    <div className="min-w-0 w-full max-w-full space-y-4 overflow-x-hidden pb-6">
+    <div className="min-w-0 w-full max-w-full space-y-3 overflow-x-hidden pb-6">
       <TuvReportDashboardReminder />
 
-      <section className="flex min-w-0 flex-col gap-3 xl:flex-row xl:items-stretch xl:gap-4">
-        <div className="min-w-0 w-full flex-1 xl:min-w-0">
+      <section
+        className="dashboard-top grid min-w-0 grid-cols-1 gap-4 min-[1401px]:grid-cols-[minmax(260px,0.85fr)_minmax(520px,1.15fr)] min-[1401px]:items-start"
+        aria-label="Begrüßung und Kennzahlen"
+      >
+        <div className="min-w-0 max-w-full">
           <WelcomeBanner />
         </div>
-        <div className="min-w-0 w-full shrink-0 xl:w-[min(100%,26rem)]">
+        <div className="min-w-0">
           <DashboardStats />
         </div>
       </section>

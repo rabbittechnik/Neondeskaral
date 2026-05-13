@@ -10,7 +10,7 @@ export function WelcomeBanner() {
   return (
     <Card
       padding="none"
-      className="relative min-h-[120px] overflow-hidden border-cyan-500/20 md:min-h-[140px]"
+      className="relative h-full min-h-[80px] max-h-[118px] overflow-hidden border-cyan-500/20"
     >
       <div
         className="absolute inset-0 bg-cover bg-center opacity-35"
@@ -19,8 +19,8 @@ export function WelcomeBanner() {
             'linear-gradient(105deg, rgba(5,9,20,0.92) 0%, rgba(5,9,20,0.55) 45%, rgba(5,9,20,0.85) 100%), url("https://images.unsplash.com/photo-1549923746-c502d488b3db?w=1200&q=60")',
         }}
       />
-      <div className="relative z-10 flex h-full flex-col justify-center p-4 md:p-5 lg:p-6">
-        <h2 className="text-xl font-semibold tracking-tight md:text-2xl">
+      <div className="relative z-10 flex h-full min-h-[80px] flex-col justify-center px-3 py-2.5 sm:px-4">
+        <h2 className="line-clamp-2 text-base font-semibold leading-snug tracking-tight sm:text-lg">
           {name ? (
             <>
               Willkommen zurück, {name}{' '}
@@ -37,8 +37,8 @@ export function WelcomeBanner() {
             </>
           )}
         </h2>
-        <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-[var(--text-muted)]">
-          <CheckCircle2 className="h-4 w-4 text-emerald-400" aria-hidden />
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-[var(--text-muted)]">
+          <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-400" aria-hidden />
           <span>Station alles im grünen Bereich</span>
         </div>
       </div>

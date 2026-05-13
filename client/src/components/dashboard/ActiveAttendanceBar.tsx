@@ -99,25 +99,36 @@ export function ActiveAttendanceBar({ className }: ActiveAttendanceBarProps) {
 
   return (
     <section
-      className={`w-full min-w-0 rounded-[var(--radius-md)] border border-emerald-400/30 bg-gradient-to-r from-emerald-500/[0.12] via-cyan-500/[0.08] to-emerald-500/[0.12] px-4 py-3 shadow-[0_0_28px_rgba(52,211,153,0.12),inset_0_1px_0_rgba(255,255,255,0.06)] ${className ?? ''}`}
+      className={`w-full min-w-0 rounded-[var(--radius-md)] border border-emerald-400/30 bg-gradient-to-r from-emerald-500/[0.12] via-cyan-500/[0.08] to-emerald-500/[0.12] px-3 py-2 shadow-[0_0_20px_rgba(52,211,153,0.1),inset_0_1px_0_rgba(255,255,255,0.06)] ${className ?? ''}`}
       aria-label="Aktuell eingestempelt"
     >
-      <div className="flex min-w-0 flex-wrap items-center gap-3">
-        <div className="flex shrink-0 items-center gap-2 text-emerald-100/95">
-          <Users className="h-4 w-4 text-emerald-300" aria-hidden />
-          <h2 className="text-sm font-semibold tracking-tight">Aktuell eingestempelt</h2>
-        </div>
-
+      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5">
         {error ? (
-          <p className="text-sm text-rose-300" title={error}>
-            Aktuell eingestempelt konnte nicht geladen werden.
+          <p className="flex min-w-0 items-center gap-2 text-sm text-rose-300" title={error}>
+            <Users className="h-3.5 w-3.5 shrink-0 text-emerald-300" aria-hidden />
+            <span>Aktuell eingestempelt konnte nicht geladen werden.</span>
           </p>
         ) : loading ? (
-          <p className="text-sm text-[var(--text-muted)]">Lade laufende Zeiten…</p>
+          <p className="flex min-w-0 items-center gap-2 text-sm text-[var(--text-muted)]">
+            <Users className="h-3.5 w-3.5 shrink-0 text-emerald-300" aria-hidden />
+            <span className="font-semibold text-emerald-100/95">Aktuell eingestempelt</span>
+            <span className="text-[var(--text-muted)]">·</span>
+            <span>Lade laufende Zeiten…</span>
+          </p>
         ) : sorted.length === 0 ? (
-          <p className="text-sm text-[var(--text-muted)]">Niemand eingestempelt.</p>
+          <p className="text-sm text-[var(--text-muted)]">
+            <Users className="mr-1.5 inline h-3.5 w-3.5 text-emerald-300 align-text-bottom" aria-hidden />
+            <span className="font-semibold text-emerald-100/95">Aktuell eingestempelt</span>
+            <span className="text-[var(--text-faint)]"> · </span>
+            Niemand eingestempelt.
+          </p>
         ) : (
-          <ul className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+          <>
+            <div className="flex shrink-0 items-center gap-1.5 text-emerald-100/95">
+              <Users className="h-3.5 w-3.5 text-emerald-300" aria-hidden />
+              <span className="text-sm font-semibold tracking-tight">Aktuell eingestempelt</span>
+            </div>
+            <ul className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
             {sorted.map((e) => {
               const emp = byId.get(e.employeeId)
               const name = displayNameForEntry(e, emp?.displayName)
@@ -127,7 +138,7 @@ export function ActiveAttendanceBar({ className }: ActiveAttendanceBarProps) {
               const src = sourceBadge(e.source)
               return (
                 <li key={e.id}>
-                  <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-emerald-400/35 bg-[var(--bg-elevated)]/90 px-3 py-1.5 text-xs shadow-[0_0_14px_rgba(16,185,129,0.2)]">
+                  <div className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-emerald-400/35 bg-[var(--bg-elevated)]/90 px-2.5 py-1 text-xs shadow-[0_0_12px_rgba(16,185,129,0.18)]">
                     <span className="truncate font-semibold text-[var(--text-main)]">{name}</span>
                     <span className="shrink-0 text-[var(--text-muted)]">·</span>
                     <span className="shrink-0 tabular-nums text-emerald-200/90">seit {since}</span>
@@ -142,7 +153,8 @@ export function ActiveAttendanceBar({ className }: ActiveAttendanceBarProps) {
                 </li>
               )
             })}
-          </ul>
+            </ul>
+          </>
         )}
       </div>
     </section>

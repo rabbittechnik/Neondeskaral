@@ -43,7 +43,7 @@ export function TuvReportDashboardReminder() {
 
   if (error) {
     return (
-      <div className="rounded-xl border border-rose-500/35 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+      <div className="rounded-lg border border-rose-500/35 bg-rose-500/10 px-3 py-2 text-xs text-rose-100">
         TÜV-Status konnte nicht geladen werden: {error}
       </div>
     )

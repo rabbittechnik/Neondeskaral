@@ -43,7 +43,7 @@ export function StatCard({
               }
             : undefined
         }
-        className={`relative min-h-[88px] max-h-none overflow-hidden ${accentClass} ${onClick ? 'cursor-pointer transition hover:bg-white/[0.03]' : ''} ${className}`}
+        className={`relative min-h-[76px] max-h-none overflow-hidden ${accentClass} ${onClick ? 'cursor-pointer transition hover:bg-white/[0.03]' : ''} ${className}`}
       >
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0 flex-1">
@@ -55,7 +55,7 @@ export function StatCard({
               <div className="mt-1 text-[10px] leading-snug text-[var(--text-muted)]">{compactFooter}</div>
             ) : null}
           </div>
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-sm)] bg-black/30 text-[var(--text-main)] shadow-inner shadow-black/20">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-sm)] bg-black/30 text-[var(--text-main)] shadow-inner shadow-black/20">
             {icon}
           </div>
         </div>
