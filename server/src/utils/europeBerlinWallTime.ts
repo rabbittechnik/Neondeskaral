@@ -83,3 +83,19 @@ export function formatHmDuration(totalMinutes: number): string {
   if (mm === 0) return `${h} Std.`
   return `${h} Std. ${mm} Min.`
 }
+
+/** Abweichung vom Schichtbeginn, z. B. „18 Min. früher“, „1 Std. 25 Min. später“. */
+export function formatDeviationEarlyLateDe(direction: 'earlier' | 'later', totalMinutes: number): string {
+  const base = formatHmDuration(Math.max(0, Math.round(totalMinutes)))
+  return direction === 'earlier' ? `${base} früher` : `${base} später`
+}
+
+/** Aktuelle Uhrzeit als HH:mm in Europe/Berlin (für Terminal-Popup). */
+export function formatTimeHmBerlin(utcMs: number): string {
+  return new Intl.DateTimeFormat('de-DE', {
+    timeZone: EUROPE_BERLIN,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(new Date(utcMs))
+}

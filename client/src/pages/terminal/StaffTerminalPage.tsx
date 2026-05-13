@@ -37,8 +37,26 @@ type CheckInApiConfirm = {
   reason?: string
   message: string
   plannedStart?: string | null
+  plannedEnd?: string | null
+  plannedStartAt?: string
+  plannedEndAt?: string
+  displayText?: string
   actualStart?: string
   deviationMinutes?: number | null
+}
+
+function formatHmDurationDe(totalMinutes: number): string {
+  const m = Math.max(0, Math.round(totalMinutes))
+  if (m < 60) return `${m} Min.`
+  const h = Math.floor(m / 60)
+  const mm = m % 60
+  if (mm === 0) return `${h} Std.`
+  return `${h} Std. ${mm} Min.`
+}
+
+function formatCheckInDeviationFallback(reason: 'early' | 'late', deviationMinutes: number): string {
+  const core = formatHmDurationDe(deviationMinutes)
+  return reason === 'early' ? `${core} früher` : `${core} später`
 }
 
 type CheckoutEndConfirm = {
@@ -185,6 +203,22 @@ export function StaffTerminalPage() {
     }
   }, [modal, tabletStationQuery])
 
+  useEffect(() => {
+    if (!checkInApiConfirm) return
+    const p = checkInApiConfirm
+    const employeeName = employees.find((e) => e.id === p.employeeId)?.displayName
+    console.log('shift start deviation popup', {
+      employeeName,
+      plannedStartAt: p.plannedStartAt,
+      plannedEndAt: p.plannedEndAt,
+      actualStartAt: p.actualStart,
+      timezone: 'Europe/Berlin',
+      deviationMinutes: p.deviationMinutes,
+      reason: p.reason,
+      displayText: p.displayText,
+    })
+  }, [checkInApiConfirm, employees])
+
   const startShiftByEmployeeId = useCallback(
     async (employeeId: string, force: boolean, shiftId?: string) => {
       const fallbackStation = stationId ?? DEFAULT_TABLET_STATION_ID
@@ -240,6 +274,10 @@ export function StaffTerminalPage() {
             reason: typeof json.reason === 'string' ? json.reason : undefined,
             message: String(json.error ?? json.message ?? ''),
             plannedStart: json.plannedStart as string | null | undefined,
+            plannedEnd: typeof json.plannedEnd === 'string' ? json.plannedEnd : undefined,
+            plannedStartAt: typeof json.plannedStartAt === 'string' ? json.plannedStartAt : undefined,
+            plannedEndAt: typeof json.plannedEndAt === 'string' ? json.plannedEndAt : undefined,
+            displayText: typeof json.displayText === 'string' ? json.displayText : undefined,
             actualStart: typeof json.actualStart === 'string' ? json.actualStart : undefined,
             deviationMinutes:
               typeof json.deviationMinutes === 'number'
@@ -368,6 +406,10 @@ export function StaffTerminalPage() {
           reason: out.reason,
           message: out.message,
           plannedStart: out.plannedStart ?? null,
+          plannedEnd: out.plannedEnd,
+          plannedStartAt: out.plannedStartAt,
+          plannedEndAt: out.plannedEndAt,
+          displayText: out.displayText,
           actualStart: out.actualStart,
           deviationMinutes: out.deviationMinutes ?? null,
         })
@@ -470,20 +512,28 @@ export function StaffTerminalPage() {
     const name = emp?.displayName ?? 'Mitarbeiter'
     const planned = p.plannedStart ? `${p.plannedStart} Uhr` : '—'
     const actual = p.actualStart ? `${p.actualStart} Uhr` : '—'
-    const diff =
-      typeof p.deviationMinutes === 'number'
-        ? `${p.deviationMinutes} Minuten`
-        : p.reason === 'no_planned_shift'
-          ? ''
-          : '—'
+    const diffLineEarlyLate =
+      p.reason === 'early' || p.reason === 'late'
+        ? p.displayText ??
+          (typeof p.deviationMinutes === 'number'
+            ? formatCheckInDeviationFallback(p.reason, p.deviationMinutes)
+            : '—')
+        : null
     let title = 'Schicht starten'
     let body = p.message
+    let confirmLabel = 'Schicht trotzdem beginnen'
     if (p.reason === 'early') {
       title = 'Du beginnst deine Schicht früher als geplant.'
-      body = `Geplant: ${planned}\nAktuell: ${actual}\nDifferenz: ${diff} früher`
+      body = `Geplant: ${planned}\nAktuell: ${actual}\nDifferenz: ${diffLineEarlyLate ?? '—'}`
     } else if (p.reason === 'late') {
       title = 'Du beginnst deine Schicht später als geplant.'
-      body = `Geplant: ${planned}\nAktuell: ${actual}\nDifferenz: ${diff} später`
+      body = `Geplant: ${planned}\nAktuell: ${actual}\nDifferenz: ${diffLineEarlyLate ?? '—'}`
+    } else if (p.reason === 'shift_ended') {
+      title = 'Schicht bereits beendet'
+      const span =
+        p.plannedStart && p.plannedEnd ? `Geplant: ${p.plannedStart}–${p.plannedEnd} Uhr\n` : ''
+      body = `${span}${p.displayText ?? p.message}\nAktuell: ${actual}`
+      confirmLabel = 'Schicht trotzdem beginnen'
     } else if (p.reason === 'no_planned_shift') {
       title = 'Keine Schicht geplant'
       body = 'Für dich ist aktuell keine Schicht geplant.'
@@ -498,7 +548,7 @@ export function StaffTerminalPage() {
               disabled={checkInSubmitting}
               onClick={() => void finalizeCheckInByEmployee(p.employeeId, true, p.shiftId)}
             >
-              {checkInSubmitting ? 'Schicht wird gestartet…' : 'Schicht trotzdem beginnen'}
+              {checkInSubmitting ? 'Schicht wird gestartet…' : confirmLabel}
             </Button>
             <Button variant="ghost" type="button" disabled={checkInSubmitting} onClick={() => setCheckInApiConfirm(null)}>
               Abbrechen

@@ -219,6 +219,10 @@ function terminalCheckInErrorBody(out: Record<string, unknown>) {
       ? { deviationMinutes: out.deviationMinutes }
       : {}),
     ...('plannedStart' in out ? { plannedStart: out.plannedStart } : {}),
+    ...('plannedEnd' in out ? { plannedEnd: out.plannedEnd } : {}),
+    ...('plannedStartAt' in out ? { plannedStartAt: out.plannedStartAt } : {}),
+    ...('plannedEndAt' in out ? { plannedEndAt: out.plannedEndAt } : {}),
+    ...('displayText' in out ? { displayText: out.displayText } : {}),
     ...('employee' in out ? { employee: out.employee } : {}),
     ...('timeEntry' in out ? { timeEntry: out.timeEntry } : {}),
     ...('minutesLate' in out ? { minutesLate: out.minutesLate } : {}),

@@ -1,14 +1,8 @@
 import type { Database } from 'better-sqlite3'
 import { listEmployeesTabletClock } from './employeeService.js'
 import { listShiftRowsForStationDateRange, type ShiftRow } from './shiftService.js'
-import {
-  addDaysToYmd,
-  berlinWallClockToUtcMs,
-  displayHHMM,
-  formatHmDuration,
-  padHHMM,
-  ymdBerlinFromUtcMs,
-} from '../utils/europeBerlinWallTime.js'
+import { displayHHMM, formatHmDuration, ymdBerlinFromUtcMs } from '../utils/europeBerlinWallTime.js'
+import { shiftBoundsBerlin } from '../utils/shiftBerlinBounds.js'
 
 const PRE_START_MS = 60 * 60 * 1000
 const POST_END_MS = 15 * 60 * 1000
@@ -36,24 +30,6 @@ export type TabletCheckInAllEmployeeApi = {
   isClockedIn: boolean
   /** Kurzinfo zur heutigen Schicht (nur Anzeige, nicht für Vorschlag oben). */
   todayHint?: string
-}
-
-function shiftBoundsBerlin(row: ShiftRow): { startMs: number; endMs: number } | null {
-  const date = String(row.date ?? '').trim()
-  const st = String(row.start_time ?? '').trim()
-  const en = String(row.end_time ?? '').trim()
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !st || !en) return null
-  try {
-    const startMs = berlinWallClockToUtcMs(date, padHHMM(st))
-    let endMs = berlinWallClockToUtcMs(date, padHHMM(en))
-    if (endMs <= startMs) {
-      const next = addDaysToYmd(date, 1)
-      endMs = berlinWallClockToUtcMs(next, padHHMM(en))
-    }
-    return { startMs, endMs }
-  } catch {
-    return null
-  }
 }
 
 function runningEmployeeIds(db: Database, stationId: string): Set<string> {
