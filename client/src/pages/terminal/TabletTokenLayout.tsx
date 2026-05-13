@@ -45,6 +45,7 @@ function normalizeRadio(raw: unknown): TabletRadioConfig {
       streamUrl: null,
       streamUrlFallback: null,
       defaultVolume: 0.5,
+      defaultPresetId: null,
     }
   }
   const o = raw as Record<string, unknown>
@@ -53,12 +54,14 @@ function normalizeRadio(raw: unknown): TabletRadioConfig {
   if (typeof dv === 'number' && !Number.isNaN(dv)) defaultVolume = dv
   else if (dv != null) defaultVolume = Number(dv) || 0.5
   defaultVolume = Math.min(1, Math.max(0, defaultVolume))
+  const dpi = o.defaultPresetId
   return {
     enabled: o.enabled !== false && o.enabled !== 0,
     streamName: typeof o.streamName === 'string' ? o.streamName : null,
     streamUrl: typeof o.streamUrl === 'string' ? o.streamUrl : null,
     streamUrlFallback: typeof o.streamUrlFallback === 'string' ? o.streamUrlFallback : null,
     defaultVolume,
+    defaultPresetId: typeof dpi === 'string' && dpi.trim() ? dpi.trim() : null,
   }
 }
 

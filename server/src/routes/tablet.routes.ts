@@ -32,7 +32,11 @@ function stationRadioFromRow(st: Record<string, unknown>) {
   if (typeof rv === 'number' && !Number.isNaN(rv)) defaultVolume = rv
   else if (rv != null) defaultVolume = Number(rv) || 0.5
   defaultVolume = Math.min(1, Math.max(0, defaultVolume))
-  return { enabled, streamName, streamUrl, streamUrlFallback, defaultVolume }
+  const defaultPresetId =
+    typeof st.radio_default_preset_id === 'string' && st.radio_default_preset_id.trim()
+      ? st.radio_default_preset_id.trim()
+      : null
+  return { enabled, streamName, streamUrl, streamUrlFallback, defaultVolume, defaultPresetId }
 }
 
 tabletRouter.get('/session/:tabletToken', (req, res) => {

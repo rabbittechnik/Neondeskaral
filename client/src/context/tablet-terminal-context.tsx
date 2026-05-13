@@ -7,6 +7,8 @@ import {
   useState,
   type ReactNode,
 } from 'react'
+import { TabletRadioProvider } from './tablet-radio-context'
+import type { TabletRadioConfig } from '../types/tabletRadioSession'
 import type { ScheduleShift } from '../data/mockSchedule'
 import type { TimeEntry } from '../types/timeTracking'
 import type { Task, TaskLog } from '../types/task'
@@ -61,14 +63,7 @@ export type TabletRunningRow = {
   source: string
 }
 
-/** Radio-Konfiguration aus Tablet-Session (pro Station). */
-export type TabletRadioConfig = {
-  enabled: boolean
-  streamName: string | null
-  streamUrl: string | null
-  streamUrlFallback: string | null
-  defaultVolume: number
-}
+export type { TabletRadioConfig } from '../types/tabletRadioSession'
 
 export type FuelPricesPayload =
   | {
@@ -342,6 +337,14 @@ export function TabletTerminalProvider({
       fetchFuelPrices,
     ],
   )
+
+  if (tabletRadio?.enabled) {
+    return (
+      <TabletTerminalContext.Provider value={value}>
+        <TabletRadioProvider config={tabletRadio}>{children}</TabletRadioProvider>
+      </TabletTerminalContext.Provider>
+    )
+  }
 
   return <TabletTerminalContext.Provider value={value}>{children}</TabletTerminalContext.Provider>
 }

@@ -4,6 +4,7 @@ import { nowIso } from '../utils/timestamps.js'
 import { TEAMLEAD_PERMISSIONS } from '../constants/permissions.js'
 import { mathiasStationsleiterPermissions } from '../constants/mathiasStationsleiterPermissions.js'
 import { STATION_RADIO_DEFAULTS_ARAL_BODELSHAUSEN } from '../constants/stationRadioDefaults.js'
+import { TABLET_RADIO_DEFAULT_PRESET_ID } from '../constants/tabletRadioPresetIds.js'
 import { ensureDefaultUserStationAccess, ensureKnownStationsAndWorkAreas } from '../services/stationAccessService.js'
 import { calculateVacationImpact, normalizeAbsenceDbType } from '../utils/vacationImpactCalculator.js'
 
@@ -157,6 +158,8 @@ export function runMigrations(db: Database.Database) {
   syncMathiasRaselowskiAccount(db)
   ensureStationRadioColumns(db)
   seedAralBodelshausenStationRadio(db)
+  ensureStationRadioPresetsTable(db)
+  seedStationRadioDefaultPresetIds(db)
   ensureStationStammdatenColumns(db)
   ensureStationCanonicalNamesOnce(db)
   syncAralBodelshausenStationDisplayName(db)
@@ -221,6 +224,23 @@ function ensureStationRadioColumns(db: Database.Database) {
   add('radio_stream_url', 'radio_stream_url TEXT')
   add('radio_stream_url_fallback', 'radio_stream_url_fallback TEXT')
   add('radio_default_volume', 'radio_default_volume REAL DEFAULT 0.5')
+  add('radio_default_preset_id', 'radio_default_preset_id TEXT')
+}
+
+/** Optional: später Admin-UI für sender-spezifische Streams (aktuell nutzt das Client `tabletRadioStations.ts`). */
+function ensureStationRadioPresetsTable(db: Database.Database) {
+  db.exec(`CREATE TABLE IF NOT EXISTS station_radio_presets (
+    id TEXT PRIMARY KEY,
+    station_id TEXT,
+    name TEXT NOT NULL,
+    stream_url TEXT NOT NULL,
+    stream_url_fallback TEXT,
+    enabled INTEGER DEFAULT 1,
+    is_default INTEGER DEFAULT 0,
+    sort_order INTEGER DEFAULT 0,
+    created_at TEXT,
+    updated_at TEXT
+  )`)
 }
 
 function seedAralBodelshausenStationRadio(db: Database.Database) {
@@ -237,6 +257,15 @@ function seedAralBodelshausenStationRadio(db: Database.Database) {
     WHERE id = ?
       AND (radio_stream_url IS NULL OR trim(radio_stream_url) = '')`,
   ).run(d.streamName, d.streamUrl, d.streamUrlFallback, ts, d.stationId)
+}
+
+function seedStationRadioDefaultPresetIds(db: Database.Database) {
+  const ts = nowIso()
+  db.prepare(
+    `UPDATE stations SET radio_default_preset_id = ?, updated_at = ?
+     WHERE id = ?
+       AND (radio_default_preset_id IS NULL OR trim(radio_default_preset_id) = '')`,
+  ).run(TABLET_RADIO_DEFAULT_PRESET_ID, ts, STATION_RADIO_DEFAULTS_ARAL_BODELSHAUSEN.stationId)
 }
 
 function ensureUsersLastLoginAtColumn(db: Database.Database) {

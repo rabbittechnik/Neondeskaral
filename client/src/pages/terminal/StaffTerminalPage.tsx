@@ -22,6 +22,7 @@ import { getTaskStatusForDate, toISODateLocal } from '../../utils/taskUtils'
 import type { Task } from '../../types/task'
 import { TabletFuelPricesTab } from '../../components/terminal/TabletFuelPricesTab'
 import { TabletRadioTab } from '../../components/terminal/TabletRadioTab'
+import { TabletRadioMiniPlayer } from '../../components/terminal/TabletRadioMiniPlayer'
 import { TabletPwaUpdateControls } from '../../components/terminal/TabletPwaUpdateControls'
 
 type ModalMode = null | 'check-in' | 'check-out'
@@ -640,7 +641,9 @@ export function StaffTerminalPage() {
 
       {tab === 'fuel' ? <TabletFuelPricesTab fetchFuelPrices={fetchFuelPrices} /> : null}
 
-      {tab === 'radio' && showRadioTab && tabletRadio ? <TabletRadioTab config={tabletRadio} /> : null}
+      {tab === 'radio' && showRadioTab ? <TabletRadioTab /> : null}
+
+      {showRadioTab ? <TabletRadioMiniPlayer /> : null}
 
       {taskConfirm ? (
         <div className="fixed inset-0 z-[125] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
