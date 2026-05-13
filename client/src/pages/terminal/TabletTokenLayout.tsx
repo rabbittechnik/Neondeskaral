@@ -158,10 +158,15 @@ export function TabletTokenLayout() {
         </p>
         {accessInvalid && token ? (
           <div className="mt-8 flex max-w-md flex-col items-center gap-3">
-            <Button type="button" variant="primary" onClick={clearSaved}>
-              Gespeicherten Zugang löschen
-            </Button>
-            <p className="text-center text-xs text-slate-500">Bitte neuen Stations-QR-Code scannen.</p>
+            <div className="flex w-full flex-col gap-2 sm:flex-row sm:justify-center">
+              <Button type="button" variant="primary" onClick={clearSaved}>
+                Gespeicherten Zugang löschen
+              </Button>
+              <Button type="button" variant="outline" onClick={clearSaved}>
+                Neuen QR-Code scannen
+              </Button>
+            </div>
+            <p className="text-center text-xs text-slate-500">Anschließend auf der Einrichtungsseite „Stations-QR scannen“ wählen.</p>
           </div>
         ) : token ? (
           <div className="mt-8 flex max-w-md flex-col items-center gap-2">
