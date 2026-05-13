@@ -20,6 +20,8 @@ import { useScheduleShiftInteractions } from '../../components/schedule/useSched
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { ShiftModal } from '../../components/schedule/shift/ShiftModal'
 import { formatShiftTimeRangeDE } from '../../utils/dateFormat'
+import { computeTimelineRangeFromWeekBlocks } from '../../utils/scheduleTimeline'
+import { useViewportScheduleDensity } from '../../hooks/useViewportScheduleDensity'
 
 export function WeeklySchedule() {
   const { selectedStation, federalState, stationId, hasPermission } = useStation()
@@ -29,6 +31,7 @@ export function WeeklySchedule() {
   const { shifts, setShifts, ensureWeekSeeded } = useScheduleShifts()
   const [employeeFilter, setEmployeeFilter] = useState<string>('all')
 
+  const viewportDensity = useViewportScheduleDensity()
   const [modalOpen, setModalOpen] = useState(false)
   const [modalShift, setModalShift] = useState<ScheduleShift | null>(null)
 
@@ -64,6 +67,11 @@ export function WeeklySchedule() {
   const allBlocks = useMemo(
     () => resolveShiftsForWeekGrid(shifts, weekMonday),
     [shifts, weekMonday],
+  )
+
+  const timelineRange = useMemo(
+    () => computeTimelineRangeFromWeekBlocks(allBlocks),
+    [allBlocks],
   )
 
   const hoursByEmployee = useMemo(() => computeWeeklyHoursByEmployee(allBlocks), [allBlocks])
@@ -133,7 +141,7 @@ export function WeeklySchedule() {
 
   return (
     <Card
-      className="border-cyan-500/25 shadow-[0_0_28px_rgba(34,211,238,0.12)]"
+      className="min-w-0 max-w-full border-cyan-500/25 shadow-[0_0_28px_rgba(34,211,238,0.12)]"
       padding="md"
     >
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -171,6 +179,7 @@ export function WeeklySchedule() {
         selectedId={employeeFilter === 'all' ? null : employeeFilter}
         onToggleEmployee={toggleEmployeeFilter}
         dashboardCompact
+        viewportDensity={viewportDensity}
         assignDragEnabled={canEditPlan}
         onEmployeePointerDownCapture={shiftInteractions.onEmployeePointerDownCapture}
       />
@@ -181,6 +190,9 @@ export function WeeklySchedule() {
         blocks={gridBlocks}
         variant="compact"
         stationFederalState={federalState}
+        timelineDayStart={timelineRange.start}
+        timelineDayEnd={timelineRange.end}
+        viewportDensity={viewportDensity}
         showTitle={false}
         showLegend={false}
         showFooterLink

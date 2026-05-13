@@ -94,9 +94,24 @@ export function listTimeEntries(
 
 export function listRunning(db: Database, stationId = DEFAULT_STATION_ID) {
   const rows = db
-    .prepare(`SELECT * FROM time_entries WHERE station_id = ? AND status = 'running' ORDER BY start_at`)
-    .all(stationId) as TimeEntryRow[]
-  return rows.map(rowToTimeEntryApi)
+    .prepare(
+      `SELECT te.*, e.display_name AS employee_display_name
+       FROM time_entries te
+       LEFT JOIN employees e ON e.id = te.employee_id AND e.station_id = te.station_id
+       WHERE te.station_id = ?
+         AND te.status = 'running'
+         AND (te.end_at IS NULL OR trim(te.end_at) = '')
+       ORDER BY te.start_at`,
+    )
+    .all(stationId) as (TimeEntryRow & { employee_display_name?: string | null })[]
+  return rows.map((r) => {
+    const employee_display_name = r.employee_display_name
+    const base = rowToTimeEntryApi(r)
+    return {
+      ...base,
+      employeeName: employee_display_name?.trim() || undefined,
+    }
+  })
 }
 
 export function listToday(db: Database, stationId = DEFAULT_STATION_ID) {

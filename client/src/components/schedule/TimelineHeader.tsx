@@ -3,17 +3,19 @@ import {
   minutesToClock,
   timeToMinutes,
 } from '../../utils/scheduleTimeline'
-import type { ScheduleTimelineVariant } from './timelineLayout'
+import type { ScheduleTimelineVariant, TimelineLayout } from './timelineLayout'
 import { getTimelineLayout } from './timelineLayout'
 
 type Props = {
   dayStart: string
   dayEnd: string
   variant?: ScheduleTimelineVariant
+  /** Wenn gesetzt (z. B. aus DayTimelineRow), muss zur Zeilen-Layout-Dichte passen. */
+  layout?: TimelineLayout
 }
 
-export function TimelineHeader({ dayStart, dayEnd, variant = 'full' }: Props) {
-  const layout = getTimelineLayout(variant)
+export function TimelineHeader({ dayStart, dayEnd, variant = 'full', layout: layoutProp }: Props) {
+  const layout = layoutProp ?? getTimelineLayout(variant)
   const ticks = buildTimelineTicks(dayStart, dayEnd, layout.tickStepMinutes)
   const ds = timeToMinutes(dayStart)
   const de = timeToMinutes(dayEnd)

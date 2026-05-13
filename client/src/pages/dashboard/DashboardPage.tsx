@@ -14,38 +14,38 @@ import { TuvReportDashboardReminder } from '../../components/tuv/TuvReportDashbo
 
 export function DashboardPage() {
   return (
-    <div className="space-y-4 pb-6">
-      <section className="grid gap-3 xl:grid-cols-12 xl:items-stretch">
-        <div className="space-y-3 xl:col-span-8">
+    <div className="min-w-0 max-w-full space-y-4 pb-6">
+      <section className="grid min-w-0 grid-cols-1 gap-3 min-[1400px]:grid-cols-12 min-[1400px]:items-stretch">
+        <div className="min-w-0 space-y-3 min-[1400px]:col-span-8">
           <TuvReportDashboardReminder />
           <WelcomeBanner />
         </div>
-        <div className="xl:col-span-4">
+        <div className="min-w-0 min-[1400px]:col-span-4">
           <DashboardStats />
         </div>
       </section>
 
       <ActiveAttendanceBar />
 
-      <section className="grid gap-3 xl:grid-cols-12 xl:items-stretch">
-        <div className="space-y-3 xl:col-span-8">
+      <section className="grid min-w-0 grid-cols-1 gap-3 min-[1400px]:grid-cols-12 min-[1400px]:items-stretch">
+        <div className="min-w-0 space-y-3 min-[1400px]:col-span-8">
           <WeeklySchedule />
         </div>
-        <div className="space-y-3 xl:col-span-4">
+        <div className="min-w-0 space-y-3 min-[1400px]:col-span-4">
           <PendingTimeApprovalsCard />
           <PendingAbsencesCard />
           <UnfilledShiftsCard />
         </div>
       </section>
 
-      <section className="grid gap-3 lg:grid-cols-12">
-        <div className="lg:col-span-4">
+      <section className="grid min-w-0 grid-cols-1 gap-3 min-[1024px]:grid-cols-2 min-[1400px]:grid-cols-12">
+        <div className="min-w-0 min-[1400px]:col-span-4">
           <QuickActions />
         </div>
-        <div className="lg:col-span-4">
+        <div className="min-w-0 min-[1400px]:col-span-4">
           <BirthdaysCard />
         </div>
-        <div className="lg:col-span-4">
+        <div className="min-w-0 min-[1400px]:col-span-4">
           <WeatherCard />
         </div>
       </section>

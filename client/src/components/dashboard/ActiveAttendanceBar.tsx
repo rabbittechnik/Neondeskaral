@@ -5,26 +5,36 @@ import type { TimeEntry } from '../../types/timeTracking'
 import { calculateWorkedMinutes, formatWorkedDuration } from '../../utils/timeTrackingUtils'
 import { apiGet } from '../../services/api'
 import { useStation } from '../../context/station-context'
+import {
+  RUNNING_ENTRIES_REFRESH_EVENT,
+} from '../../utils/runningEntriesSync'
 
 function sourceBadge(source: string | undefined): { label: string; className: string } {
   if (source === 'tablet' || source === 'cash_register_card_terminal') {
-    return { label: 'Tablet', className: 'border-cyan-400/50 bg-cyan-950/80 text-cyan-100' }
+    return { label: 'TABLET', className: 'border-cyan-400/50 bg-cyan-950/80 text-cyan-100' }
   }
   if (source === 'employee_mobile_app') {
-    return { label: 'Mitarbeiter-App', className: 'border-emerald-400/45 bg-emerald-950/70 text-emerald-100' }
+    return { label: 'MITARBEITER-APP', className: 'border-emerald-400/45 bg-emerald-950/70 text-emerald-100' }
   }
   if (source === 'manual') {
-    return { label: 'Manuell', className: 'border-amber-400/45 bg-amber-950/70 text-amber-100' }
+    return { label: 'MANUELL', className: 'border-amber-400/45 bg-amber-950/70 text-amber-100' }
   }
-  return { label: 'Zeit', className: 'border-white/15 bg-black/40 text-slate-200' }
+  return { label: 'ZEIT', className: 'border-white/15 bg-black/40 text-slate-200' }
 }
 
-function formatSince(iso: string): string {
+function formatSinceClock(iso: string): string {
   try {
-    return new Date(iso).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+    const t = new Date(iso).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+    return `${t} Uhr`
   } catch {
     return '—'
   }
+}
+
+function displayNameForEntry(e: TimeEntry, employeeDisplayName: string | undefined): string {
+  const fromApi = e.employeeName?.trim()
+  const fromCtx = employeeDisplayName?.trim()
+  return fromApi || fromCtx || 'Mitarbeiter'
 }
 
 export function ActiveAttendanceBar() {
@@ -33,6 +43,8 @@ export function ActiveAttendanceBar() {
   const [running, setRunning] = useState<TimeEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  /** Jede Minute neu rendern für Laufzeit-Anzeige */
+  const [nowTick, setNowTick] = useState(() => Date.now())
 
   const load = useCallback(async () => {
     if (!stationId) {
@@ -51,13 +63,25 @@ export function ActiveAttendanceBar() {
       setRunning(Array.isArray(res.data) ? res.data : [])
     }
     setLoading(false)
+    setNowTick(Date.now())
   }, [stationId])
 
   useEffect(() => {
     void load()
-    const id = window.setInterval(() => void load(), 45_000)
-    return () => window.clearInterval(id)
+    const poll = window.setInterval(() => void load(), 30_000)
+    return () => window.clearInterval(poll)
   }, [load])
+
+  useEffect(() => {
+    const onRefresh = () => void load()
+    window.addEventListener(RUNNING_ENTRIES_REFRESH_EVENT, onRefresh)
+    return () => window.removeEventListener(RUNNING_ENTRIES_REFRESH_EVENT, onRefresh)
+  }, [load])
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNowTick(Date.now()), 60_000)
+    return () => window.clearInterval(id)
+  }, [])
 
   const sorted = useMemo(() => {
     const list = [...running]
@@ -67,31 +91,35 @@ export function ActiveAttendanceBar() {
 
   const byId = useMemo(() => new Map(employees.map((e) => [e.id, e])), [employees])
 
+  const now = useMemo(() => new Date(nowTick), [nowTick])
+
   return (
     <section
       className="rounded-[var(--radius-md)] border border-emerald-400/30 bg-gradient-to-r from-emerald-500/[0.12] via-cyan-500/[0.08] to-emerald-500/[0.12] px-4 py-3 shadow-[0_0_28px_rgba(52,211,153,0.12),inset_0_1px_0_rgba(255,255,255,0.06)]"
       aria-label="Aktuell eingestempelt"
     >
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex min-w-0 flex-wrap items-center gap-3">
         <div className="flex shrink-0 items-center gap-2 text-emerald-100/95">
           <Users className="h-4 w-4 text-emerald-300" aria-hidden />
           <h2 className="text-sm font-semibold tracking-tight">Aktuell eingestempelt</h2>
         </div>
 
         {error ? (
-          <p className="text-sm text-rose-300">{error}</p>
+          <p className="text-sm text-rose-300" title={error}>
+            Aktuell eingestempelt konnte nicht geladen werden.
+          </p>
         ) : loading ? (
           <p className="text-sm text-[var(--text-muted)]">Lade laufende Zeiten…</p>
         ) : sorted.length === 0 ? (
-          <p className="text-sm text-[var(--text-muted)]">Aktuell ist niemand eingestempelt.</p>
+          <p className="text-sm text-[var(--text-muted)]">Niemand eingestempelt.</p>
         ) : (
           <ul className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
             {sorted.map((e) => {
               const emp = byId.get(e.employeeId)
-              const name = emp?.displayName ?? e.employeeId
-              const mins = calculateWorkedMinutes(e.startAt, undefined, new Date())
+              const name = displayNameForEntry(e, emp?.displayName)
+              const mins = calculateWorkedMinutes(e.startAt, undefined, now)
               const dur = formatWorkedDuration(mins)
-              const since = formatSince(e.startAt)
+              const since = formatSinceClock(e.startAt)
               const src = sourceBadge(e.source)
               return (
                 <li key={e.id}>

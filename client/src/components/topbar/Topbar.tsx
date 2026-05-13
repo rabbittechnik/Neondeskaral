@@ -83,7 +83,7 @@ export function Topbar() {
             <button
               type="button"
               onClick={() => setStationOpen((o) => !o)}
-              className="flex max-w-[200px] items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--bg-card)] px-3 py-2 text-left text-sm text-[var(--text-main)] hover:border-cyan-400/35 md:max-w-[260px]"
+              className="flex max-w-[min(200px,28vw)] items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--bg-card)] px-2.5 py-2 text-left text-sm text-[var(--text-main)] hover:border-cyan-400/35 min-[1400px]:max-w-[260px] md:px-3"
               aria-expanded={stationOpen}
               aria-haspopup="listbox"
             >
@@ -118,7 +118,7 @@ export function Topbar() {
             ) : null}
           </>
         ) : (
-          <div className="flex max-w-[220px] items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border-subtle)]/60 bg-[var(--bg-card)]/50 px-3 py-2 text-sm text-[var(--text-muted)] md:max-w-[280px]">
+          <div className="flex max-w-[min(220px,32vw)] items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border-subtle)]/60 bg-[var(--bg-card)]/50 px-2.5 py-2 text-sm text-[var(--text-muted)] min-[1400px]:max-w-[280px] md:px-3">
             <MapPin className="h-4 w-4 shrink-0 text-cyan-300/80" aria-hidden />
             <span className="min-w-0 truncate font-medium text-[var(--text-main)]">{stationLabel}</span>
           </div>
@@ -126,13 +126,13 @@ export function Topbar() {
       </div>
 
       <div className="mx-auto hidden min-w-0 flex-1 md:block">
-        <label className="relative block">
+        <label className="relative mx-auto block max-w-[clamp(220px,35vw,620px)] min-[1400px]:max-w-2xl xl:max-w-2xl">
           <span className="sr-only">Suche</span>
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-faint)]" />
           <input
             type="search"
             placeholder="Suche (Mitarbeiter, Module, …)"
-            className="h-10 w-full max-w-2xl rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-card)] py-2 pl-10 pr-3 text-sm text-[var(--text-main)] placeholder:text-[var(--text-faint)] focus:border-cyan-400/40 focus:outline-none focus:ring-2 focus:ring-cyan-400/20"
+            className="h-10 w-full rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-card)] py-2 pl-10 pr-3 text-sm text-[var(--text-main)] placeholder:text-[var(--text-faint)] focus:border-cyan-400/40 focus:outline-none focus:ring-2 focus:ring-cyan-400/20"
           />
         </label>
       </div>

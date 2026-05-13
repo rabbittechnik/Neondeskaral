@@ -11,6 +11,7 @@ import type { CashRegisterCardEvent, ShiftCloseChecklist, TimeEntry } from '../t
 import { DEFAULT_TABLET_STATION_ID } from '../data/station'
 import { API_BASE, apiGet, apiSend } from '../services/api'
 import { useStation } from './station-context'
+import { notifyRunningEntriesRefresh } from '../utils/runningEntriesSync'
 
 type TimeTrackingContextValue = {
   timeEntries: TimeEntry[]
@@ -139,6 +140,7 @@ export function TimeTrackingProvider({ children }: { children: ReactNode }) {
       if (!entry) throw new Error('Keine Zeiterfassung in der Antwort')
       await refetch()
       await refetchCardEvents()
+      notifyRunningEntriesRefresh()
       return entry
     },
     [refetch, refetchCardEvents, stationId],
@@ -168,6 +170,7 @@ export function TimeTrackingProvider({ children }: { children: ReactNode }) {
       if (!res.ok) throw new Error(res.error)
       await refetch()
       await refetchCardEvents()
+      notifyRunningEntriesRefresh()
     },
     [refetch, refetchCardEvents],
   )

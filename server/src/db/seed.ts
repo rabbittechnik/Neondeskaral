@@ -711,34 +711,6 @@ export function seedIfEmpty(db: Database.Database) {
        VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
     )
     insTe.run(
-      'te-run-1',
-      STATION_ID,
-      'e3',
-      '2026-05-12T05:32:00.000Z',
-      null,
-      0,
-      'running',
-      'cash_register_card_terminal',
-      'Terminal',
-      null,
-      ts,
-      ts,
-    )
-    insTe.run(
-      'te-run-2',
-      STATION_ID,
-      'e2',
-      '2026-05-12T05:29:00.000Z',
-      null,
-      0,
-      'running',
-      'cash_register_card_terminal',
-      'Terminal',
-      null,
-      ts,
-      ts,
-    )
-    insTe.run(
       'te-done-1',
       STATION_ID,
       'e7',

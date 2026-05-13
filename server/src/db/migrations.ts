@@ -142,6 +142,16 @@ export function runMigrations(db: Database.Database) {
   migrateAbsenceVacationModel(db)
   ensureFuelPriceCacheAndStationTankerkoenig(db)
   ensureTaskLogsTabletColumns(db)
+  removeSeedDemoRunningTimeEntries(db)
+}
+
+/** Früherer Seed: feste IDs mit „running“ — produktiv keine Demo-Eingestempelten. */
+function removeSeedDemoRunningTimeEntries(db: Database.Database) {
+  try {
+    db.prepare(`DELETE FROM time_entries WHERE id IN ('te-run-1', 'te-run-2')`).run()
+  } catch {
+    /* ignore */
+  }
 }
 
 function ensureFuelPriceCacheAndStationTankerkoenig(db: Database.Database) {

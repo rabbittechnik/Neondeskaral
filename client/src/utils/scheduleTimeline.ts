@@ -2,7 +2,8 @@ import type { ResolvedShiftBlock } from '../data/mockSchedule'
 
 /** Standard-Zeitfenster der Tagesachse (konfigurierbar über Props). */
 export const DEFAULT_TIMELINE_DAY_START = '05:00'
-export const DEFAULT_TIMELINE_DAY_END = '22:30'
+/** Sichtbarer Standard bis Abend (ohne unnötige 24h-Achse). */
+export const DEFAULT_TIMELINE_DAY_END = '22:00'
 
 const MINUTES_PER_DAY = 24 * 60
 
@@ -222,4 +223,83 @@ export function buildTimelineTicks(
   }
   if (ticks.length === 0 || ticks[ticks.length - 1] !== de) ticks.push(de)
   return [...new Set(ticks)].sort((a, b) => a - b)
+}
+
+export type WeekTimelineRange = { start: string; end: string }
+
+function snapTimelineDown30(minutes: number): number {
+  return Math.floor(minutes / 30) * 30
+}
+
+function snapTimelineUp30(minutes: number): number {
+  return Math.ceil(minutes / 30) * 30
+}
+
+function formatTimelineClock(totalMinutes: number): string {
+  const m = Math.max(0, Math.round(totalMinutes))
+  const h = Math.floor(m / 60)
+  const min = m % 60
+  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`
+}
+
+/**
+ * Einheitliches Tagesfenster für die Wochen-Timeline aus allen Schichten (ohne „Frei“),
+ * inkl. Puffer und 30-Minuten-Raster. Nachtschichten verlängern das Ende über Mitternacht (z. B. 30:30).
+ */
+export function computeTimelineRangeFromWeekBlocks(
+  blocks: ResolvedShiftBlock[],
+  options?: {
+    bufferMinutes?: number
+    fallbackStart?: string
+    fallbackEnd?: string
+    minSpanMinutes?: number
+    maxEndMinutes?: number
+  },
+): WeekTimelineRange {
+  const buffer = options?.bufferMinutes ?? 30
+  const fallbackStart = options?.fallbackStart ?? DEFAULT_TIMELINE_DAY_START
+  const fallbackEnd = options?.fallbackEnd ?? DEFAULT_TIMELINE_DAY_END
+  const minSpan = options?.minSpanMinutes ?? 9 * 60
+  const maxEndCap = options?.maxEndMinutes ?? 48 * 60
+
+  const relevant = blocks.filter((b) => b.type !== 'frei')
+  if (relevant.length === 0) {
+    return { start: fallbackStart, end: fallbackEnd }
+  }
+
+  let minStart = Number.POSITIVE_INFINITY
+  let maxEnd = 0
+
+  for (const b of relevant) {
+    const sm = timeToMinutes(b.start)
+    let em = timeToMinutes(b.end)
+    if (em <= sm) {
+      em += MINUTES_PER_DAY
+    }
+    minStart = Math.min(minStart, sm)
+    maxEnd = Math.max(maxEnd, em)
+  }
+
+  if (!Number.isFinite(minStart)) {
+    return { start: fallbackStart, end: fallbackEnd }
+  }
+
+  let startM = snapTimelineDown30(minStart - buffer)
+  let endM = snapTimelineUp30(maxEnd + buffer)
+
+  if (startM < 0) startM = 0
+  if (endM > maxEndCap) endM = maxEndCap
+
+  if (endM - startM < minSpan) {
+    endM = startM + minSpan
+    if (endM > maxEndCap) {
+      endM = maxEndCap
+      startM = Math.max(0, endM - minSpan)
+    }
+  }
+
+  return {
+    start: formatTimelineClock(startM),
+    end: formatTimelineClock(endM),
+  }
 }

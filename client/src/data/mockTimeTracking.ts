@@ -17,30 +17,6 @@ export function buildSeedTimeEntries(): TimeEntry[] {
 
   const entries: TimeEntry[] = [
     {
-      id: 'te-run-1',
-      employeeId: 'e3',
-      stationId: STATION.id,
-      startAt: localAtDate(today, 5, 32),
-      breakMinutes: 0,
-      status: 'running',
-      source: 'cash_register_card_terminal',
-      startedBy: 'Terminal',
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: 'te-run-2',
-      employeeId: 'e2',
-      stationId: STATION.id,
-      startAt: localAtDate(today, 5, 29),
-      breakMinutes: 0,
-      status: 'running',
-      source: 'cash_register_card_terminal',
-      startedBy: 'Terminal',
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
       id: 'te-done-luca',
       employeeId: 'e7',
       stationId: STATION.id,

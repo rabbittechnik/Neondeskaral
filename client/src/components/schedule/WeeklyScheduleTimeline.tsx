@@ -12,7 +12,7 @@ import {
 } from '../../utils/scheduleTimeline'
 import type { GermanState } from '../../data/germanHolidays'
 import { STATION_FEDERAL_STATE } from '../../data/station'
-import type { ScheduleTimelineVariant } from './timelineLayout'
+import type { ScheduleTimelineVariant, TimelineViewportDensity } from './timelineLayout'
 import type { WeekTimelineEditBridge } from './scheduleTimelineEditTypes'
 
 type Props = {
@@ -32,6 +32,8 @@ type Props = {
   showFooterLink?: boolean
   /** Drag & Drop / Resize (Schichtplan + Dashboard, wenn shiftEdit gesetzt) */
   shiftEdit?: WeekTimelineEditBridge
+  /** Kompaktere Zeilen / Schrift unter 1400px bzw. 1200px Viewport */
+  viewportDensity?: TimelineViewportDensity
 }
 
 function startOfLocalDay(d: Date): Date {
@@ -71,6 +73,7 @@ export function WeeklyScheduleTimeline({
   showFooterLink,
   stationFederalState = STATION_FEDERAL_STATE,
   shiftEdit,
+  viewportDensity = 'comfort',
 }: Props) {
   const days = weekDayDates(weekMonday)
   const employeeById = useMemo(() => new Map(employees.map((e) => [e.id, e])), [employees])
@@ -105,6 +108,7 @@ export function WeeklyScheduleTimeline({
             stationFederalState={stationFederalState}
             onShiftSelect={onShiftSelect}
             shiftEdit={shiftEdit}
+            viewportDensity={viewportDensity}
           />
         ))}
       </div>

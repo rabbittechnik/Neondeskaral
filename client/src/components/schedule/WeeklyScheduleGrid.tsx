@@ -1,7 +1,7 @@
 import type { ResolvedShiftBlock } from '../../data/mockSchedule'
 import type { GermanState } from '../../data/germanHolidays'
 import type { ScheduleEmployeeRow } from '../../types/employee'
-import type { ScheduleTimelineVariant } from './timelineLayout'
+import type { ScheduleTimelineVariant, TimelineViewportDensity } from './timelineLayout'
 import { WeeklyScheduleTimeline } from './WeeklyScheduleTimeline'
 
 import type { WeekTimelineEditBridge } from './scheduleTimelineEditTypes'
@@ -19,6 +19,7 @@ type Props = {
   timelineDayEnd?: string
   stationFederalState?: GermanState
   shiftEdit?: WeekTimelineEditBridge
+  viewportDensity?: TimelineViewportDensity
 }
 
 export function WeeklyScheduleGrid(props: Props) {

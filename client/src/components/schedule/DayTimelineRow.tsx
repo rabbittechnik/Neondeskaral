@@ -16,7 +16,7 @@ import {
 import { TimelineHeader } from './TimelineHeader'
 import { OpenShiftBlock } from './OpenShiftBlock'
 import { TimelineShiftBlock } from './TimelineShiftBlock'
-import type { ScheduleTimelineVariant } from './timelineLayout'
+import type { ScheduleTimelineVariant, TimelineViewportDensity } from './timelineLayout'
 import { getTimelineLayout } from './timelineLayout'
 import { useAbsences } from '../../context/absences-context'
 import { useEmployees } from '../../context/employees-context'
@@ -35,6 +35,7 @@ type Props = {
   dayStart: string
   dayEnd: string
   variant?: ScheduleTimelineVariant
+  viewportDensity?: TimelineViewportDensity
   /** Bundesland der Station (z. B. BW) für Feiertagslogik */
   stationFederalState: GermanState
   onShiftSelect?: (block: ResolvedShiftBlock) => void
@@ -51,12 +52,16 @@ export function DayTimelineRow({
   dayStart,
   dayEnd,
   variant = 'full',
+  viewportDensity = 'comfort',
   stationFederalState,
   onShiftSelect,
   shiftEdit,
 }: Props) {
   const trackRef = useRef<HTMLDivElement>(null)
-  const layout = getTimelineLayout(variant)
+  const layout = useMemo(
+    () => getTimelineLayout(variant, viewportDensity),
+    [variant, viewportDensity],
+  )
   const weekday = WEEKDAY_LABELS_LONG[dayIndex] ?? ''
   const dateIso = useMemo(() => toISODate(dayDate), [dayDate])
   const { absences } = useAbsences()
@@ -174,7 +179,7 @@ export function DayTimelineRow({
         className={`flex flex-col lg:flex-row lg:items-stretch ${layout.dayOuterPadding} ${layout.dayInnerGap}`}
       >
         <div
-          className={`flex shrink-0 flex-col gap-0.5 rounded-l-[calc(var(--radius-md)-2px)] pl-2 lg:pl-3 ${layout.leftColClass} ${leftRail}`}
+          className={`flex min-w-0 shrink-0 flex-col gap-0.5 rounded-l-[calc(var(--radius-md)-2px)] pl-2 lg:pl-3 ${layout.leftColClass} ${leftRail}`}
         >
           <div className="flex flex-wrap items-center gap-2">
             <h3 className={`text-[var(--text-main)] ${layout.dayLabelClass}`}>
@@ -222,9 +227,14 @@ export function DayTimelineRow({
           ) : null}
         </div>
 
-        <div className="min-h-0 min-w-0 flex-1 overflow-x-auto [-webkit-overflow-scrolling:touch]">
-          <div className={`relative w-full ${layout.scrollMinWidthClass}`}>
-            <TimelineHeader variant={variant} dayStart={dayStart} dayEnd={dayEnd} />
+        <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden">
+          <div className={`relative ${layout.scrollMinWidthClass}`}>
+            <TimelineHeader
+              variant={variant}
+              dayStart={dayStart}
+              dayEnd={dayEnd}
+              layout={layout}
+            />
             <div
               ref={trackRef}
               className={`relative rounded-b-lg border border-t-0 border-white/10 bg-black/25 ${trackHoliday}`}

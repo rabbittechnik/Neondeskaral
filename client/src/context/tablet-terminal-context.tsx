@@ -13,6 +13,7 @@ import type { Task, TaskLog } from '../types/task'
 import type { WorkAreaDefinition } from '../types/employee'
 import { API_BASE } from '../services/api'
 import { useStation } from './station-context'
+import { notifyRunningEntriesRefresh } from '../utils/runningEntriesSync'
 import type { ClockCardEmployee } from '../utils/timeTrackingUtils'
 
 function buildQuery(params?: Record<string, string | undefined>): string {
@@ -218,6 +219,7 @@ export function TabletTerminalProvider({ children }: { children: ReactNode }) {
         throw new Error(json.error ?? 'Ausstempeln fehlgeschlagen')
       }
       await refetch()
+      notifyRunningEntriesRefresh()
     },
     [refetch],
   )

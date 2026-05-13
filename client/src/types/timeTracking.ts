@@ -12,6 +12,8 @@ export type TimeEntrySource =
 export type TimeEntry = {
   id: string
   employeeId: string
+  /** Aus API (Join employees), für Anzeige ohne Client-Cache */
+  employeeName?: string
   stationId: string
   shiftId?: string
   startAt: string

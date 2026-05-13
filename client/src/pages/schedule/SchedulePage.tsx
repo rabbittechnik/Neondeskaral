@@ -38,6 +38,8 @@ import { useScheduleShiftInteractions } from '../../components/schedule/useSched
 import { useAbsences } from '../../context/absences-context'
 import { useAuth } from '../../context/auth-context'
 import { formatShiftTimeRangeDE } from '../../utils/dateFormat'
+import { computeTimelineRangeFromWeekBlocks } from '../../utils/scheduleTimeline'
+import { useViewportScheduleDensity } from '../../hooks/useViewportScheduleDensity'
 import { apiGet } from '../../services/api'
 
 export function SchedulePage() {
@@ -57,6 +59,8 @@ export function SchedulePage() {
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create')
   const [modalShift, setModalShift] = useState<ScheduleShift | null>(null)
   const [assistantOpen, setAssistantOpen] = useState(false)
+
+  const viewportDensity = useViewportScheduleDensity()
 
   const weekMonday = useMemo(() => {
     const base = startOfWeekMonday(new Date())
@@ -111,6 +115,11 @@ export function SchedulePage() {
   const allBlocks = useMemo(
     () => resolveShiftsForWeekGrid(shifts, weekMonday),
     [shifts, weekMonday],
+  )
+
+  const timelineRange = useMemo(
+    () => computeTimelineRangeFromWeekBlocks(allBlocks),
+    [allBlocks],
   )
 
   /** Wochenraster: nur echte Dienste + offene Schichten (kein „Frei“). */
@@ -284,7 +293,7 @@ export function SchedulePage() {
   })
 
   return (
-    <div className="space-y-5 pb-8">
+    <div className="min-w-0 max-w-full space-y-5 pb-8">
       <header className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0 space-y-2">
           <h1 className="text-2xl font-semibold tracking-tight text-[var(--text-main)]">
@@ -323,6 +332,18 @@ export function SchedulePage() {
         </div>
         <ScheduleViewTabs active={view} onChange={setView} />
       </header>
+
+      {view === 'calendar' ? (
+        <ScheduleEmployeeSummaryBar
+          employees={scheduleRows}
+          weeklyHoursById={hoursByEmployee}
+          selectedId={employeeFilter === 'all' ? null : employeeFilter}
+          onToggleEmployee={toggleEmployeeFilter}
+          viewportDensity={viewportDensity}
+          assignDragEnabled={canEditPlan}
+          onEmployeePointerDownCapture={shiftInteractions.onEmployeePointerDownCapture}
+        />
+      ) : null}
 
       <ScheduleToolbar
         workAreaFilter={workAreaFilter}
@@ -430,39 +451,32 @@ export function SchedulePage() {
       ) : null}
 
       {view === 'calendar' ? (
-        <>
-          <ScheduleEmployeeSummaryBar
-            employees={scheduleRows}
-            weeklyHoursById={hoursByEmployee}
-            selectedId={employeeFilter === 'all' ? null : employeeFilter}
-            onToggleEmployee={toggleEmployeeFilter}
-            assignDragEnabled={canEditPlan}
-            onEmployeePointerDownCapture={shiftInteractions.onEmployeePointerDownCapture}
-          />
-          <div className="grid gap-6 xl:grid-cols-12">
-            <div className="space-y-4 xl:col-span-9">
-              <WeeklyScheduleGrid
-                variant="full"
-                stationFederalState={federalState}
-                weekMonday={weekMonday}
-                employees={scheduleRows}
-                blocks={gridBlocks}
-                onShiftSelect={openEdit}
-                shiftEdit={shiftInteractions.shiftEdit}
-              />
-            </div>
-            <div className="space-y-4 xl:col-span-3">
-              <ScheduleStatsPanel
-                blocks={allBlocks}
-                openShifts={openShiftsThisWeek}
-                absences={weekAbsencesPanel}
-                conflicts={panelConflicts}
-                conflictsLoadError={conflictsError}
-                employeeHourLabels={employeeHourLabels}
-              />
-            </div>
+        <div className="grid min-w-0 grid-cols-1 gap-4 min-[1400px]:grid-cols-12 min-[1400px]:gap-6">
+          <div className="min-w-0 space-y-4 min-[1400px]:col-span-9">
+            <WeeklyScheduleGrid
+              variant="full"
+              stationFederalState={federalState}
+              weekMonday={weekMonday}
+              employees={scheduleRows}
+              blocks={gridBlocks}
+              onShiftSelect={openEdit}
+              timelineDayStart={timelineRange.start}
+              timelineDayEnd={timelineRange.end}
+              viewportDensity={viewportDensity}
+              shiftEdit={shiftInteractions.shiftEdit}
+            />
           </div>
-        </>
+          <div className="min-w-0 space-y-4 min-[1400px]:col-span-3">
+            <ScheduleStatsPanel
+              blocks={allBlocks}
+              openShifts={openShiftsThisWeek}
+              absences={weekAbsencesPanel}
+              conflicts={panelConflicts}
+              conflictsLoadError={conflictsError}
+              employeeHourLabels={employeeHourLabels}
+            />
+          </div>
+        </div>
       ) : null}
 
       {view === 'employee' ? (

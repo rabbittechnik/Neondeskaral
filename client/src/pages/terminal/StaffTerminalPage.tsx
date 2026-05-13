@@ -7,6 +7,7 @@ import type { TimeEntry } from '../../types/timeTracking'
 import type { CashRegisterCardEvent } from '../../types/timeTracking'
 import { API_BASE } from '../../services/api'
 import { DEFAULT_TABLET_STATION_ID } from '../../data/station'
+import { notifyRunningEntriesRefresh } from '../../utils/runningEntriesSync'
 import { TerminalActionButtons } from '../../components/terminal/TerminalActionButtons'
 import { CashRegisterNumberModal } from '../../components/terminal/CashRegisterNumberModal'
 import { TerminalResultMessage } from '../../components/terminal/TerminalResultMessage'
@@ -111,6 +112,7 @@ export function StaffTerminalPage() {
       const entry = json.data?.timeEntry ?? json.timeEntry
       if (!entry) throw new Error('Keine Zeiterfassung in der Antwort')
       await refetch()
+      notifyRunningEntriesRefresh()
       return entry
     },
     [refetch, stationId],
