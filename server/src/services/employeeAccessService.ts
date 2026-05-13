@@ -143,6 +143,9 @@ function roleLabelForEmployeeApp(row: EmployeeRow): string {
     verkaufer: 'Verkäufer',
     aushilfe: 'Aushilfe',
     aushilfen: 'Aushilfe',
+    vollzeit: 'Vollzeit',
+    'chef / administrator': 'Chef / Administrator',
+    'chef/administrator': 'Chef / Administrator',
   }
   if (empRole && map[empRole]) return map[empRole]!
   if (empRole) return empRole.charAt(0).toUpperCase() + empRole.slice(1)

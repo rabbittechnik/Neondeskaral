@@ -143,6 +143,35 @@ export function runMigrations(db: Database.Database) {
   ensureFuelPriceCacheAndStationTankerkoenig(db)
   ensureTaskLogsTabletColumns(db)
   removeSeedDemoRunningTimeEntries(db)
+  alignAralBodelshausenEmployeeDisplayRoles(db)
+}
+
+/** Stammdaten-Anzeige-Rollen für Bodelshausen (bestehende DBs, Railway-Deploy). */
+function alignAralBodelshausenEmployeeDisplayRoles(db: Database.Database) {
+  const stationId = 'aral-bodelshausen'
+  const ts = nowIso()
+  const stmt = db.prepare(
+    `UPDATE employees SET role = ?, employment_role = ?, employment_type = ?, updated_at = ? WHERE id = ? AND station_id = ?`,
+  )
+  const rows: { id: string; role: string; employment_role: string; employment_type: string }[] = [
+    { id: 'e1', role: 'Schichtleiter', employment_role: 'Schichtleiter', employment_type: 'vollzeit' },
+    { id: 'e3', role: 'Chef / Administrator', employment_role: 'Chef / Administrator', employment_type: 'teilzeit' },
+    { id: 'e4', role: 'Vollzeit', employment_role: 'Vollzeit', employment_type: 'vollzeit' },
+    { id: 'e5', role: 'Aushilfe', employment_role: 'Aushilfe', employment_type: 'aushilfe' },
+    { id: 'e6', role: 'Aushilfe', employment_role: 'Aushilfe', employment_type: 'aushilfe' },
+    { id: 'e7', role: 'Aushilfe', employment_role: 'Aushilfe', employment_type: 'aushilfe' },
+    { id: 'e8', role: 'Aushilfe', employment_role: 'Aushilfe', employment_type: 'aushilfe' },
+  ]
+  for (const r of rows) {
+    stmt.run(r.role, r.employment_role, r.employment_type, ts, r.id, stationId)
+  }
+  try {
+    db.prepare(
+      `UPDATE roles SET role_label = 'Schichtleiter', name = 'Schichtleitung', description = 'Schichtleitung' WHERE id = 'role-station-team-lead'`,
+    ).run()
+  } catch {
+    /* ignore */
+  }
 }
 
 /** Früherer Seed: feste IDs mit „running“ — produktiv keine Demo-Eingestempelten. */
@@ -319,7 +348,7 @@ function migrateRoleLabelsAndAbsenceRejectColumns(db: Database.Database) {
     const perms = JSON.stringify(TEAMLEAD_PERMISSIONS)
     db.prepare(
       `INSERT INTO roles (id, name, description, permissions_json, role_key, role_label)
-       VALUES ('role-station-team-lead', 'Stationsleitung', 'Teamleitung / Stationsleitung', ?, 'station_team_lead', 'Stationsleitung / Teamleitung')`,
+       VALUES ('role-station-team-lead', 'Schichtleitung', 'Schichtleitung', ?, 'station_team_lead', 'Schichtleiter')`,
     ).run(perms)
   }
 

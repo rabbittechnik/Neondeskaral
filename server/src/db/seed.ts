@@ -87,7 +87,7 @@ const EMPLOYEES: EmpSeed[] = [
     email: 'max.vins@station.demo',
     phone: '+49 170 0000003',
     birthday: '1998-11-03',
-    role: 'Verkäufer',
+    role: 'Chef / Administrator',
     employment_type: 'teilzeit',
     hourly_wage: 13.5,
     monthly_salary: null,
@@ -111,7 +111,7 @@ const EMPLOYEES: EmpSeed[] = [
     email: 'metin.oezguer@station.demo',
     phone: '+49 170 0000004',
     birthday: '1988-01-30',
-    role: 'Schichtleiter',
+    role: 'Vollzeit',
     employment_type: 'vollzeit',
     hourly_wage: 15.5,
     monthly_salary: 2750,
@@ -159,8 +159,8 @@ const EMPLOYEES: EmpSeed[] = [
     email: 'chiara.h@station.demo',
     phone: '+49 170 0000006',
     birthday: '1995-09-09',
-    role: 'Verkäufer',
-    employment_type: 'vollzeit',
+    role: 'Aushilfe',
+    employment_type: 'aushilfe',
     hourly_wage: 14,
     monthly_salary: null,
     weekly_hours: 40,
@@ -183,8 +183,8 @@ const EMPLOYEES: EmpSeed[] = [
     email: 'luca.stoeck@station.demo',
     phone: '+49 170 0000007',
     birthday: '1993-12-01',
-    role: 'Verkäufer',
-    employment_type: 'teilzeit',
+    role: 'Aushilfe',
+    employment_type: 'aushilfe',
     hourly_wage: 13.8,
     monthly_salary: null,
     weekly_hours: 35,
@@ -208,7 +208,7 @@ const EMPLOYEES: EmpSeed[] = [
     phone: '+49 170 0000008',
     birthday: '2000-02-14',
     role: 'Aushilfe',
-    employment_type: 'minijob',
+    employment_type: 'aushilfe',
     hourly_wage: 12,
     monthly_salary: null,
     weekly_hours: 15,
@@ -331,17 +331,17 @@ export function seedIfEmpty(db: Database.Database) {
       `INSERT INTO roles (id, name, description, permissions_json, role_key, role_label) VALUES (?, ?, ?, ?, ?, ?)`,
     ).run(
       'role-station-team-lead',
-      'Stationsleitung',
-      'Stationsleitung / Teamleitung',
+      'Schichtleitung',
+      'Schichtleitung',
       JSON.stringify(TEAMLEAD_PERMISSIONS),
       'station_team_lead',
-      'Stationsleitung / Teamleitung',
+      'Schichtleiter',
     )
 
     const hashMax = bcrypt.hashSync(process.env.ADMIN_MAX_PASSWORD ?? '00066777', 10)
     const hashMathias = bcrypt.hashSync(process.env.ADMIN_MATTHIAS_PASSWORD ?? '200520', 10)
     const maxUsername = String(process.env.ADMIN_MAX_USERNAME ?? 'max').trim().toLowerCase()
-    const matUsername = String(process.env.ADMIN_MATTHIAS_USERNAME ?? 'matthias').trim().toLowerCase()
+    const matUsername = String(process.env.ADMIN_MATTHIAS_USERNAME ?? 'mathias').trim().toLowerCase()
 
     const insUser = db.prepare(
       `INSERT INTO users (id, username, email, password_hash, display_name, role_id, global_admin, active, created_at, updated_at)
@@ -415,7 +415,22 @@ export function seedIfEmpty(db: Database.Database) {
       }
     }
 
-    db.prepare(`UPDATE employees SET employment_role = ? WHERE id = 'e1'`).run('Teamleiter / Stationsleitung')
+    const updEmpLine = db.prepare(
+      `UPDATE employees SET role = ?, employment_role = ?, employment_type = ?, updated_at = ? WHERE id = ? AND station_id = ?`,
+    )
+    const tsUpd = nowIso()
+    const lineJobs: { id: string; role: string; employment_role: string; employment_type: string }[] = [
+      { id: 'e1', role: 'Schichtleiter', employment_role: 'Schichtleiter', employment_type: 'vollzeit' },
+      { id: 'e3', role: 'Chef / Administrator', employment_role: 'Chef / Administrator', employment_type: 'teilzeit' },
+      { id: 'e4', role: 'Vollzeit', employment_role: 'Vollzeit', employment_type: 'vollzeit' },
+      { id: 'e5', role: 'Aushilfe', employment_role: 'Aushilfe', employment_type: 'aushilfe' },
+      { id: 'e6', role: 'Aushilfe', employment_role: 'Aushilfe', employment_type: 'aushilfe' },
+      { id: 'e7', role: 'Aushilfe', employment_role: 'Aushilfe', employment_type: 'aushilfe' },
+      { id: 'e8', role: 'Aushilfe', employment_role: 'Aushilfe', employment_type: 'aushilfe' },
+    ]
+    for (const row of lineJobs) {
+      updEmpLine.run(row.role, row.employment_role, row.employment_type, tsUpd, row.id, STATION_ID)
+    }
 
     const updPlanning = db.prepare(
       `UPDATE employees SET

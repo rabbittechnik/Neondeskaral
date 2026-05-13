@@ -30,6 +30,10 @@ export function ScheduleEmployeeSummaryBar({
   assignDragEnabled,
   onEmployeePointerDownCapture,
 }: Props) {
+  const n = employees.length
+  const layoutTight = n >= 9 || viewportDensity !== 'comfort'
+  const manyRows = n > 14
+
   return (
     <section className="min-w-0 max-w-full rounded-[var(--radius-md)] border border-cyan-500/15 bg-[var(--bg-card)]/75 shadow-[0_0_40px_rgba(34,211,238,0.06),var(--shadow-card)] backdrop-blur-md">
       <div className="flex min-w-0 items-center justify-between gap-2 border-b border-[var(--border-subtle)] px-3 py-2">
@@ -47,8 +51,15 @@ export function ScheduleEmployeeSummaryBar({
         </div>
       </div>
 
-      <div className="min-w-0 p-2 sm:p-2.5">
-        <div className="grid min-w-0 gap-2 [grid-template-columns:repeat(auto-fit,minmax(min(100%,132px),1fr))]">
+      <div
+        className={`min-w-0 p-2 sm:p-2.5 ${manyRows ? 'max-h-[min(38rem,52vh)] overflow-y-auto overflow-x-hidden pr-0.5 [scrollbar-width:thin]' : 'overflow-x-hidden'}`}
+      >
+        <div
+          className="grid min-w-0 gap-1.5 sm:gap-2"
+          style={{
+            gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 108px), 1fr))',
+          }}
+        >
           {employees.map((e) => (
             <EmployeeSummaryCard
               key={e.id}
@@ -58,6 +69,7 @@ export function ScheduleEmployeeSummaryBar({
               compact={Boolean(dashboardCompact)}
               fluid
               viewportDensity={viewportDensity}
+              layoutTight={layoutTight}
               onPointerDownCapture={
                 assignDragEnabled && onEmployeePointerDownCapture
                   ? (ev) => onEmployeePointerDownCapture(ev, e)
