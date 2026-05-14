@@ -38,7 +38,7 @@ type DayDetail = {
   scheduledHours: number
   plannedPaidVacationHours?: number
   plannedOtherPaidAbsenceHours?: number
-  timeEntries: { id: string; startAt: string; endAt: string | null; hours: number; open: boolean }[]
+  timeEntries: { id: string; startAt: string; endAt: string | null; hours: number; open: boolean; earlyLeaveDoc?: string }[]
   trackedHours: number
   usedHours: number
   differenceHours: number
@@ -65,6 +65,7 @@ type ReportRow = {
   unplannedWorkDayCount: number
   vacationDays: number
   paidVacationHours: number
+  paidOtherAbsenceHours?: number
   overtimeHours: number
   basePay: number
   supplementsTotal: number
@@ -725,7 +726,17 @@ export function PayrollSummaryPage() {
                     </td>
                     <td className="px-0.5 py-1 pr-1 tabular-nums sm:pr-2">{formatHoursDe(r.scheduleHoursTotal)}</td>
                     <td className="px-0.5 py-1 pr-1 tabular-nums sm:pr-2">{formatHoursDe(r.timeTrackingHoursTotal)}</td>
-                    <td className="px-0.5 py-1 pr-1 tabular-nums font-medium sm:pr-2">{formatHoursDe(r.usedHoursTotal)}</td>
+                    <td className="px-0.5 py-1 pr-1 tabular-nums font-medium sm:pr-2">
+                      <div>{formatHoursDe(r.usedHoursTotal)}</div>
+                      {r.paidVacationHours > 0 || (r.paidOtherAbsenceHours ?? 0) > 0 ? (
+                        <div className="mt-0.5 text-[9px] font-normal text-[var(--text-faint)] sm:text-[10px]">
+                          {r.paidVacationHours > 0 ? `Urlaub ${formatHoursDe(r.paidVacationHours)}` : ''}
+                          {(r.paidOtherAbsenceHours ?? 0) > 0
+                            ? `${r.paidVacationHours > 0 ? ' · ' : ''}sonst. bez. Abw. ${formatHoursDe(r.paidOtherAbsenceHours ?? 0)}`
+                            : ''}
+                        </div>
+                      ) : null}
+                    </td>
                     <td className="px-0.5 py-1 pr-1 tabular-nums sm:pr-2">
                       {r.differenceHours > 0 ? '+' : ''}
                       {formatHoursDe(r.differenceHours)}

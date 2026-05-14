@@ -357,9 +357,20 @@ terminalRouter.post('/check-out', (req, res) => {
         notDoneItems?: { itemKey: string; reason: string }[]
         cashDifference?: number
         force?: boolean
+        earlyLeaveAck?: { reason: string; note?: string | null }
       },
     )
     if (!out.ok) {
+      if ('requiresEarlyLeaveReason' in out && out.requiresEarlyLeaveReason) {
+        return res.status(200).json({
+          ok: false,
+          requiresEarlyLeaveReason: true,
+          plannedEnd: out.plannedEnd,
+          actualEnd: out.actualEnd,
+          deviationMinutes: out.deviationMinutes,
+          message: out.message,
+        })
+      }
       if ('requiresConfirmation' in out && out.requiresConfirmation) {
         return res.status(200).json({
           ok: false,
@@ -400,9 +411,20 @@ terminalRouter.post('/check-out-complete', (req, res) => {
         force?: boolean
         taskCloseDeclarations?: { taskId: string; outcome: 'done' | 'not_done'; notDoneReason?: string }[]
         taskCloseAccuracyConfirmed?: boolean
+        earlyLeaveAck?: { reason: string; note?: string | null }
       },
     )
     if (!out.ok) {
+      if ('requiresEarlyLeaveReason' in out && out.requiresEarlyLeaveReason) {
+        return res.status(200).json({
+          ok: false,
+          requiresEarlyLeaveReason: true,
+          plannedEnd: out.plannedEnd,
+          actualEnd: out.actualEnd,
+          deviationMinutes: out.deviationMinutes,
+          message: out.message,
+        })
+      }
       if ('requiresConfirmation' in out && out.requiresConfirmation) {
         return res.status(200).json({
           ok: false,

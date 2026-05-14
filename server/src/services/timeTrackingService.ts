@@ -44,6 +44,11 @@ export type TimeEntryRow = {
   planned_end_at: string | null
   end_deviation_minutes: number | null
   end_deviation_type: string | null
+  early_leave_minutes: number | null
+  early_leave_reason: string | null
+  early_leave_note: string | null
+  early_leave_confirmed_at: string | null
+  early_leave_confirmed_by_employee_id: string | null
   created_at: string | null
   updated_at: string | null
 }
@@ -99,6 +104,16 @@ export function rowToTimeEntryApi(r: TimeEntryRow) {
       | 'no_planned_shift'
       | 'on_time'
       | undefined,
+    earlyLeaveMinutes:
+      r.early_leave_minutes == null || Number.isNaN(Number(r.early_leave_minutes))
+        ? undefined
+        : Number(r.early_leave_minutes),
+    earlyLeaveReason: r.early_leave_reason ? String(r.early_leave_reason) : undefined,
+    earlyLeaveNote: r.early_leave_note ? String(r.early_leave_note) : undefined,
+    earlyLeaveConfirmedAt: r.early_leave_confirmed_at ? String(r.early_leave_confirmed_at) : undefined,
+    earlyLeaveConfirmedByEmployeeId: r.early_leave_confirmed_by_employee_id
+      ? String(r.early_leave_confirmed_by_employee_id)
+      : undefined,
     createdAt: r.created_at ?? nowIso(),
     updatedAt: r.updated_at ?? nowIso(),
   }
@@ -821,7 +836,7 @@ export function insertShiftCloseMiddayCollectiveHandover(
       fridge_fronted, drinks_filled, cigarettes_filled, shelves_filled, trash_emptied,
       counter_clean, coffee_area_clean, outside_checked, incidents_noted, handover_possible,
       closing_ready, everything_ok, incident_note, cash_difference, completed_at, created_at
-    ) VALUES (?, ?, ?, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, ?, 0, ?, ?)`,
+    ) VALUES (?, ?, ?, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, ?, 0, ?, ?)`,
   ).run(legacyId, p.timeEntryId, p.employeeId, note || '', ts, ts)
 
   return runId

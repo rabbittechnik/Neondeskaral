@@ -124,6 +124,7 @@ export function terminalCheckOutComplete(
     force?: boolean
     taskCloseDeclarations?: { taskId: string; outcome: 'done' | 'not_done'; notDoneReason?: string }[]
     taskCloseAccuracyConfirmed?: boolean
+    earlyLeaveAck?: { reason: string; note?: string | null }
   },
 ) {
   const card = String(body.cardNumber ?? '').trim()
@@ -139,6 +140,7 @@ export function terminalCheckOutComplete(
       taskCloseDeclarations: body.taskCloseDeclarations,
       taskCloseAccuracyConfirmed: body.taskCloseAccuracyConfirmed,
       checkoutSource: 'tablet',
+      earlyLeaveAck: body.earlyLeaveAck,
     },
     card && teBefore
       ? { logCardOnSuccess: { cardNumber: card, stationId: teBefore.stationId, employeeId: teBefore.employeeId } }
@@ -213,6 +215,7 @@ export function terminalCheckOutFull(
     notDoneItems?: { itemKey: string; reason: string }[]
     cashDifference?: number
     force?: boolean
+    earlyLeaveAck?: { reason: string; note?: string | null }
   },
 ) {
   const stationId = body.stationId || 'aral-bodelshausen'
@@ -263,6 +266,7 @@ export function terminalCheckOutFull(
     timeEntryId: running.id,
     checklist: built.checklist,
     force: Boolean(body.force),
+    earlyLeaveAck: body.earlyLeaveAck,
   })
 }
 

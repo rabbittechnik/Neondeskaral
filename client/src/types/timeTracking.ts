@@ -42,6 +42,12 @@ export type TimeEntry = {
   plannedEndAt?: string
   endDeviationMinutes?: number
   endDeviationType?: 'early' | 'late' | 'no_planned_shift' | 'on_time'
+  /** Stations-Tablet: Pflichtgrund bei >30 Min. vor Plan-Ende */
+  earlyLeaveMinutes?: number
+  earlyLeaveReason?: string
+  earlyLeaveNote?: string
+  earlyLeaveConfirmedAt?: string
+  earlyLeaveConfirmedByEmployeeId?: string
 }
 
 export type ShiftCloseChecklist = {

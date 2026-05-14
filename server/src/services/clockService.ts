@@ -39,6 +39,12 @@ import {
 import { shiftBoundsBerlin } from '../utils/shiftBerlinBounds.js'
 import { isEarlyShiftForBakingNotice } from './earlyShiftForBaking.js'
 import { resolveBackshopNoticeForStationAndDate, type BackshopItemSnapshot } from './backshopRoutineService.js'
+import { nowIso } from '../utils/timestamps.js'
+import {
+  EARLY_LEAVE_REASON_REQUIRED_MINUTES,
+  parseEarlyLeaveAck,
+  type ParsedEarlyLeaveAck,
+} from '../constants/earlyLeaveCheckout.js'
 
 function parseHHMM(t: string): number {
   const [h, m] = t.split(':').map(Number)
@@ -612,6 +618,8 @@ export function clockCheckOutComplete(
     taskCloseDeclarations?: ShiftCloseTaskDeclaration[]
     taskCloseAccuracyConfirmed?: boolean
     checkoutSource?: 'employee_app' | 'tablet'
+    /** Stations-Tablet: Pflicht bei >30 Min. vor Plan-Ende (siehe `requiresEarlyLeaveReason`). */
+    earlyLeaveAck?: { reason: string; note?: string | null }
   },
   options?: { logCardOnSuccess?: { cardNumber: string; stationId: string; employeeId: string } },
 ):
@@ -621,6 +629,14 @@ export function clockCheckOutComplete(
       ok: false
       requiresConfirmation: true
       reason: 'early_end' | 'late_end'
+      plannedEnd: string
+      actualEnd: string
+      deviationMinutes: number
+      message: string
+    }
+  | {
+      ok: false
+      requiresEarlyLeaveReason: true
       plannedEnd: string
       actualEnd: string
       deviationMinutes: number
@@ -650,14 +666,18 @@ export function clockCheckOutComplete(
   const toleranceAt = new Date()
   const pForPlanned = plannedShiftForTimeEntry(db, row.station_id, row.employee_id, workDate, row.shift_id)
   const endMetaTolerance = computeEndDeviationPersist(toleranceAt, pForPlanned)
+  const checkoutSrc = body.checkoutSource ?? 'tablet'
+  const earlyMinTolerance =
+    endMetaTolerance.type === 'early' && typeof endMetaTolerance.minutes === 'number'
+      ? endMetaTolerance.minutes
+      : 0
 
-  if (!force && pForPlanned?.end_time && (endMetaTolerance.type === 'early' || endMetaTolerance.type === 'late')) {
-    const plannedEnd = displayHHMM(String(pForPlanned.end_time).trim())
+  const logCheckoutEndDev = () => {
+    const plannedEnd = displayHHMM(String(pForPlanned?.end_time ?? '').trim())
     const actualEnd = formatTimeHmBerlin(toleranceAt.getTime())
-    const empLog = getEmployee(db, row.employee_id, { includeAccessToken: false, includeSensitive: false })
     if (process.env.NODE_ENV !== 'production') {
       console.info('[checkout-end-confirm server]', {
-        employeeName: empLog?.displayName ?? row.employee_id,
+        employeeName: row.employee_id,
         employeeId: row.employee_id,
         timeEntryClockInAt: row.start_at,
         shiftId: row.shift_id,
@@ -666,97 +686,189 @@ export function clockCheckOutComplete(
         actualEndHmBerlin: actualEnd,
         deviationMinutes: endMetaTolerance.minutes,
         direction: endMetaTolerance.type === 'early' ? 'früher' : 'später',
-        plannedEndUtcMs: shiftBoundsBerlin(pForPlanned)?.endMs ?? null,
+        plannedEndUtcMs: pForPlanned ? shiftBoundsBerlin(pForPlanned)?.endMs ?? null : null,
         checkoutInstantIso: toleranceAt.toISOString(),
         stationTimezone: 'Europe/Berlin',
       })
     }
+  }
+
+  if (!force && Boolean(pForPlanned?.end_time) && endMetaTolerance.type === 'late') {
+    logCheckoutEndDev()
+    const plannedEnd = displayHHMM(String(pForPlanned!.end_time).trim())
+    const actualEnd = formatTimeHmBerlin(toleranceAt.getTime())
     return {
       ok: false as const,
       requiresConfirmation: true as const,
-      reason: endMetaTolerance.type === 'early' ? ('early_end' as const) : ('late_end' as const),
+      reason: 'late_end' as const,
       plannedEnd,
       actualEnd,
       deviationMinutes: endMetaTolerance.minutes ?? 0,
-      message:
-        endMetaTolerance.type === 'early'
-          ? 'Du beendest deine Schicht früher als geplant.'
-          : 'Du beendest deine Schicht später als geplant.',
+      message: 'Du beendest deine Schicht später als geplant.',
     }
   }
 
-  const wantsMiddayCollective = middayCollectiveHandoverApplies({
-    now: toleranceAt,
-    plannedEndTimeHm: pForPlanned?.end_time ?? null,
-  })
+  const tabletNeedsEarlyReason =
+    checkoutSrc === 'tablet' &&
+    Boolean(pForPlanned?.end_time) &&
+    endMetaTolerance.type === 'early' &&
+    earlyMinTolerance > EARLY_LEAVE_REASON_REQUIRED_MINUTES
 
-  if (wantsMiddayCollective) {
-    if (!isCollectiveMiddayHandoverSubmission(checklist as Record<string, unknown>)) {
-      return { ok: false as const, error: 'Bitte die Schichtübergabe bestätigen (Liste lesen und unten bestätigen).' }
+  let tabletEarlyLeaveSave: ParsedEarlyLeaveAck | null = null
+  if (tabletNeedsEarlyReason) {
+    const plannedEnd = displayHHMM(String(pForPlanned!.end_time).trim())
+    const actualEnd = formatTimeHmBerlin(toleranceAt.getTime())
+    if (!body.earlyLeaveAck) {
+      logCheckoutEndDev()
+      return {
+        ok: false as const,
+        requiresEarlyLeaveReason: true as const,
+        plannedEnd,
+        actualEnd,
+        deviationMinutes: earlyMinTolerance,
+        message:
+          'Du beendest deine Schicht mehr als 30 Minuten vor dem geplanten Ende. Bitte wähle einen Grund aus.',
+      }
     }
-    const mv = validateCollectiveMiddayHandover(checklist as Record<string, unknown>)
-    if (!mv.ok) return { ok: false as const, error: mv.error }
-    const remark = String((checklist as Record<string, unknown>).remark ?? '').trim()
-    insertShiftCloseMiddayCollectiveHandover(db, {
-      timeEntryId,
-      employeeId: row.employee_id,
-      stationId: row.station_id,
-      shiftId: row.shift_id,
-      remark,
-      checkoutSource: body.checkoutSource ?? 'tablet',
-    })
-  } else if (isCollectiveMiddayHandoverSubmission(checklist as Record<string, unknown>)) {
-    return { ok: false as const, error: 'Die Schichtübergabe-Liste gilt nur bei Schichtende zwischen ca. 13:00 und 15:00 Uhr.' }
-  } else if (isStructuredShiftClosePayload(checklist as Record<string, unknown>)) {
-    const v = validateStructuredShiftCloseChecklistForStation(db, row.station_id, checklist as Record<string, unknown>)
-    if (!v.ok) return { ok: false as const, error: v.error }
-    insertShiftCloseChecklistParsed(db, timeEntryId, row.employee_id, row.station_id, v.data)
-  } else {
-    const v = validateShiftCloseChecklist(checklist)
-    if (!v.ok) return { ok: false as const, error: v.error ?? 'Checkliste unvollständig' }
-    insertChecklist(db, timeEntryId, row.employee_id, checklist)
-    syncReviewItemsFromCloseChecklist(db, {
-      timeEntryId,
-      employeeId: row.employee_id,
-      stationId: row.station_id,
-      checklist: checklist as Record<string, unknown>,
-    })
+    const parsed = parseEarlyLeaveAck(body.earlyLeaveAck)
+    if (!parsed.ok) {
+      return { ok: false as const, error: parsed.error }
+    }
+    tabletEarlyLeaveSave = parsed.data
   }
 
-  if (blockingIds.length) {
-    const emp = getEmployee(db, row.employee_id, { includeAccessToken: false, includeSensitive: false })
-    const displayName = String(emp?.displayName ?? endedBy).trim() || 'Mitarbeiter'
-    persistShiftCloseTaskResponsesAndTaskLogs(db, {
+  const appEarlyNeedsForce =
+    checkoutSrc !== 'tablet' &&
+    !force &&
+    Boolean(pForPlanned?.end_time) &&
+    endMetaTolerance.type === 'early' &&
+    earlyMinTolerance > SHIFT_CLOCK_TOLERANCE_MIN
+
+  if (appEarlyNeedsForce) {
+    logCheckoutEndDev()
+    const plannedEnd = displayHHMM(String(pForPlanned!.end_time).trim())
+    const actualEnd = formatTimeHmBerlin(toleranceAt.getTime())
+    return {
+      ok: false as const,
+      requiresConfirmation: true as const,
+      reason: 'early_end' as const,
+      plannedEnd,
+      actualEnd,
+      deviationMinutes: earlyMinTolerance,
+      message: 'Du beendest deine Schicht früher als geplant.',
+    }
+  }
+
+  try {
+    const wantsMiddayCollective = middayCollectiveHandoverApplies({
+      now: toleranceAt,
+      plannedEndTimeHm: pForPlanned?.end_time ?? null,
+    })
+
+    if (wantsMiddayCollective) {
+      if (!isCollectiveMiddayHandoverSubmission(checklist as Record<string, unknown>)) {
+        return { ok: false as const, error: 'Bitte die Schichtübergabe bestätigen (Liste lesen und unten bestätigen).' }
+      }
+      const mv = validateCollectiveMiddayHandover(checklist as Record<string, unknown>)
+      if (!mv.ok) return { ok: false as const, error: mv.error }
+      const remark = String((checklist as Record<string, unknown>).remark ?? '').trim()
+      insertShiftCloseMiddayCollectiveHandover(db, {
+        timeEntryId,
+        employeeId: row.employee_id,
+        stationId: row.station_id,
+        shiftId: row.shift_id,
+        remark,
+        checkoutSource: body.checkoutSource ?? 'tablet',
+      })
+    } else if (isCollectiveMiddayHandoverSubmission(checklist as Record<string, unknown>)) {
+      return { ok: false as const, error: 'Die Schichtübergabe-Liste gilt nur bei Schichtende zwischen ca. 13:00 und 15:00 Uhr.' }
+    } else if (isStructuredShiftClosePayload(checklist as Record<string, unknown>)) {
+      const v = validateStructuredShiftCloseChecklistForStation(db, row.station_id, checklist as Record<string, unknown>)
+      if (!v.ok) return { ok: false as const, error: v.error }
+      insertShiftCloseChecklistParsed(db, timeEntryId, row.employee_id, row.station_id, v.data)
+    } else {
+      const v = validateShiftCloseChecklist(checklist)
+      if (!v.ok) return { ok: false as const, error: v.error ?? 'Checkliste unvollständig' }
+      insertChecklist(db, timeEntryId, row.employee_id, checklist)
+      syncReviewItemsFromCloseChecklist(db, {
+        timeEntryId,
+        employeeId: row.employee_id,
+        stationId: row.station_id,
+        checklist: checklist as Record<string, unknown>,
+      })
+    }
+
+    if (blockingIds.length) {
+      const emp = getEmployee(db, row.employee_id, { includeAccessToken: false, includeSensitive: false })
+      const displayName = String(emp?.displayName ?? endedBy).trim() || 'Mitarbeiter'
+      persistShiftCloseTaskResponsesAndTaskLogs(db, {
+        timeEntryId,
+        employeeId: row.employee_id,
+        stationId: row.station_id,
+        shiftId: row.shift_id,
+        source: body.checkoutSource ?? 'tablet',
+        dateYmd: workDate,
+        displayName,
+        items: body.taskCloseDeclarations!,
+      })
+    }
+
+    const endNow = new Date()
+    const endAtIso = endNow.toISOString()
+    const endMetaPersist = computeEndDeviationPersist(endNow, pForPlanned)
+
+    let elM: number | null = null
+    let elR: string | null = null
+    let elN: string | null = null
+    let elAt: string | null = null
+    let elBy: string | null = null
+    const earlyM2 =
+      endMetaPersist.type === 'early' && typeof endMetaPersist.minutes === 'number' ? endMetaPersist.minutes : 0
+    if (tabletEarlyLeaveSave && checkoutSrc === 'tablet' && earlyM2 > EARLY_LEAVE_REASON_REQUIRED_MINUTES) {
+      elM = earlyM2
+      elR = tabletEarlyLeaveSave.reason
+      elN = tabletEarlyLeaveSave.note
+      elAt = nowIso()
+      elBy = row.employee_id
+    }
+
+    db.prepare(
+      `UPDATE time_entries SET planned_end_at = ?, end_deviation_minutes = ?, end_deviation_type = ?,
+        early_leave_minutes = ?, early_leave_reason = ?, early_leave_note = ?, early_leave_confirmed_at = ?, early_leave_confirmed_by_employee_id = ?
+       WHERE id = ? AND status = 'running'`,
+    ).run(
+      endMetaPersist.plannedEndAt,
+      endMetaPersist.minutes,
+      endMetaPersist.type,
+      elM,
+      elR,
+      elN,
+      elAt,
+      elBy,
       timeEntryId,
-      employeeId: row.employee_id,
-      stationId: row.station_id,
-      shiftId: row.shift_id,
-      source: body.checkoutSource ?? 'tablet',
-      dateYmd: workDate,
-      displayName,
-      items: body.taskCloseDeclarations!,
-    })
+    )
+
+    closeTimeEntry(db, timeEntryId, endedBy, { endAt: endAtIso })
+
+    if (options?.logCardOnSuccess) {
+      logCardEvent(db, {
+        cardNumber: options.logCardOnSuccess.cardNumber,
+        employeeId: options.logCardOnSuccess.employeeId,
+        stationId: options.logCardOnSuccess.stationId,
+        actionType: 'check_out',
+        result: 'success',
+        message: 'Ausgestempelt',
+      })
+    }
+
+    return { ok: true as const, data: getTimeEntry(db, timeEntryId)! }
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e)
+    console.error('[clockCheckOutComplete] persist failed', { timeEntryId, detail, err: e })
+    return {
+      ok: false as const,
+      error:
+        'Schichtende konnte nicht gespeichert werden. Bitte erneut versuchen. Bleibt der Fehler, Administrator informieren (Log: clockCheckOutComplete).',
+    }
   }
-
-  const endNow = new Date()
-  const endAtIso = endNow.toISOString()
-  const endMetaPersist = computeEndDeviationPersist(endNow, pForPlanned)
-  db.prepare(
-    `UPDATE time_entries SET planned_end_at = ?, end_deviation_minutes = ?, end_deviation_type = ? WHERE id = ? AND status = 'running'`,
-  ).run(endMetaPersist.plannedEndAt, endMetaPersist.minutes, endMetaPersist.type, timeEntryId)
-
-  closeTimeEntry(db, timeEntryId, endedBy, { endAt: endAtIso })
-
-  if (options?.logCardOnSuccess) {
-    logCardEvent(db, {
-      cardNumber: options.logCardOnSuccess.cardNumber,
-      employeeId: options.logCardOnSuccess.employeeId,
-      stationId: options.logCardOnSuccess.stationId,
-      actionType: 'check_out',
-      result: 'success',
-      message: 'Ausgestempelt',
-    })
-  }
-
-  return { ok: true as const, data: getTimeEntry(db, timeEntryId)! }
 }

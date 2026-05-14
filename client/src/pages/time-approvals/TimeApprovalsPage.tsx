@@ -8,6 +8,7 @@ import { canApproveTimeEntries } from '../../utils/timeApproval'
 import { Button } from '../../components/ui/Button'
 import type { TimeEntry } from '../../types/timeTracking'
 import { calculateWorkedMinutes, formatWorkedDuration } from '../../utils/timeTrackingUtils'
+import { earlyLeaveReasonLabelDeClient } from '../../constants/earlyLeaveCheckout'
 import { dispatchNotificationsRefresh } from '../../utils/notificationsRefresh'
 
 type PendingRow = TimeEntry & { employeeDisplayName: string }
@@ -291,8 +292,20 @@ export function TimeApprovalsPage() {
                 {items.map((row) => {
                   const mins = calculateWorkedMinutes(row.startAt, row.endAt, new Date())
                   const ab = approvalBadge(row.approvalStatus)
+                  const earlyAttention =
+                    row.endDeviationType === 'early' &&
+                    (row.endDeviationMinutes ?? 0) > 30 &&
+                    (row.source === 'tablet' || row.source === 'cash_register_card_terminal')
+                  const earlyRowCls = earlyAttention
+                    ? row.earlyLeaveReason
+                      ? 'border-l-4 border-amber-400/90 bg-amber-500/[0.07]'
+                      : 'border-l-4 border-rose-500/90 bg-rose-500/[0.07]'
+                    : ''
                   return (
-                    <tr key={row.id} className="border-b border-[var(--border-subtle)] hover:bg-white/[0.02]">
+                    <tr
+                      key={row.id}
+                      className={`border-b border-[var(--border-subtle)] hover:bg-white/[0.02] ${earlyRowCls}`}
+                    >
                       <td className="px-3 py-2 font-medium text-[var(--text-main)]">{row.employeeDisplayName}</td>
                       <td className="px-3 py-2 text-[var(--text-muted)]">{row.startAt.slice(0, 10)}</td>
                       <td className="px-3 py-2 tabular-nums text-[var(--text-muted)]">
@@ -307,6 +320,13 @@ export function TimeApprovalsPage() {
                         <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold ${ab.cls}`}>
                           {ab.text}
                         </span>
+                        {earlyAttention ? (
+                          <p className="mt-1 text-[11px] text-amber-100/90">
+                            {row.earlyLeaveReason
+                              ? `Früher um ${row.endDeviationMinutes ?? '—'} Min. – ${earlyLeaveReasonLabelDeClient(String(row.earlyLeaveReason))}`
+                              : 'Früher beendet ohne dokumentierten Grund — Prüfen erforderlich'}
+                          </p>
+                        ) : null}
                       </td>
                       <td className="px-3 py-2 text-right">
                         <Button type="button" variant="outline" className="text-xs" onClick={() => void openDetail(row.id)}>
@@ -364,9 +384,53 @@ export function TimeApprovalsPage() {
                   <dt className="text-[var(--text-faint)]">Ende vs. Plan</dt>
                   <dd className="text-right text-[var(--text-main)]">
                     {detail.timeEntry.endDeviationType === 'no_planned_shift'
-                      ? '—'
+                      ? 'Kein geplantes Schichtende (ohne Plan-Schicht)'
                       : `${detail.timeEntry.endDeviationType === 'early' ? 'Früher' : 'Später'}: ${detail.timeEntry.endDeviationMinutes ?? '—'} Min.`}
                   </dd>
+                </div>
+              ) : null}
+              {detail.timeEntry.endDeviationType === 'early' &&
+              (detail.timeEntry.endDeviationMinutes ?? 0) > 30 &&
+              (detail.timeEntry.source === 'tablet' || detail.timeEntry.source === 'cash_register_card_terminal') ? (
+                <div
+                  className={`mt-3 rounded-lg border p-3 text-sm ${
+                    detail.timeEntry.earlyLeaveReason
+                      ? 'border-amber-400/40 bg-amber-500/10 text-amber-50/95'
+                      : 'border-rose-400/45 bg-rose-500/10 text-rose-50/95'
+                  }`}
+                >
+                  <p className="font-semibold">
+                    {detail.timeEntry.earlyLeaveReason
+                      ? `Früher beendet (${detail.timeEntry.endDeviationMinutes ?? '—'} Min.) – Grund dokumentiert`
+                      : `Früher beendet (${detail.timeEntry.endDeviationMinutes ?? '—'} Min.) – ohne Grund / unvollständig`}
+                  </p>
+                  {detail.timeEntry.earlyLeaveReason ? (
+                    <>
+                      <p className="mt-2">
+                        <span className="text-[var(--text-faint)]">Grund:</span>{' '}
+                        {earlyLeaveReasonLabelDeClient(String(detail.timeEntry.earlyLeaveReason))}
+                      </p>
+                      {detail.timeEntry.earlyLeaveNote ? (
+                        <p className="mt-1">
+                          <span className="text-[var(--text-faint)]">Bemerkung:</span> {detail.timeEntry.earlyLeaveNote}
+                        </p>
+                      ) : null}
+                      {detail.timeEntry.earlyLeaveConfirmedAt ? (
+                        <p className="mt-2 text-xs text-[var(--text-faint)]">
+                          Bestätigt am{' '}
+                          {new Date(detail.timeEntry.earlyLeaveConfirmedAt).toLocaleString('de-DE', {
+                            day: '2-digit',
+                            month: '2-digit',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </p>
+                      ) : null}
+                    </>
+                  ) : (
+                    <p className="mt-1 text-xs">Status: Prüfen erforderlich</p>
+                  )}
                 </div>
               ) : null}
               <div className="flex justify-between gap-2">

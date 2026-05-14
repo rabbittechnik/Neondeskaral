@@ -127,7 +127,8 @@ type TabletTerminalContextValue = {
       taskCloseDeclarations?: ShiftCloseTaskCloseDeclaration[]
       taskCloseAccuracyConfirmed?: boolean
     },
-  ) => Promise<void>
+    earlyLeaveAck?: { reason: string; note?: string | null },
+  ) => Promise<TimeEntry | undefined>
   completeTask: (taskId: string, body: { date: string; employeeId: string; displayName: string; comment?: string }) => Promise<void>
   fetchFuelPrices: (opts?: { forceRefresh?: boolean }) => Promise<FuelPricesPayload>
 }
@@ -304,7 +305,8 @@ export function TabletTerminalProvider({
         taskCloseDeclarations?: ShiftCloseTaskCloseDeclaration[]
         taskCloseAccuracyConfirmed?: boolean
       },
-    ) => {
+      earlyLeaveAck?: { reason: string; note?: string | null },
+    ): Promise<TimeEntry | undefined> => {
       const url = `${API_BASE}/terminal/check-out-complete`
       let res: Response
       try {
@@ -322,6 +324,9 @@ export function TabletTerminalProvider({
             ...(taskClose?.taskCloseAccuracyConfirmed === true
               ? { taskCloseAccuracyConfirmed: true }
               : {}),
+            ...(earlyLeaveAck && earlyLeaveAck.reason
+              ? { earlyLeaveAck: { reason: earlyLeaveAck.reason, note: earlyLeaveAck.note ?? '' } }
+              : {}),
           }),
         })
       } catch {
@@ -329,13 +334,24 @@ export function TabletTerminalProvider({
       }
       const json = (await res.json()) as {
         ok?: boolean
+        data?: TimeEntry
         error?: string
         requiresConfirmation?: boolean
+        requiresEarlyLeaveReason?: boolean
         reason?: string
         plannedEnd?: string
         actualEnd?: string
         deviationMinutes?: number
         message?: string
+      }
+      if (res.ok && json.ok === false && json.requiresEarlyLeaveReason) {
+        const err = new Error(String(json.message ?? 'Bitte Grund angeben.')) as Error & {
+          code?: string
+          detail?: typeof json
+        }
+        err.code = 'checkout_requires_early_leave_reason'
+        err.detail = json
+        throw err
       }
       if (res.ok && json.ok === false && json.requiresConfirmation) {
         const err = new Error(String(json.message ?? 'Bitte bestätigen.')) as Error & {
@@ -351,6 +367,7 @@ export function TabletTerminalProvider({
       }
       await refetch()
       notifyRunningEntriesRefresh()
+      return json.data
     },
     [refetch, tabletToken],
   )

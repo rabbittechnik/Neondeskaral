@@ -31,6 +31,7 @@ type ReportRow = {
   overtimeHours: number
   vacationDays: number
   paidVacationHours: number
+  paidOtherAbsenceHours?: number
   basePay: number
   supplementsTotal: number
   mankogeld: number
@@ -79,6 +80,7 @@ type TimeDetailItem = {
   source: string
   status: string
   approvalStatus: string
+  synthetic?: boolean
 }
 
 function monthStartToToday(): { from: string; to: string } {
@@ -526,10 +528,14 @@ export function PayrollTimePage() {
                     </td>
                     <td className="px-0.5 py-1 pr-1 tabular-nums sm:pr-2">
                       <div>{formatHoursDe(r.totalHours)}</div>
-                      {r.workPlanHours != null && (r.paidVacationHours > 0 || r.workPlanHours !== r.totalHours) ? (
+                      {r.workPlanHours != null &&
+                      (r.paidVacationHours > 0 || (r.paidOtherAbsenceHours ?? 0) > 0 || r.workPlanHours !== r.totalHours) ? (
                         <div className="mt-0.5 text-[9px] font-normal text-[var(--text-faint)] sm:text-[10px]">
                           Gestempelt {formatHoursDe(r.workPlanHours)}
                           {r.paidVacationHours > 0 ? ` · Urlaub ${formatHoursDe(r.paidVacationHours)}` : ''}
+                          {(r.paidOtherAbsenceHours ?? 0) > 0
+                            ? ` · sonst. bez. Abw. ${formatHoursDe(r.paidOtherAbsenceHours ?? 0)}`
+                            : ''}
                         </div>
                       ) : null}
                     </td>
@@ -602,7 +608,7 @@ export function PayrollTimePage() {
               {detailLoading ? (
                 <p className="text-sm text-[var(--text-muted)]">Lade…</p>
               ) : detailItems.length === 0 ? (
-                <p className="text-sm text-[var(--text-muted)]">Keine Zeiteinträge im Zeitraum.</p>
+                <p className="text-sm text-[var(--text-muted)]">Keine Zeiterfassungs- oder Abwesenheitszeilen im Zeitraum.</p>
               ) : (
                 <table className="w-full border-collapse text-left text-xs sm:text-sm">
                   <thead>
@@ -620,15 +626,26 @@ export function PayrollTimePage() {
                   </thead>
                   <tbody>
                     {detailItems.map((it) => (
-                      <tr key={it.id} className="border-b border-white/[0.06]">
+                      <tr
+                        key={it.id}
+                        className={`border-b border-white/[0.06] ${it.synthetic ? 'bg-cyan-500/5' : ''}`}
+                      >
                         <td className="py-1.5 pr-2 whitespace-nowrap">{it.date}</td>
                         <td className="py-1.5 pr-2">{it.employeeName}</td>
                         <td className="py-1.5 pr-2 font-mono text-[11px]">{it.startAt}</td>
                         <td className="py-1.5 pr-2 font-mono text-[11px]">{it.endAt}</td>
-                        <td className="py-1.5 pr-2 tabular-nums">{it.breakMinutes}</td>
+                        <td className="py-1.5 pr-2 tabular-nums">{it.synthetic ? '—' : it.breakMinutes}</td>
                         <td className="py-1.5 pr-2 tabular-nums">{formatHoursDe(it.hours)}</td>
-                        <td className="py-1.5 pr-2">{it.source}</td>
-                        <td className="py-1.5 pr-2">{it.status}</td>
+                        <td className="py-1.5 pr-2 text-[var(--text-muted)]">
+                          {it.source === 'paid_vacation_auto'
+                            ? 'Bezahlter Urlaub (automatisch)'
+                            : it.source === 'paid_other_absence_auto'
+                              ? 'Bezahlte Abwesenheit (automatisch)'
+                              : it.source === 'absence_display'
+                                ? 'Abwesenheit (Anzeige)'
+                                : it.source}
+                        </td>
+                        <td className="py-1.5 pr-2">{it.synthetic ? 'berechnet' : it.status}</td>
                         <td className="py-1.5 pr-2">{it.approvalStatus}</td>
                       </tr>
                     ))}

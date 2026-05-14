@@ -32,6 +32,7 @@ type ScheduleDetailLine = {
   feiertag: string
   besondererFeiertag: string
   hinweis: string
+  lineSource?: string
 }
 
 type ReportRow = {
@@ -46,6 +47,7 @@ type ReportRow = {
   overtimeHours: number
   vacationDays: number
   paidVacationHours: number
+  paidOtherAbsenceHours?: number
   basePay: number
   supplementsTotal: number
   mankogeld: number
@@ -509,10 +511,14 @@ export function PayrollSchedulePage() {
                     </td>
                     <td className="px-0.5 py-1 pr-1 tabular-nums sm:pr-2">
                       <div>{formatHoursDe(r.totalHours)}</div>
-                      {r.workPlanHours != null && (r.paidVacationHours > 0 || r.workPlanHours !== r.totalHours) ? (
+                      {r.workPlanHours != null &&
+                      (r.paidVacationHours > 0 || (r.paidOtherAbsenceHours ?? 0) > 0 || r.workPlanHours !== r.totalHours) ? (
                         <div className="mt-0.5 text-[9px] font-normal text-[var(--text-faint)] sm:text-[10px]">
                           Schichten {formatHoursDe(r.workPlanHours)}
                           {r.paidVacationHours > 0 ? ` · Urlaub ${formatHoursDe(r.paidVacationHours)}` : ''}
+                          {(r.paidOtherAbsenceHours ?? 0) > 0
+                            ? ` · sonst. bez. Abw. ${formatHoursDe(r.paidOtherAbsenceHours ?? 0)}`
+                            : ''}
                         </div>
                       ) : null}
                     </td>

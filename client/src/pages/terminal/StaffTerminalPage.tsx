@@ -25,6 +25,7 @@ import { TabletFuelPricesTab } from '../../components/terminal/TabletFuelPricesT
 import { TabletRadioTab } from '../../components/terminal/TabletRadioTab'
 import { TabletRadioMiniPlayer } from '../../components/terminal/TabletRadioMiniPlayer'
 import { TabletPwaUpdateControls } from '../../components/terminal/TabletPwaUpdateControls'
+import { EARLY_LEAVE_REASON_OPTIONS } from '../../constants/earlyLeaveCheckout'
 import type { TabletCheckInSuggestionsPayload } from '../../types/tabletCheckInSuggestions'
 
 type ModalMode = null | 'check-in' | 'check-out'
@@ -58,6 +59,19 @@ function formatHmDurationDe(totalMinutes: number): string {
 function formatCheckInDeviationFallback(reason: 'early' | 'late', deviationMinutes: number): string {
   const core = formatHmDurationDe(deviationMinutes)
   return reason === 'early' ? `${core} früher` : `${core} später`
+}
+
+type CheckoutEarlyLeave = {
+  timeEntryId: string
+  employeeId: string
+  displayName: string
+  startAt: string
+  checklist: Record<string, unknown>
+  taskCloseDeclarations?: ShiftCloseTaskCloseDeclaration[]
+  taskCloseAccuracyConfirmed?: boolean
+  plannedEnd: string
+  deviationMinutes: number
+  message: string
 }
 
 type CheckoutEndConfirm = {
@@ -161,8 +175,12 @@ export function StaffTerminalPage() {
   const [checkoutHandoverUiMode, setCheckoutHandoverUiMode] = useState<'midday_standard_collective' | undefined>(undefined)
   const [checkoutMiddayBullets, setCheckoutMiddayBullets] = useState<string[]>([])
   const [inSuccess, setInSuccess] = useState<{ name: string; time: string; employeeId: string } | null>(null)
-  const [outSuccess, setOutSuccess] = useState<{ name: string; end: string; dur: string } | null>(null)
+  const [outSuccess, setOutSuccess] = useState<{ name: string; end: string; dur: string; hint?: string } | null>(null)
   const [checkoutEndConfirm, setCheckoutEndConfirm] = useState<CheckoutEndConfirm | null>(null)
+  const [checkoutEarlyLeave, setCheckoutEarlyLeave] = useState<CheckoutEarlyLeave | null>(null)
+  const [earlyLeaveReason, setEarlyLeaveReason] = useState('')
+  const [earlyLeaveNote, setEarlyLeaveNote] = useState('')
+  const [checkoutEarlyBusy, setCheckoutEarlyBusy] = useState(false)
   const [checkoutStartBusy, setCheckoutStartBusy] = useState(false)
   const [pendingShiftWarnings, setPendingShiftWarnings] = useState<{
     employeeId: string
@@ -192,6 +210,17 @@ export function StaffTerminalPage() {
     const id = window.setInterval(() => setNowTick(new Date()), 1000)
     return () => window.clearInterval(id)
   }, [])
+
+  const berlinHm = useMemo(
+    () =>
+      new Intl.DateTimeFormat('de-DE', {
+        timeZone: 'Europe/Berlin',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      }).format(nowTick),
+    [nowTick],
+  )
 
   useEffect(() => {
     if (modal !== 'check-in') {
@@ -386,6 +415,10 @@ export function StaffTerminalPage() {
     setCheckoutMiddayBullets([])
     setPendingShiftWarnings(null)
     setCheckoutEndConfirm(null)
+    setCheckoutEarlyLeave(null)
+    setEarlyLeaveReason('')
+    setEarlyLeaveNote('')
+    setCheckoutEarlyBusy(false)
     setCheckInSuggestionsPayload(null)
     setCheckInSugErr(null)
     setCheckInSugLoading(false)
@@ -636,7 +669,7 @@ export function StaffTerminalPage() {
     )
   }
 
-  const finalizeCheckoutSuccess = (p: { employeeId: string; startAt: string; displayName: string }) => {
+  const finalizeCheckoutSuccess = (p: { employeeId: string; startAt: string; displayName: string; hint?: string }) => {
     const end = new Date().toISOString()
     const mins = calculateWorkedMinutes(p.startAt, end, new Date())
     const name = employees.find((e) => e.id === p.employeeId)?.displayName ?? p.displayName ?? ''
@@ -647,9 +680,13 @@ export function StaffTerminalPage() {
     setCheckoutHandoverUiMode(undefined)
     setCheckoutMiddayBullets([])
     setCheckoutEndConfirm(null)
+    setCheckoutEarlyLeave(null)
+    setEarlyLeaveReason('')
+    setEarlyLeaveNote('')
+    setCheckoutEarlyBusy(false)
     setTerminalBakingNotice(null)
     setTerminalBakingOpen(false)
-    setOutSuccess({ name, end: endLabel, dur: formatWorkedDuration(mins) })
+    setOutSuccess({ name, end: endLabel, dur: formatWorkedDuration(mins), hint: p.hint })
     log({
       cardNumber: String(employees.find((e) => e.id === p.employeeId)?.cashRegisterCardNumber ?? '').trim(),
       employeeId: p.employeeId,
@@ -662,7 +699,7 @@ export function StaffTerminalPage() {
   const submitCheckoutWithForce = async () => {
     if (!checkoutEndConfirm) return
     try {
-      await completeShiftWithChecklist(
+      const te = await completeShiftWithChecklist(
         checkoutEndConfirm.timeEntryId,
         checkoutEndConfirm.checklist,
         undefined,
@@ -672,15 +709,52 @@ export function StaffTerminalPage() {
           taskCloseAccuracyConfirmed: checkoutEndConfirm.taskCloseAccuracyConfirmed,
         },
       )
+      let hint: string | undefined
+      if (te?.endDeviationType === 'early') {
+        const m = te.endDeviationMinutes ?? 0
+        if (m > 0 && m <= 30) {
+          hint = `Hinweis: ${m} Min. vor dem geplanten Schichtende gestempelt (kein Pflichtgrund nötig).`
+        }
+      }
+      finalizeCheckoutSuccess({
+        employeeId: checkoutEndConfirm.employeeId,
+        startAt: checkoutEndConfirm.startAt,
+        displayName: checkoutEndConfirm.displayName,
+        hint,
+      })
     } catch (err) {
       window.alert(err instanceof Error ? err.message : 'Ausstempeln fehlgeschlagen')
       return
     }
-    finalizeCheckoutSuccess({
-      employeeId: checkoutEndConfirm.employeeId,
-      startAt: checkoutEndConfirm.startAt,
-      displayName: checkoutEndConfirm.displayName,
-    })
+  }
+
+  const submitCheckoutEarlyLeaveAck = async () => {
+    if (!checkoutEarlyLeave) return
+    if (!earlyLeaveReason.trim()) return
+    if (earlyLeaveReason === 'other' && !earlyLeaveNote.trim()) return
+    setCheckoutEarlyBusy(true)
+    try {
+      const te = await completeShiftWithChecklist(
+        checkoutEarlyLeave.timeEntryId,
+        checkoutEarlyLeave.checklist,
+        undefined,
+        false,
+        {
+          taskCloseDeclarations: checkoutEarlyLeave.taskCloseDeclarations,
+          taskCloseAccuracyConfirmed: checkoutEarlyLeave.taskCloseAccuracyConfirmed,
+        },
+        { reason: earlyLeaveReason.trim(), note: earlyLeaveNote.trim() || undefined },
+      )
+      finalizeCheckoutSuccess({
+        employeeId: checkoutEarlyLeave.employeeId,
+        startAt: checkoutEarlyLeave.startAt,
+        displayName: checkoutEarlyLeave.displayName,
+      })
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Ausstempeln fehlgeschlagen')
+    } finally {
+      setCheckoutEarlyBusy(false)
+    }
   }
 
   return (
@@ -1077,6 +1151,80 @@ export function StaffTerminalPage() {
         </div>
       ) : null}
 
+      {checkoutEarlyLeave ? (
+        <div className="fixed inset-0 z-[142] flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl border border-amber-400/35 bg-[var(--bg-card)] p-6 shadow-xl">
+            <h2 className="text-lg font-semibold text-[var(--text-main)]">Schicht früher beenden</h2>
+            <p className="mt-2 text-sm text-[var(--text-muted)]">
+              Du beendest deine Schicht mehr als 30 Minuten vor dem geplanten Ende. Bitte wähle einen Grund aus.
+            </p>
+            <div className="mt-4 space-y-1 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-[var(--text-main)]">
+              <p>
+                <span className="text-[var(--text-faint)]">Geplant:</span> {checkoutEarlyLeave.plannedEnd} Uhr
+              </p>
+              <p>
+                <span className="text-[var(--text-faint)]">Aktuell:</span> {berlinHm} Uhr
+              </p>
+              <p>
+                <span className="text-[var(--text-faint)]">Differenz:</span>{' '}
+                {formatHmDurationDe(checkoutEarlyLeave.deviationMinutes)} früher
+              </p>
+            </div>
+            <label className="mt-4 block text-sm font-medium text-[var(--text-main)]">Grund</label>
+            <select
+              className="mt-1 w-full rounded-lg border border-white/15 bg-black/30 px-3 py-2.5 text-base text-[var(--text-main)]"
+              value={earlyLeaveReason}
+              onChange={(ev) => setEarlyLeaveReason(ev.target.value)}
+            >
+              <option value="">Bitte wählen …</option>
+              {EARLY_LEAVE_REASON_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            <label className="mt-4 block text-sm font-medium text-[var(--text-main)]">
+              {earlyLeaveReason === 'other' ? 'Bemerkung / Erklärung erforderlich' : 'Bemerkung / Erklärung optional'}
+            </label>
+            <textarea
+              className="mt-1 min-h-[88px] w-full rounded-lg border border-white/15 bg-black/30 px-3 py-2 text-sm text-[var(--text-main)]"
+              value={earlyLeaveNote}
+              onChange={(ev) => setEarlyLeaveNote(ev.target.value)}
+              placeholder={earlyLeaveReason === 'other' ? 'Bitte kurz erläutern …' : 'Optional …'}
+              maxLength={2000}
+            />
+            <div className="mt-5 flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                className="flex-1"
+                disabled={checkoutEarlyBusy}
+                onClick={() => {
+                  setCheckoutEarlyLeave(null)
+                  setEarlyLeaveReason('')
+                  setEarlyLeaveNote('')
+                }}
+              >
+                Abbrechen
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                className="flex-1"
+                disabled={
+                  checkoutEarlyBusy ||
+                  !earlyLeaveReason.trim() ||
+                  (earlyLeaveReason === 'other' && !earlyLeaveNote.trim())
+                }
+                onClick={() => void submitCheckoutEarlyLeaveAck()}
+              >
+                {checkoutEarlyBusy ? 'Speichern…' : 'Schicht trotzdem beenden'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {pendingShiftWarnings ? (
         <div className="fixed inset-0 z-[138] flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm">
           <div className="w-full max-w-lg rounded-2xl border border-amber-400/35 bg-[var(--bg-card)] p-6 shadow-xl">
@@ -1150,12 +1298,43 @@ export function StaffTerminalPage() {
             const entry = checkOutEntry
             const displayName = employees.find((e) => e.id === entry.employeeId)?.displayName ?? 'Mitarbeiter'
             try {
-              await completeShiftWithChecklist(entry.id, checklist, undefined, false, {
+              const te = await completeShiftWithChecklist(entry.id, checklist, undefined, false, {
                 taskCloseDeclarations,
                 taskCloseAccuracyConfirmed,
               })
+              let hint: string | undefined
+              if (te?.endDeviationType === 'early') {
+                const m = te.endDeviationMinutes ?? 0
+                if (m > 0 && m <= 30) {
+                  hint = `Hinweis: ${m} Min. vor dem geplanten Schichtende gestempelt (kein Pflichtgrund nötig).`
+                }
+              }
+              finalizeCheckoutSuccess({
+                employeeId: entry.employeeId,
+                startAt: entry.startAt,
+                displayName,
+                hint,
+              })
             } catch (err) {
               const e = err as Error & { code?: string; detail?: Record<string, unknown> }
+              if (e.code === 'checkout_requires_early_leave_reason' && e.detail) {
+                const d = e.detail
+                setCheckoutEarlyLeave({
+                  timeEntryId: entry.id,
+                  employeeId: entry.employeeId,
+                  displayName,
+                  startAt: entry.startAt,
+                  checklist,
+                  taskCloseDeclarations,
+                  taskCloseAccuracyConfirmed,
+                  plannedEnd: String(d.plannedEnd ?? ''),
+                  deviationMinutes: Number(d.deviationMinutes ?? 0),
+                  message: String(d.message ?? ''),
+                })
+                setEarlyLeaveReason('')
+                setEarlyLeaveNote('')
+                return
+              }
               if (e.code === 'checkout_requires_confirmation' && e.detail) {
                 const d = e.detail
                 setCheckoutEndConfirm({
@@ -1196,11 +1375,6 @@ export function StaffTerminalPage() {
               window.alert(err instanceof Error ? err.message : 'Ausstempeln fehlgeschlagen')
               return
             }
-            finalizeCheckoutSuccess({
-              employeeId: entry.employeeId,
-              startAt: entry.startAt,
-              displayName,
-            })
           }}
         />
       ) : null}
@@ -1211,6 +1385,7 @@ export function StaffTerminalPage() {
             employeeName={outSuccess.name}
             endTimeLabel={outSuccess.end}
             durationLabel={outSuccess.dur}
+            hint={outSuccess.hint}
             onDismiss={() => setOutSuccess(null)}
           />
         </div>

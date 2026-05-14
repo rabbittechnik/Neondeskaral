@@ -83,6 +83,11 @@ export function runMigrations(db: Database.Database) {
   addTe('planned_end_at', 'planned_end_at TEXT')
   addTe('end_deviation_minutes', 'end_deviation_minutes INTEGER')
   addTe('end_deviation_type', 'end_deviation_type TEXT')
+  addTe('early_leave_minutes', 'early_leave_minutes INTEGER')
+  addTe('early_leave_reason', 'early_leave_reason TEXT')
+  addTe('early_leave_note', 'early_leave_note TEXT')
+  addTe('early_leave_confirmed_at', 'early_leave_confirmed_at TEXT')
+  addTe('early_leave_confirmed_by_employee_id', 'early_leave_confirmed_by_employee_id TEXT')
 
   db.prepare(
     `UPDATE time_entries SET approval_status = 'pending', payroll_relevant = 0

@@ -485,7 +485,10 @@ export type PayrollMoneyBlockInput = {
 export type PayrollMoneyBlockResult = {
   basePay: number
   vacationDays: number
+  /** Nur bezahlter Urlaub (Stunden aus Abwesenheit, Kalendertage, ohne Krankheit/Sonderurlaub). */
   paidVacationHours: number
+  /** Sonstige bezahlte Abwesenheit (Krankheit, Sonderurlaub …) mit Lohnstunden. */
+  paidOtherAbsenceHours: number
   /** Summe der tagesbezogenen Effektivstunden (Arbeit + Urlaub, ohne Doppelzählung am selben Tag). */
   payrollHoursTotal: number
   overtimeHours: number
@@ -528,17 +531,13 @@ export function computePayrollMoneyBlock(inp: PayrollMoneyBlockInput): PayrollMo
   const vacHpdDefault = rNum(R, 'vacation_hours_per_day', NaN) || null
 
   let vacationDays = 0
-  let paidVacationHours = 0
   for (const ab of absences) {
     if (ab.employee_id !== employeeId) continue
     const od = overlapPaidVacationDaysForPayroll(ab, fromDate, toDate, federalState, employmentType, employmentRole)
     if (od <= 0) continue
     vacationDays += od
-    const hpd = paidHoursPerDayForAbsence(ab, vacHpdDefault)
-    paidVacationHours += od * hpd
   }
   vacationDays = Math.round(vacationDays * 100) / 100
-  paidVacationHours = Math.round(paidVacationHours * 100) / 100
 
   const vacByYmd = mergePaidVacationHoursByBerlinYmd(
     absences,
@@ -550,6 +549,12 @@ export function computePayrollMoneyBlock(inp: PayrollMoneyBlockInput): PayrollMo
     employmentType,
     employmentRole,
   )
+  let paidVacationHours = 0
+  for (const v of vacByYmd.values()) {
+    paidVacationHours += v
+  }
+  paidVacationHours = Math.round(paidVacationHours * 100) / 100
+
   const otherPaidByYmd = mergeOtherPaidAbsenceHoursByBerlinYmd(
     absences,
     employeeId,
@@ -560,16 +565,15 @@ export function computePayrollMoneyBlock(inp: PayrollMoneyBlockInput): PayrollMo
     employmentType,
     employmentRole,
   )
-  let otherPaidAbsenceHoursSum = 0
+  let paidOtherAbsenceHours = 0
   for (const v of otherPaidByYmd.values()) {
-    otherPaidAbsenceHoursSum += v
+    paidOtherAbsenceHours += v
   }
-  otherPaidAbsenceHoursSum = Math.round(otherPaidAbsenceHoursSum * 100) / 100
-  paidVacationHours = Math.round((paidVacationHours + otherPaidAbsenceHoursSum) * 100) / 100
+  paidOtherAbsenceHours = Math.round(paidOtherAbsenceHours * 100) / 100
 
   const allPaidAbsenceByYmd = mergePaidAbsenceHoursMapsForPayroll(vacByYmd, otherPaidByYmd)
   const payrollHoursTotal = monthlyRecipient
-    ? Math.round((totalWorkHoursForDisplay + paidVacationHours) * 100) / 100
+    ? Math.round((totalWorkHoursForDisplay + paidVacationHours + paidOtherAbsenceHours) * 100) / 100
     : sumEffectivePayrollHoursByYmd(workHoursByBerlinYmd, allPaidAbsenceByYmd)
 
   const overtimeHours = 0
@@ -641,6 +645,7 @@ export function computePayrollMoneyBlock(inp: PayrollMoneyBlockInput): PayrollMo
       toDate,
       totalWorkHoursForDisplay,
       paidVacationHours,
+      paidOtherAbsenceHours,
       payrollHoursTotal,
       vacationDays,
       basePay,
@@ -653,6 +658,7 @@ export function computePayrollMoneyBlock(inp: PayrollMoneyBlockInput): PayrollMo
     basePay,
     vacationDays,
     paidVacationHours,
+    paidOtherAbsenceHours,
     payrollHoursTotal,
     overtimeHours,
     hourlyWageDisplay: Math.round(hourlyWageDisplay * 100) / 100,
