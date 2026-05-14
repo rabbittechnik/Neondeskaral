@@ -8,6 +8,7 @@ import { TABLET_RADIO_DEFAULT_PRESET_ID } from '../constants/tabletRadioPresetId
 import { ensureDefaultUserStationAccess, ensureKnownStationsAndWorkAreas } from '../services/stationAccessService.js'
 import { seedAllStationsShiftCloseChecklistDefsIfMissing } from '../services/stationShiftChecklistDefService.js'
 import { calculateVacationImpact, normalizeAbsenceDbType } from '../utils/vacationImpactCalculator.js'
+import { applyMay2026BodelshausenOfficeShifts } from '../services/may2026BodelshausenShiftImport.js'
 
 function employeesColumnNames(db: Database.Database): Set<string> {
   const rows = db.prepare(`PRAGMA table_info(employees)`).all() as { name: string }[]
@@ -180,6 +181,7 @@ export function runMigrations(db: Database.Database) {
   ensureStationCanonicalNamesOnce(db)
   syncAralBodelshausenStationDisplayName(db)
   syncAralBodelshausenEmployeeCashRegisterCards(db)
+  ensureMay2026BodelshausenGuideShifts(db)
   ensureWeekendTasksAndBakingTables(db)
 }
 
@@ -202,6 +204,22 @@ function syncAralBodelshausenEmployeeCashRegisterCards(db: Database.Database) {
   )
   for (const [name, num] of pairs) {
     stmt.run(num, ts, name)
+  }
+}
+
+function ensureMay2026BodelshausenGuideShifts(db: Database.Database) {
+  const sid = 'aral-bodelshausen'
+  const ec = db.prepare(`SELECT COUNT(*) as c FROM employees WHERE station_id = ?`).get(sid) as { c: number }
+  if ((ec?.c ?? 0) < 5) return
+  const r = applyMay2026BodelshausenOfficeShifts(db)
+  if (r.inserted > 0 || r.updatedWorkArea > 0) {
+    console.log(
+      `[migrations] Mai-2026 Schichten Bodelshausen: ${r.inserted} neu, ${r.updatedWorkArea} Arbeitsbereich angepasst, ${r.skippedDuplicate} unverändert`,
+    )
+  } else if (r.errors.length > 0 && r.inserted === 0 && r.skippedDuplicate === 0) {
+    console.warn(
+      `[migrations] Mai-2026 Schichten: ${r.errors.length} Zeilen nicht zuordenbar (Mitarbeiter fehlen?) — optional: npm run import:may2026-shifts`,
+    )
   }
 }
 
