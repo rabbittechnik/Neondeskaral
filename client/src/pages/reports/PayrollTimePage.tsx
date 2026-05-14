@@ -27,6 +27,7 @@ type ReportRow = {
   registeredHourlyWage?: number
   minimumWageNote?: string
   totalHours: number
+  workPlanHours?: number
   overtimeHours: number
   vacationDays: number
   paidVacationHours: number
@@ -358,6 +359,10 @@ export function PayrollTimePage() {
         description="Auswertung auf Basis freigegebener Zeiterfassung, Urlaub und Lohnfelder · getrennt von der Schichtplan-Lohnabrechnung"
       />
 
+      <p className="rounded-lg border border-cyan-500/20 bg-cyan-500/10 px-3 py-2 text-sm text-cyan-100/95">
+        „Stunden Gesamt“ enthält freigegebene Zeiten plus genehmigten bezahlten Urlaub (täglich ohne Doppelzählung mit Arbeit am selben Tag).
+      </p>
+
       {(data?.reportSource === 'time_tracking' || data?.reportSource === undefined) && data?.hasPendingApprovedTime ? (
         <div className="flex items-start gap-2 rounded-lg border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
@@ -451,8 +456,8 @@ export function PayrollTimePage() {
         </p>
       ) : null}
 
-      <Card className="overflow-x-auto print:shadow-none print:ring-0">
-        <div id="payroll-report-print" className="min-w-[1280px] p-4 print:min-w-0 print:p-2">
+      <Card className="min-w-0 overflow-hidden print:shadow-none print:ring-0">
+        <div id="payroll-report-print" className="w-full min-w-0 p-2 sm:p-3 lg:p-4 print:p-2">
           <p className="mb-3 text-xs text-[var(--text-muted)] print:hidden">{metaLine}</p>
           <div className="mb-4 hidden print:block">
             <h2 className="text-lg font-semibold text-black">Lohnabrechnung (Zeiterfassung)</h2>
@@ -468,10 +473,15 @@ export function PayrollTimePage() {
           ) : !data?.rows.length ? (
             <p className="text-sm text-[var(--text-muted)]">Keine Abrechnungsdaten im gewählten Zeitraum.</p>
           ) : (
-            <table className="w-full border-collapse text-left text-sm print:text-black">
+            <table className="w-full table-fixed border-collapse text-left text-[10px] leading-snug sm:text-[11px] md:text-xs lg:text-sm print:text-[10px] print:text-black">
+              <colgroup>
+                {Array.from({ length: 17 }).map((_, i) => (
+                  <col key={i} style={{ width: `${100 / 17}%` }} />
+                ))}
+              </colgroup>
               <thead>
                 <tr className="border-b border-white/10 print:border-neutral-400">
-                  <th className="w-10 py-2 pr-2 print:hidden">
+                  <th className="py-1.5 pr-1 print:hidden sm:pr-2">
                     <input
                       type="checkbox"
                       aria-label="Alle auswählen"
@@ -480,17 +490,20 @@ export function PayrollTimePage() {
                     />
                   </th>
                   {COL_HEADERS.map((h) => (
-                    <th key={h} className="whitespace-nowrap py-2 pr-3 font-semibold text-[var(--text-main)] print:text-black">
+                    <th
+                      key={h}
+                      className="hyphens-auto break-words px-0.5 py-1.5 pr-1 font-semibold text-[var(--text-main)] sm:px-1 sm:pr-2 print:text-black"
+                    >
                       {h}
                     </th>
                   ))}
-                  <th className="w-24 py-2 pr-2 print:hidden text-[var(--text-muted)]">Details</th>
+                  <th className="py-1.5 pr-1 text-[var(--text-muted)] print:hidden sm:pr-2">Details</th>
                 </tr>
               </thead>
               <tbody>
                 {data.rows.map((r) => (
                   <tr key={r.employeeId} className="border-b border-white/[0.06] print:border-neutral-300">
-                    <td className="py-1.5 pr-2 print:hidden">
+                    <td className="py-1 pr-1 print:hidden sm:pr-2">
                       <input
                         type="checkbox"
                         checked={selected.has(r.employeeId)}
@@ -498,36 +511,44 @@ export function PayrollTimePage() {
                         aria-label={`Auswahl ${r.employeeName}`}
                       />
                     </td>
-                    <td className="py-1.5 pr-3 align-top font-medium text-[var(--text-main)] print:text-black">
+                    <td className="py-1 pr-1 align-top font-medium text-[var(--text-main)] print:text-black sm:pr-2">
                       <div>{r.employeeName}</div>
                       {r.messages?.length ? (
-                        <div className="mt-1 max-w-[14rem] text-[10px] font-normal leading-snug text-amber-200/90 print:text-neutral-700 print:max-w-none">
+                        <div className="mt-0.5 text-[9px] font-normal leading-snug text-amber-200/90 print:text-neutral-700 sm:text-[10px]">
                           {r.messages.join(' · ')}
                         </div>
                       ) : null}
                     </td>
-                    <td className="py-1.5 pr-3 tabular-nums text-[var(--text-muted)]">{formatRegisteredHourly(r)}</td>
-                    <td className="py-1.5 pr-3 tabular-nums">{formatEuroDe(r.hourlyWage)}</td>
-                    <td className="max-w-[12rem] py-1.5 pr-3 text-xs text-[var(--text-muted)] print:max-w-none print:text-[10px]">
+                    <td className="px-0.5 py-1 pr-1 tabular-nums text-[var(--text-muted)] sm:pr-2">{formatRegisteredHourly(r)}</td>
+                    <td className="px-0.5 py-1 pr-1 tabular-nums sm:pr-2">{formatEuroDe(r.hourlyWage)}</td>
+                    <td className="px-0.5 py-1 pr-1 text-[var(--text-muted)] print:text-[9px] sm:pr-2">
                       {r.minimumWageNote?.trim() ? r.minimumWageNote.trim() : '—'}
                     </td>
-                    <td className="py-1.5 pr-3 tabular-nums">{formatHoursDe(r.totalHours)}</td>
-                    <td className="py-1.5 pr-3 tabular-nums text-[var(--text-faint)]">
+                    <td className="px-0.5 py-1 pr-1 tabular-nums sm:pr-2">
+                      <div>{formatHoursDe(r.totalHours)}</div>
+                      {r.workPlanHours != null && (r.paidVacationHours > 0 || r.workPlanHours !== r.totalHours) ? (
+                        <div className="mt-0.5 text-[9px] font-normal text-[var(--text-faint)] sm:text-[10px]">
+                          Gestempelt {formatHoursDe(r.workPlanHours)}
+                          {r.paidVacationHours > 0 ? ` · Urlaub ${formatHoursDe(r.paidVacationHours)}` : ''}
+                        </div>
+                      ) : null}
+                    </td>
+                    <td className="px-0.5 py-1 pr-1 tabular-nums text-[var(--text-faint)] sm:pr-2">
                       {r.overtimeHours > 0 ? formatHoursDe(r.overtimeHours) : '—'}
                     </td>
-                    <td className="py-1.5 pr-3 tabular-nums">{formatDaysDe(r.vacationDays)}</td>
-                    <td className="py-1.5 pr-3 tabular-nums">{formatEuroDe(r.basePay)}</td>
-                    <td className="py-1.5 pr-3 tabular-nums">{formatEuroDe(r.supplementsTotal)}</td>
-                    <td className="py-1.5 pr-3 tabular-nums">{formatEuroDe(r.mankogeld)}</td>
-                    <td className="py-1.5 pr-3 tabular-nums">{formatEuroDe(r.vl)}</td>
-                    <td className="py-1.5 pr-3 tabular-nums">{formatEuroDe(r.cashDifference)}</td>
-                    <td className="py-1.5 pr-3 tabular-nums">{formatEuroDe(r.bonus)}</td>
-                    <td className="py-1.5 pr-3 tabular-nums">{formatEuroDe(r.advance)}</td>
-                    <td className="py-1.5 pr-3 tabular-nums font-semibold text-cyan-200/95 print:text-black">
+                    <td className="px-0.5 py-1 pr-1 tabular-nums sm:pr-2">{formatDaysDe(r.vacationDays)}</td>
+                    <td className="px-0.5 py-1 pr-1 tabular-nums sm:pr-2">{formatEuroDe(r.basePay)}</td>
+                    <td className="px-0.5 py-1 pr-1 tabular-nums sm:pr-2">{formatEuroDe(r.supplementsTotal)}</td>
+                    <td className="px-0.5 py-1 pr-1 tabular-nums sm:pr-2">{formatEuroDe(r.mankogeld)}</td>
+                    <td className="px-0.5 py-1 pr-1 tabular-nums sm:pr-2">{formatEuroDe(r.vl)}</td>
+                    <td className="px-0.5 py-1 pr-1 tabular-nums sm:pr-2">{formatEuroDe(r.cashDifference)}</td>
+                    <td className="px-0.5 py-1 pr-1 tabular-nums sm:pr-2">{formatEuroDe(r.bonus)}</td>
+                    <td className="px-0.5 py-1 pr-1 tabular-nums sm:pr-2">{formatEuroDe(r.advance)}</td>
+                    <td className="px-0.5 py-1 pr-1 tabular-nums font-semibold text-cyan-200/95 print:text-black sm:pr-2">
                       {formatEuroDe(r.total)}
                     </td>
-                    <td className="py-1.5 print:hidden">
-                      <Button type="button" variant="ghost" className="text-xs" onClick={() => void openDetails(r.employeeId)}>
+                    <td className="py-1 print:hidden sm:pr-2">
+                      <Button type="button" variant="ghost" className="text-[10px] sm:text-xs" onClick={() => void openDetails(r.employeeId)}>
                         Zeiten
                       </Button>
                     </td>

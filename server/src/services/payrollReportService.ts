@@ -15,15 +15,17 @@ import {
 import { employmentTypeSubjectToStatutoryMinimum, getEffectiveHourlyRate } from './statutoryMinWageService.js'
 import { listShifts } from './shiftService.js'
 import { eachYmdInRangeInclusive, netHoursByBerlinYmdInRange, berlinYmdFromMs } from '../utils/berlinCalendarWorkHours.js'
-import { berlinWallClockToUtcMs, addDaysToYmd } from '../utils/europeBerlinWallTime.js'
+import { berlinWallClockToUtcMs } from '../utils/europeBerlinWallTime.js'
 import {
   accumulatePayrollAdjustments,
+  absenceApprovedForPayroll,
   computePayrollMoneyBlock,
   entryNetHoursInRange,
   hideInPayroll,
   isExitedEmployee,
   matchesEmploymentFilter,
   mergeChecklistCashIntoBuckets,
+  mergePaidVacationHoursByBerlinYmd,
   parseEmploymentFilter,
   rNum,
   isMonthlyWageRecipient,
@@ -31,6 +33,7 @@ import {
   shiftToIsoEndpoints,
   surchargeFieldsFromEmployee,
 } from './payrollCalculationService.js'
+import { normalizeAbsenceDbType } from '../utils/vacationImpactCalculator.js'
 
 export type { PayrollEmploymentFilter } from './payrollCalculationService.js'
 
@@ -60,6 +63,26 @@ export type PayrollTimeTrackingRow = {
   total: number
   /** Hinweise z. B. fehlendes Profilfeld — nicht berechnend, nur Anzeige */
   messages?: string[]
+  /** Nur Schichtplan: Netto-Stunden aus geplanten Schichten (ohne Urlaubszeilen). */
+  workPlanHours?: number
+  /** Nur Schichtplan: Tages-/Schichtliste inkl. Urlaub für die Detailansicht. */
+  scheduleLines?: PayrollScheduleDetailLine[]
+}
+
+export type PayrollScheduleDetailLine = {
+  date: string
+  weekdayDe: string
+  lineType: 'shift' | 'paid_vacation' | 'unpaid_vacation' | 'sick' | 'other_absence'
+  von: string
+  bis: string
+  bereich: string
+  hours: number
+  nacht: string
+  samstag: string
+  sonntag: string
+  feiertag: string
+  besondererFeiertag: string
+  hinweis: string
 }
 
 export type PayrollTimeTrackingTotals = {
@@ -96,6 +119,7 @@ export type PayrollCombinedDaySource =
   | 'time_tracking'
   | 'time_tracking_extra'
   | 'schedule_fallback'
+  | 'paid_vacation'
   | 'manual_correction'
   | 'none'
 
@@ -345,6 +369,7 @@ export function calculatePayrollTimeTrackingReport(
       basePay,
       vacationDays,
       paidVacationHours,
+      payrollHoursTotal,
       overtimeHours,
       hourlyWageDisplay: effDisplay,
       minimumWageNote,
@@ -358,7 +383,7 @@ export function calculatePayrollTimeTrackingReport(
     } = money
 
     const includeRow =
-      totalHours > 0 ||
+      payrollHoursTotal > 0 ||
       paidVacationHours > 0 ||
       vacationDays > 0 ||
       basePay > 0 ||
@@ -378,7 +403,8 @@ export function calculatePayrollTimeTrackingReport(
       hourlyWage: Math.round(effDisplay * 100) / 100,
       ...(!monthlyRecipient ? { registeredHourlyWage: Math.round(rawHourly * 100) / 100 } : {}),
       ...(minimumWageNote ? { minimumWageNote } : {}),
-      totalHours,
+      totalHours: payrollHoursTotal,
+      workPlanHours: totalHours,
       overtimeHours,
       vacationDays,
       paidVacationHours,
@@ -503,6 +529,11 @@ export function calculatePayrollScheduleReport(
   const adjByEmployee = accumulatePayrollAdjustments(adjustments)
   mergeChecklistCashIntoBuckets(db, stationId, fromDate, toDate, adjByEmployee)
 
+  const waRows = db
+    .prepare(`SELECT id, name FROM work_areas WHERE station_id = ?`)
+    .all(stationId) as { id: string; name: string }[]
+  const workAreaNameById = new Map(waRows.map((r) => [r.id, String(r.name ?? '').trim() || r.id]))
+
   const shiftsByEmployee = new Map<string, typeof shiftList>()
   for (const s of shiftList) {
     const id = s.employeeId!
@@ -615,6 +646,7 @@ export function calculatePayrollScheduleReport(
       basePay,
       vacationDays,
       paidVacationHours,
+      payrollHoursTotal,
       overtimeHours,
       hourlyWageDisplay: effDisplay,
       minimumWageNote,
@@ -628,7 +660,7 @@ export function calculatePayrollScheduleReport(
     } = money
 
     const includeRow =
-      totalHours > 0 ||
+      payrollHoursTotal > 0 ||
       paidVacationHours > 0 ||
       vacationDays > 0 ||
       basePay > 0 ||
@@ -641,6 +673,20 @@ export function calculatePayrollScheduleReport(
 
     if (!includeRow) continue
 
+    const vacHpdDefault = rNum(R, 'vacation_hours_per_day', NaN) || null
+    const scheduleLines = buildSchedulePayrollDetailLines({
+      employeeId,
+      fromDate,
+      toDate,
+      federalState,
+      employmentType,
+      employmentRole: String(R.employment_role ?? ''),
+      vacHpdDefault,
+      myShifts,
+      absences,
+      workAreaNameById,
+    })
+
     rows.push({
       employeeId,
       employeeName: emp.display_name,
@@ -648,7 +694,8 @@ export function calculatePayrollScheduleReport(
       hourlyWage: Math.round(effDisplay * 100) / 100,
       ...(!monthlyRecipient ? { registeredHourlyWage: Math.round(rawHourly * 100) / 100 } : {}),
       ...(minimumWageNote ? { minimumWageNote } : {}),
-      totalHours,
+      totalHours: payrollHoursTotal,
+      workPlanHours: totalHours,
       overtimeHours,
       vacationDays,
       paidVacationHours,
@@ -660,6 +707,7 @@ export function calculatePayrollScheduleReport(
       bonus,
       advance,
       total,
+      scheduleLines,
       ...(messages.length ? { messages } : {}),
     })
   }
@@ -714,6 +762,144 @@ export function calculatePayrollScheduleReport(
 function weekdayDeLongEuropeBerlin(ymd: string): string {
   const ms = berlinWallClockToUtcMs(ymd, '12:00')
   return new Intl.DateTimeFormat('de-DE', { weekday: 'long', timeZone: 'Europe/Berlin' }).format(new Date(ms))
+}
+
+function weekdayShortFlags(ymd: string): { sat: boolean; sun: boolean } {
+  const ms = berlinWallClockToUtcMs(ymd, '12:00')
+  const wd = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'Europe/Berlin' }).format(new Date(ms))
+  return { sat: wd === 'Sat', sun: wd === 'Sun' }
+}
+
+function lineTypeSortRank(t: PayrollScheduleDetailLine['lineType']): number {
+  if (t === 'shift') return 0
+  if (t === 'paid_vacation') return 1
+  return 2
+}
+
+export function buildSchedulePayrollDetailLines(p: {
+  employeeId: string
+  fromDate: string
+  toDate: string
+  federalState: GermanState
+  employmentType: string
+  employmentRole: string
+  vacHpdDefault: number | null
+  myShifts: Array<{
+    id: string
+    date?: string
+    startTime?: string
+    endTime?: string
+    breakMinutes?: number
+    shiftType?: string
+    workAreaId?: string
+    note?: string
+  }>
+  absences: AbsenceRow[]
+  workAreaNameById: Map<string, string>
+}): PayrollScheduleDetailLine[] {
+  const lines: PayrollScheduleDetailLine[] = []
+  const vacByYmd = mergePaidVacationHoursByBerlinYmd(
+    p.absences,
+    p.employeeId,
+    p.fromDate,
+    p.toDate,
+    p.vacHpdDefault,
+    p.federalState,
+    p.employmentType,
+    p.employmentRole,
+  )
+
+  for (const s of p.myShifts) {
+    if (!s.date || !s.startTime || !s.endTime) continue
+    if (s.date < p.fromDate || s.date > p.toDate) continue
+    const st = String(s.shiftType ?? '')
+      .toLowerCase()
+      .trim()
+    if (st === 'frei') continue
+    const h = shiftNetHoursFromPlan(s.date, s.startTime, s.endTime, s.breakMinutes ?? 0)
+    const feiertag = isGermanPublicHolidayYmd(s.date, p.federalState) ? publicHolidayNameDe(s.date, p.federalState) : ''
+    const { sat, sun } = weekdayShortFlags(s.date)
+    const area = p.workAreaNameById.get(String(s.workAreaId ?? ''))?.trim() || 'Schicht'
+    const note = String(s.note ?? '').trim()
+    lines.push({
+      date: s.date,
+      weekdayDe: weekdayDeLongEuropeBerlin(s.date),
+      lineType: 'shift',
+      von: String(s.startTime).slice(0, 5),
+      bis: String(s.endTime).slice(0, 5),
+      bereich: area,
+      hours: h,
+      nacht: '—',
+      samstag: sat ? '✓' : '',
+      sonntag: sun ? '✓' : '',
+      feiertag,
+      besondererFeiertag: '',
+      hinweis: [feiertag ? `Feiertag: ${feiertag}` : '', note].filter(Boolean).join(' · ') || (feiertag ? `Feiertag: ${feiertag}` : ''),
+    })
+  }
+
+  for (const ymd of eachYmdInRangeInclusive(p.fromDate, p.toDate)) {
+    const vh = vacByYmd.get(ymd) ?? 0
+    if (vh <= 0) continue
+    const { sat, sun } = weekdayShortFlags(ymd)
+    const hol = isGermanPublicHolidayYmd(ymd, p.federalState) ? publicHolidayNameDe(ymd, p.federalState) : ''
+    lines.push({
+      date: ymd,
+      weekdayDe: weekdayDeLongEuropeBerlin(ymd),
+      lineType: 'paid_vacation',
+      von: '',
+      bis: '',
+      bereich: 'Urlaub (bezahlt)',
+      hours: vh,
+      nacht: '',
+      samstag: sat ? '✓' : '',
+      sonntag: sun ? '✓' : '',
+      feiertag: hol,
+      besondererFeiertag: '',
+      hinweis: hol ? `Kalender-Feiertag (${hol}), bezahlter Urlaub` : 'Bezahlter Urlaub',
+    })
+  }
+
+  for (const ab of p.absences) {
+    if (ab.employee_id !== p.employeeId || !absenceApprovedForPayroll(ab)) continue
+    const t = normalizeAbsenceDbType(ab.type)
+    if (t === 'paid_vacation') continue
+    const s = ab.start_date > p.fromDate ? ab.start_date : p.fromDate
+    const e = ab.end_date < p.toDate ? ab.end_date : p.toDate
+    if (e < s) continue
+    for (const ymd of eachYmdInRangeInclusive(s, e)) {
+      if ((t === 'sick' || t === 'child_sick' || t === 'unpaid_vacation') && (vacByYmd.get(ymd) ?? 0) > 0) continue
+      const label =
+        t === 'sick' || t === 'child_sick'
+          ? 'Krank'
+          : t === 'unpaid_vacation'
+            ? 'Urlaub (unbezahlt)'
+            : t === 'special_leave'
+              ? 'Sonderurlaub'
+              : 'Abwesenheit'
+      const { sat, sun } = weekdayShortFlags(ymd)
+      const hol = isGermanPublicHolidayYmd(ymd, p.federalState) ? publicHolidayNameDe(ymd, p.federalState) : ''
+      lines.push({
+        date: ymd,
+        weekdayDe: weekdayDeLongEuropeBerlin(ymd),
+        lineType:
+          t === 'unpaid_vacation' ? 'unpaid_vacation' : t === 'sick' || t === 'child_sick' ? 'sick' : 'other_absence',
+        von: '',
+        bis: '',
+        bereich: label,
+        hours: 0,
+        nacht: '',
+        samstag: sat ? '✓' : '',
+        sonntag: sun ? '✓' : '',
+        feiertag: hol,
+        besondererFeiertag: '',
+        hinweis: 'Nicht als bezahlte Arbeitsstunden gewertet',
+      })
+    }
+  }
+
+  lines.sort((a, b) => a.date.localeCompare(b.date) || lineTypeSortRank(a.lineType) - lineTypeSortRank(b.lineType))
+  return lines
 }
 
 function parseEmployeeIdFilter(raw: string | undefined): Set<string> | null {
@@ -939,6 +1125,22 @@ export function calculatePayrollCombinedReport(
       }
     }
 
+    const vacHpdDefaultCombined = rNum(R, 'vacation_hours_per_day', NaN) || null
+    const employmentRoleCombined = String(R.employment_role ?? '')
+    const vacByYmd = mergePaidVacationHoursByBerlinYmd(
+      absences,
+      employeeId,
+      fromDate,
+      toDate,
+      vacHpdDefaultCombined,
+      federalState,
+      employmentType,
+      employmentRoleCombined,
+    )
+    for (const ymd of vacByYmd.keys()) {
+      ensurePack(ymd)
+    }
+
     const details: PayrollCombinedDayDetail[] = []
     let supplementsTotal = 0
     let scheduleHoursTotal = 0
@@ -948,12 +1150,14 @@ export function calculatePayrollCombinedReport(
     let unplannedWorkDayCount = 0
     let extraUnplannedHours = 0
 
-    const sortedYmd = [...byYmd.keys()].sort()
+    const sortedYmd = [...new Set([...byYmd.keys(), ...vacByYmd.keys()])].sort()
     for (const ymd of sortedYmd) {
       const pack = byYmd.get(ymd)!
       const sh = Math.round(pack.sh * 100) / 100
       const tr = Math.round(pack.tr * 100) / 100
+      const vh = Math.round((vacByYmd.get(ymd) ?? 0) * 100) / 100
       scheduleHoursTotal += sh
+      if (vh > 0 && sh <= 0 && tr <= 0) scheduleHoursTotal += vh
       timeTrackingHoursTotal += tr
 
       let used = 0
@@ -988,6 +1192,15 @@ export function calculatePayrollCombinedReport(
         else source = 'none'
       }
 
+      if (!hasOpen && vh > 0) {
+        if (sh <= 0 && tr <= 0) {
+          used = vh
+          source = 'paid_vacation'
+        } else {
+          used = Math.max(used, vh)
+        }
+      }
+
       usedHoursTotal += used
       extraUnplannedHours += Math.max(0, Math.round((tr - sh) * 100) / 100)
       if (sh > 0 && tr <= 0 && !hasOpen) missingTimeEntriesDayCount += 1
@@ -1020,6 +1233,9 @@ export function calculatePayrollCombinedReport(
       } else if (source === 'time_tracking' && tr === sh && sh > 0) {
         note = 'Zeiterfassung entspricht dem Schichtplan.'
         highlight = 'green'
+      } else if (source === 'paid_vacation') {
+        note = 'Bezahlter Urlaub (Abwesenheit).'
+        highlight = 'neutral'
       }
 
       let daySup = 0

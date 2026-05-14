@@ -235,6 +235,31 @@ export function vacationDayWeight(ab: AbsenceRow, ymd: string): number {
   return 1
 }
 
+/** Genehmigte Abwesenheit, die in der Lohnberechnung berücksichtigt werden darf. */
+export function absenceApprovedForPayroll(a: AbsenceRow): boolean {
+  const st = String(a.status ?? '')
+    .toLowerCase()
+    .trim()
+  return st === 'approved'
+}
+
+/** Pro Kalendertag: bei gleichem Tag Arbeitszeit + bezahlter Urlaub nicht doppelt zählen (max). */
+export function effectivePayrollDayHours(wh: number, vh: number): number {
+  const w = Math.max(0, wh)
+  const v = Math.max(0, vh)
+  if (w > 0 && v > 0) return Math.round(Math.max(w, v) * 100) / 100
+  return Math.round((w + v) * 100) / 100
+}
+
+export function sumEffectivePayrollHoursByYmd(workByYmd: Map<string, number>, vacByYmd: Map<string, number>): number {
+  const keys = new Set([...workByYmd.keys(), ...vacByYmd.keys()])
+  let sum = 0
+  for (const ymd of keys) {
+    sum += effectivePayrollDayHours(workByYmd.get(ymd) ?? 0, vacByYmd.get(ymd) ?? 0)
+  }
+  return Math.round(sum * 100) / 100
+}
+
 export function paidHoursPerDayForAbsence(a: AbsenceRow, empVacHoursPerDay: number | null): number {
   const fromRow = Number(a.paid_hours_per_day ?? 0)
   if (Number.isFinite(fromRow) && fromRow > 0) return fromRow
@@ -256,8 +281,7 @@ export function overlapPaidVacationDaysForPayroll(
 ): number {
   const t = normalizeAbsenceDbType(a.type)
   if (t !== 'paid_vacation') return 0
-  if (a.status !== 'approved') return 0
-  if ((a.counts_against_vacation ?? 0) !== 1) return 0
+  if (!absenceApprovedForPayroll(a)) return 0
 
   const s = a.start_date > from ? a.start_date : from
   const e = a.end_date < to ? a.end_date : to
@@ -303,8 +327,7 @@ export function mergePaidVacationHoursByBerlinYmd(
   for (const ab of absences) {
     if (ab.employee_id !== employeeId) continue
     if (normalizeAbsenceDbType(ab.type) !== 'paid_vacation') continue
-    if (ab.status !== 'approved') continue
-    if ((ab.counts_against_vacation ?? 0) !== 1) continue
+    if (!absenceApprovedForPayroll(ab)) continue
     const s = ab.start_date > rangeFrom ? ab.start_date : rangeFrom
     const e = ab.end_date < rangeTo ? ab.end_date : rangeTo
     if (e < s) continue
@@ -423,6 +446,8 @@ export type PayrollMoneyBlockResult = {
   basePay: number
   vacationDays: number
   paidVacationHours: number
+  /** Summe der tagesbezogenen Effektivstunden (Arbeit + Urlaub, ohne Doppelzählung am selben Tag). */
+  payrollHoursTotal: number
   overtimeHours: number
   hourlyWageDisplay: number
   minimumWageNote?: string
@@ -475,6 +500,20 @@ export function computePayrollMoneyBlock(inp: PayrollMoneyBlockInput): PayrollMo
   vacationDays = Math.round(vacationDays * 100) / 100
   paidVacationHours = Math.round(paidVacationHours * 100) / 100
 
+  const vacByYmd = mergePaidVacationHoursByBerlinYmd(
+    absences,
+    employeeId,
+    fromDate,
+    toDate,
+    vacHpdDefault,
+    federalState,
+    employmentType,
+    employmentRole,
+  )
+  const payrollHoursTotal = monthlyRecipient
+    ? Math.round((totalWorkHoursForDisplay + paidVacationHours) * 100) / 100
+    : sumEffectivePayrollHoursByYmd(workHoursByBerlinYmd, vacByYmd)
+
   const overtimeHours = 0
   const messages: string[] = []
   let basePay = 0
@@ -486,35 +525,26 @@ export function computePayrollMoneyBlock(inp: PayrollMoneyBlockInput): PayrollMo
       messages.push('Monatsgehalt fehlt im Mitarbeiterprofil.')
     }
   } else if (subject) {
-    const vacByYmd = mergePaidVacationHoursByBerlinYmd(
-      absences,
-      employeeId,
-      fromDate,
-      toDate,
-      vacHpdDefault,
-      federalState,
-      employmentType,
-      employmentRole,
-    )
     const ymdKeys = new Set([...workHoursByBerlinYmd.keys(), ...vacByYmd.keys()])
     for (const ymd of ymdKeys) {
       const wh = workHoursByBerlinYmd.get(ymd) ?? 0
       const vh = vacByYmd.get(ymd) ?? 0
+      const eh = effectivePayrollDayHours(wh, vh)
       const rate = getEffectiveHourlyRate(db, employmentType, rawHourly, ymd)
-      basePay += (wh + vh) * rate
+      basePay += eh * rate
     }
     basePay = Math.round(basePay * 100) / 100
   } else {
     const fw = festangestelltMinWageWarning(db, employmentType, rawHourly, monthlyRecipient, fromDate, toDate)
     if (fw) messages.push(fw)
     if (rawHourly > 0) {
-      basePay = Math.round((totalWorkHoursForDisplay + paidVacationHours) * rawHourly * 100) / 100
-    } else if (totalWorkHoursForDisplay > 0 || paidVacationHours > 0) {
+      basePay = Math.round(payrollHoursTotal * rawHourly * 100) / 100
+    } else if (payrollHoursTotal > 0) {
       messages.push('Stundenlohn fehlt im Mitarbeiterprofil.')
     }
   }
 
-  const denom = Math.round((totalWorkHoursForDisplay + paidVacationHours) * 100) / 100
+  const denom = Math.round(payrollHoursTotal * 100) / 100
   let hourlyWageDisplay = 0
   if (!monthlyRecipient) {
     if (denom > 0 && basePay > 0) hourlyWageDisplay = basePay / denom
@@ -553,6 +583,7 @@ export function computePayrollMoneyBlock(inp: PayrollMoneyBlockInput): PayrollMo
       toDate,
       totalWorkHoursForDisplay,
       paidVacationHours,
+      payrollHoursTotal,
       vacationDays,
       basePay,
       supplementsTotal,
@@ -564,6 +595,7 @@ export function computePayrollMoneyBlock(inp: PayrollMoneyBlockInput): PayrollMo
     basePay,
     vacationDays,
     paidVacationHours,
+    payrollHoursTotal,
     overtimeHours,
     hourlyWageDisplay: Math.round(hourlyWageDisplay * 100) / 100,
     ...(minimumWageNote ? { minimumWageNote } : {}),
