@@ -25,9 +25,13 @@ import {
   isExitedEmployee,
   matchesEmploymentFilter,
   mergeChecklistCashIntoBuckets,
+  mergePaidAbsenceHoursMapsForPayroll,
   mergePaidVacationHoursByBerlinYmd,
+  mergeOtherPaidAbsenceHoursByBerlinYmd,
   parseEmploymentFilter,
+  paidHoursPerDayForAbsence,
   rNum,
+  vacationDayWeight,
   isMonthlyWageRecipient,
   shiftNetHoursFromPlan,
   shiftToIsoEndpoints,
@@ -72,7 +76,7 @@ export type PayrollTimeTrackingRow = {
 export type PayrollScheduleDetailLine = {
   date: string
   weekdayDe: string
-  lineType: 'shift' | 'paid_vacation' | 'unpaid_vacation' | 'sick' | 'other_absence'
+  lineType: 'shift' | 'paid_vacation' | 'unpaid_vacation' | 'sick' | 'special_leave' | 'other_absence'
   von: string
   bis: string
   bereich: string
@@ -773,7 +777,8 @@ function weekdayShortFlags(ymd: string): { sat: boolean; sun: boolean } {
 function lineTypeSortRank(t: PayrollScheduleDetailLine['lineType']): number {
   if (t === 'shift') return 0
   if (t === 'paid_vacation') return 1
-  return 2
+  if (t === 'special_leave') return 2
+  return 3
 }
 
 export function buildSchedulePayrollDetailLines(p: {
@@ -868,7 +873,7 @@ export function buildSchedulePayrollDetailLines(p: {
     const e = ab.end_date < p.toDate ? ab.end_date : p.toDate
     if (e < s) continue
     for (const ymd of eachYmdInRangeInclusive(s, e)) {
-      if ((t === 'sick' || t === 'child_sick' || t === 'unpaid_vacation') && (vacByYmd.get(ymd) ?? 0) > 0) continue
+      if (t === 'unpaid_vacation' && (vacByYmd.get(ymd) ?? 0) > 0) continue
       const label =
         t === 'sick' || t === 'child_sick'
           ? 'Krank'
@@ -879,21 +884,35 @@ export function buildSchedulePayrollDetailLines(p: {
               : 'Abwesenheit'
       const { sat, sun } = weekdayShortFlags(ymd)
       const hol = isGermanPublicHolidayYmd(ymd, p.federalState) ? publicHolidayNameDe(ymd, p.federalState) : ''
+      const paidOther =
+        (t === 'sick' || t === 'child_sick' || t === 'special_leave') &&
+        (ab.paid ?? 0) === 1 &&
+        paidHoursPerDayForAbsence(ab, p.vacHpdDefault) > 0
+      const dayHours = paidOther
+        ? Math.round(vacationDayWeight(ab, ymd) * paidHoursPerDayForAbsence(ab, p.vacHpdDefault) * 100) / 100
+        : 0
+      const lineType: PayrollScheduleDetailLine['lineType'] =
+        t === 'unpaid_vacation'
+          ? 'unpaid_vacation'
+          : t === 'sick' || t === 'child_sick'
+            ? 'sick'
+            : t === 'special_leave'
+              ? 'special_leave'
+              : 'other_absence'
       lines.push({
         date: ymd,
         weekdayDe: weekdayDeLongEuropeBerlin(ymd),
-        lineType:
-          t === 'unpaid_vacation' ? 'unpaid_vacation' : t === 'sick' || t === 'child_sick' ? 'sick' : 'other_absence',
+        lineType,
         von: '',
         bis: '',
         bereich: label,
-        hours: 0,
+        hours: dayHours,
         nacht: '',
         samstag: sat ? '✓' : '',
         sonntag: sun ? '✓' : '',
         feiertag: hol,
         besondererFeiertag: '',
-        hinweis: 'Nicht als bezahlte Arbeitsstunden gewertet',
+        hinweis: dayHours > 0 ? 'Bezahlte Abwesenheit (Lohn)' : 'Nicht als bezahlte Arbeitsstunden gewertet',
       })
     }
   }
@@ -1137,7 +1156,18 @@ export function calculatePayrollCombinedReport(
       employmentType,
       employmentRoleCombined,
     )
-    for (const ymd of vacByYmd.keys()) {
+    const otherPaidByYmdCombined = mergeOtherPaidAbsenceHoursByBerlinYmd(
+      absences,
+      employeeId,
+      fromDate,
+      toDate,
+      vacHpdDefaultCombined,
+      federalState,
+      employmentType,
+      employmentRoleCombined,
+    )
+    const vacByYmdAll = mergePaidAbsenceHoursMapsForPayroll(vacByYmd, otherPaidByYmdCombined)
+    for (const ymd of vacByYmdAll.keys()) {
       ensurePack(ymd)
     }
 
@@ -1150,12 +1180,12 @@ export function calculatePayrollCombinedReport(
     let unplannedWorkDayCount = 0
     let extraUnplannedHours = 0
 
-    const sortedYmd = [...new Set([...byYmd.keys(), ...vacByYmd.keys()])].sort()
+    const sortedYmd = [...new Set([...byYmd.keys(), ...vacByYmdAll.keys()])].sort()
     for (const ymd of sortedYmd) {
-      const pack = byYmd.get(ymd)!
+      const pack = ensurePack(ymd)
       const sh = Math.round(pack.sh * 100) / 100
       const tr = Math.round(pack.tr * 100) / 100
-      const vh = Math.round((vacByYmd.get(ymd) ?? 0) * 100) / 100
+      const vh = Math.round((vacByYmdAll.get(ymd) ?? 0) * 100) / 100
       scheduleHoursTotal += sh
       if (vh > 0 && sh <= 0 && tr <= 0) scheduleHoursTotal += vh
       timeTrackingHoursTotal += tr

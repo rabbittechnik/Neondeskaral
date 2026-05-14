@@ -342,6 +342,48 @@ export function mergePaidVacationHoursByBerlinYmd(
   return map
 }
 
+/** Krank / Kind krank / Sonderurlaub mit bezahlten Stunden (z. B. 8 h/Tag), für Lohn aggregiert. */
+export function mergeOtherPaidAbsenceHoursByBerlinYmd(
+  absences: AbsenceRow[],
+  employeeId: string,
+  rangeFrom: string,
+  rangeTo: string,
+  vacHpdDefault: number | null,
+  federalState: GermanState,
+  employmentType: string,
+  employmentRole: string,
+): Map<string, number> {
+  const map = new Map<string, number>()
+  const excludeHol = isStableEmploymentForHolidayExclusion(employmentType, employmentRole)
+  for (const ab of absences) {
+    if (ab.employee_id !== employeeId) continue
+    if (!absenceApprovedForPayroll(ab)) continue
+    if ((ab.paid ?? 0) !== 1) continue
+    const t = normalizeAbsenceDbType(ab.type)
+    if (t !== 'sick' && t !== 'child_sick' && t !== 'special_leave') continue
+    const hpd = paidHoursPerDayForAbsence(ab, vacHpdDefault)
+    if (!(hpd > 0)) continue
+    const s = ab.start_date > rangeFrom ? ab.start_date : rangeFrom
+    const e = ab.end_date < rangeTo ? ab.end_date : rangeTo
+    if (e < s) continue
+    for (const ymd of eachYmdInRangeInclusive(s, e)) {
+      if (excludeHol && isPublicHolidayYmd(ymd, federalState)) continue
+      const w = vacationDayWeight(ab, ymd)
+      if (w <= 0) continue
+      map.set(ymd, (map.get(ymd) ?? 0) + w * hpd)
+    }
+  }
+  return map
+}
+
+export function mergePaidAbsenceHoursMapsForPayroll(a: Map<string, number>, b: Map<string, number>): Map<string, number> {
+  const out = new Map(a)
+  for (const [k, v] of b) {
+    out.set(k, (out.get(k) ?? 0) + v)
+  }
+  return out
+}
+
 export function maxMinimumWageInRange(db: Database, fromYmd: string, toYmd: string): number {
   let m = 0
   for (const d of eachYmdInRangeInclusive(fromYmd, toYmd)) {
@@ -510,9 +552,27 @@ export function computePayrollMoneyBlock(inp: PayrollMoneyBlockInput): PayrollMo
     employmentType,
     employmentRole,
   )
+  const otherPaidByYmd = mergeOtherPaidAbsenceHoursByBerlinYmd(
+    absences,
+    employeeId,
+    fromDate,
+    toDate,
+    vacHpdDefault,
+    federalState,
+    employmentType,
+    employmentRole,
+  )
+  let otherPaidAbsenceHoursSum = 0
+  for (const v of otherPaidByYmd.values()) {
+    otherPaidAbsenceHoursSum += v
+  }
+  otherPaidAbsenceHoursSum = Math.round(otherPaidAbsenceHoursSum * 100) / 100
+  paidVacationHours = Math.round((paidVacationHours + otherPaidAbsenceHoursSum) * 100) / 100
+
+  const allPaidAbsenceByYmd = mergePaidAbsenceHoursMapsForPayroll(vacByYmd, otherPaidByYmd)
   const payrollHoursTotal = monthlyRecipient
     ? Math.round((totalWorkHoursForDisplay + paidVacationHours) * 100) / 100
-    : sumEffectivePayrollHoursByYmd(workHoursByBerlinYmd, vacByYmd)
+    : sumEffectivePayrollHoursByYmd(workHoursByBerlinYmd, allPaidAbsenceByYmd)
 
   const overtimeHours = 0
   const messages: string[] = []
@@ -525,10 +585,10 @@ export function computePayrollMoneyBlock(inp: PayrollMoneyBlockInput): PayrollMo
       messages.push('Monatsgehalt fehlt im Mitarbeiterprofil.')
     }
   } else if (subject) {
-    const ymdKeys = new Set([...workHoursByBerlinYmd.keys(), ...vacByYmd.keys()])
+    const ymdKeys = new Set([...workHoursByBerlinYmd.keys(), ...allPaidAbsenceByYmd.keys()])
     for (const ymd of ymdKeys) {
       const wh = workHoursByBerlinYmd.get(ymd) ?? 0
-      const vh = vacByYmd.get(ymd) ?? 0
+      const vh = allPaidAbsenceByYmd.get(ymd) ?? 0
       const eh = effectivePayrollDayHours(wh, vh)
       const rate = getEffectiveHourlyRate(db, employmentType, rawHourly, ymd)
       basePay += eh * rate

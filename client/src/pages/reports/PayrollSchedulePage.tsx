@@ -21,7 +21,7 @@ type EmploymentFilter =
 type ScheduleDetailLine = {
   date: string
   weekdayDe: string
-  lineType: 'shift' | 'paid_vacation' | 'unpaid_vacation' | 'sick' | 'other_absence'
+  lineType: 'shift' | 'paid_vacation' | 'unpaid_vacation' | 'sick' | 'special_leave' | 'other_absence'
   von: string
   bis: string
   bereich: string

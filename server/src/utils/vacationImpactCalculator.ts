@@ -105,7 +105,23 @@ export function calculateVacationImpact(
     }
   }
 
-  // sick, day_off, special_leave, child_sick, other, school
+  if (t === 'sick' || t === 'child_sick' || t === 'special_leave') {
+    const phpd =
+      absence.paidHoursPerDay != null && Number.isFinite(Number(absence.paidHoursPerDay)) && Number(absence.paidHoursPerDay) > 0
+        ? Number(absence.paidHoursPerDay)
+        : defaultPaidHoursPerDayFromEmployee(employee?.vacation_hours_per_day as number | null | undefined)
+    const paidHoursTotal = round2(absenceDays * phpd)
+    return {
+      absenceDays: round2(absenceDays),
+      paidHoursPerDay: phpd,
+      paidHoursTotal,
+      countsAgainstVacation: false,
+      paid: true,
+      affectsRemainingVacation: false,
+    }
+  }
+
+  // day_off, other, school
   return {
     absenceDays: round2(absenceDays),
     paidHoursPerDay: 0,
