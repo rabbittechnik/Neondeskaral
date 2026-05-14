@@ -200,6 +200,40 @@ export function runMigrations(db: Database.Database) {
   mergeDocumentsPermissionsIntoAccess(db)
   ensureStationExtendedModules2026(db)
   ensureStationBreakPolicyColumnsAndZeroBodelshausenBreaks(db)
+  ensureTimeEntryCorrections2026(db)
+}
+
+/** Revisionssichere Zeiterfassungs-Korrekturen + Auto-Ausstempeln (Stationseinstellung). */
+function ensureTimeEntryCorrections2026(db: Database.Database) {
+  db.exec(`CREATE TABLE IF NOT EXISTS time_entry_corrections (
+    id TEXT PRIMARY KEY,
+    time_entry_id TEXT NOT NULL,
+    station_id TEXT NOT NULL,
+    employee_id TEXT NOT NULL,
+    correction_kind TEXT NOT NULL,
+    original_clock_in_at TEXT NOT NULL,
+    original_clock_out_at TEXT,
+    corrected_clock_in_at TEXT NOT NULL,
+    corrected_clock_out_at TEXT,
+    original_break_minutes INTEGER NOT NULL DEFAULT 0,
+    corrected_break_minutes INTEGER NOT NULL DEFAULT 0,
+    reason TEXT NOT NULL,
+    note TEXT,
+    corrected_by_user_id TEXT,
+    corrected_by_name TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (time_entry_id) REFERENCES time_entries(id)
+  )`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_time_entry_corrections_entry ON time_entry_corrections(time_entry_id)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_time_entry_corrections_station_created ON time_entry_corrections(station_id, created_at)`)
+
+  const stCols = new Set((db.prepare(`PRAGMA table_info(stations)`).all() as { name: string }[]).map((c) => c.name))
+  if (!stCols.has('auto_clock_out_enabled')) {
+    db.exec(`ALTER TABLE stations ADD COLUMN auto_clock_out_enabled INTEGER NOT NULL DEFAULT 1`)
+  }
+  if (!stCols.has('auto_clock_out_time')) {
+    db.exec(`ALTER TABLE stations ADD COLUMN auto_clock_out_time TEXT NOT NULL DEFAULT '22:45'`)
+  }
 }
 
 /** Idempotent: StationGuide-Urlaube Aral Bodelshausen (Apr–Jun 2026), nur wenn Mitarbeiter existieren. */

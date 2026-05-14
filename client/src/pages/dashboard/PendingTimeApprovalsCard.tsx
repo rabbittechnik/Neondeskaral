@@ -4,13 +4,13 @@ import { Timer } from 'lucide-react'
 import { useAuth } from '../../context/auth-context'
 import { apiGet } from '../../services/api'
 import { useStation } from '../../context/station-context'
-import { canApproveTimeEntries } from '../../utils/timeApproval'
+import { canAccessTimeApprovalsPage } from '../../utils/timeApproval'
 import { Card } from '../../components/ui/Card'
 
 export function PendingTimeApprovalsCard() {
   const { user } = useAuth()
   const { stationId } = useStation()
-  const allowed = canApproveTimeEntries(user)
+  const allowed = canAccessTimeApprovalsPage(user)
   const [count, setCount] = useState<number | null>(null)
   const [err, setErr] = useState<string | null>(null)
 

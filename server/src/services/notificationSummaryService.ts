@@ -41,7 +41,7 @@ export type NotificationSummaryResult = {
 export function buildNotificationsSummary(db: Database, ctx: AccessContext, stationId: string): NotificationSummaryResult {
   const items: NotificationSummaryItem[] = []
 
-  if (hasPermission(ctx, stationId, 'time.approve')) {
+  if (hasPermission(ctx, stationId, 'time.approve') || hasPermission(ctx, stationId, 'time.correct')) {
     const n = countPendingApproval(db, stationId)
     if (n > 0) {
       items.push({

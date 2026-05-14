@@ -5,7 +5,7 @@ import { useSidebar } from '../../store/sidebar-context'
 import { navEntries, type NavEntry, type NavGroup } from './navConfig'
 import { useAuth } from '../../context/auth-context'
 import { useStation } from '../../context/station-context'
-import { canApproveTimeEntries } from '../../utils/timeApproval'
+import { canAccessTimeApprovalsPage, canApproveTimeEntries } from '../../utils/timeApproval'
 
 function pathMatches(pathname: string, to: string) {
   if (to === '/dashboard') return pathname === '/dashboard' || pathname === '/'
@@ -177,6 +177,7 @@ export function Sidebar() {
 
   const { user } = useAuth()
   const { hasPermission } = useStation()
+  const canSeeTimeApprovals = canAccessTimeApprovalsPage(user)
   const canApprove = canApproveTimeEntries(user)
   const visibleNav = useMemo(() => {
     return navEntries
@@ -200,7 +201,7 @@ export function Sidebar() {
           ...e,
           children: e.children.filter((c) => {
             if (c.globalAdminOnly && !user?.globalAdmin) return false
-            if (c.approverOnly && !canApprove) return false
+            if (c.approverOnly && !canSeeTimeApprovals) return false
             if (c.anyPermission?.length) {
               const ok = c.anyPermission.some((k) => hasPermission(k))
               if (!ok) return false

@@ -1,8 +1,9 @@
 import { Router } from 'express'
 import { getDb } from '../db/database.js'
 import { jsonErr, jsonOk } from '../utils/http.js'
-import { requirePermission } from '../middleware/stationAuth.js'
+import { requirePermission, requireAnyPermission } from '../middleware/stationAuth.js'
 import * as timeTracking from '../services/timeTrackingService.js'
+import * as timeEntryCorrections from '../services/timeEntryCorrectionService.js'
 import * as terminal from '../services/terminalService.js'
 import { updateShiftChecklistReviewItems } from '../services/shiftChecklistReviewService.js'
 import type { BackshopItemSnapshot } from '../services/backshopRoutineService.js'
@@ -36,7 +37,7 @@ timeEntriesRouter.get('/today', (req, res) => {
 timeEntriesRouter.get('/pending-approval', (req, res) => {
   try {
     const stationId = typeof req.query.stationId === 'string' ? req.query.stationId : undefined
-    if (!requirePermission(req, res, stationId, 'time.approve')) return
+    if (!requireAnyPermission(req, res, stationId, ['time.approve', 'time.correct'])) return
     jsonOk(res, {
       items: timeTracking.listPendingApproval(getDb(), stationId!),
       count: timeTracking.countPendingApproval(getDb(), stationId!),
@@ -124,7 +125,7 @@ timeEntriesRouter.get('/:id/detail', (req, res) => {
   try {
     const row = timeTracking.getTimeEntryRow(getDb(), req.params.id)
     if (!row) return jsonErr(res, 'Zeiteintrag nicht gefunden', 404)
-    if (!requirePermission(req, res, row.station_id, 'time.approve')) return
+    if (!requireAnyPermission(req, res, row.station_id, ['time.approve', 'time.correct'])) return
     const d = timeTracking.getTimeEntryDetail(getDb(), req.params.id)
     if (!d) return jsonErr(res, 'Zeiteintrag nicht gefunden', 404)
     jsonOk(res, d)
@@ -165,6 +166,37 @@ timeEntriesRouter.post('/:id/request-correction', (req, res) => {
     if (!requirePermission(req, res, row.station_id, 'time.approve')) return
     const note = String((req.body as { correctionNote?: string })?.correctionNote ?? '').trim()
     jsonOk(res, timeTracking.requestTimeEntryCorrection(getDb(), req.params.id, note))
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
+  }
+})
+
+timeEntriesRouter.post('/:id/correct-times', (req, res) => {
+  try {
+    const row = timeTracking.getTimeEntryRow(getDb(), req.params.id)
+    if (!row) return jsonErr(res, 'Zeiteintrag nicht gefunden', 404)
+    if (!requireAnyPermission(req, res, row.station_id, ['time.approve', 'time.correct'])) return
+    const b = (req.body ?? {}) as Record<string, unknown>
+    const out = timeEntryCorrections.insertManualTimeCorrection(
+      getDb(),
+      req.params.id,
+      {
+        correctedStartAt: typeof b.correctedStartAt === 'string' ? b.correctedStartAt : undefined,
+        correctedEndAt: typeof b.correctedEndAt === 'string' ? b.correctedEndAt : undefined,
+        workDateYmdBerlin: typeof b.workDateYmdBerlin === 'string' ? b.workDateYmdBerlin : undefined,
+        correctedStartHm: typeof b.correctedStartHm === 'string' ? b.correctedStartHm : undefined,
+        correctedEndHm: typeof b.correctedEndHm === 'string' ? b.correctedEndHm : undefined,
+        breakMinutes: Number(b.breakMinutes ?? 0),
+        reason: String(b.reason ?? ''),
+        note: typeof b.note === 'string' ? b.note : undefined,
+      },
+      req.adminUser!.sub,
+      String(req.adminUser?.displayName || req.adminUser?.username || '').trim(),
+    )
+    jsonOk(res, {
+      correction: timeEntryCorrections.rowToCorrectionApi(out),
+      detail: timeTracking.getTimeEntryDetail(getDb(), req.params.id),
+    })
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
   }

@@ -119,7 +119,8 @@ const FILTER_OPTIONS: { value: EmploymentFilter; label: string }[] = [
   { value: 'all_with_exited', label: 'Alle inkl. ausgeschiedene (aktiv)' },
 ]
 
-const COL_HEADERS = [
+/** Vollständige Spaltenüberschriften für CSV/XLSX (unveränderte Datenbasis). */
+const EXPORT_COL_HEADERS = [
   'Mitarbeiter',
   'Eingetr. Stundenlohn',
   'Verwend. Stundenlohn',
@@ -136,6 +137,17 @@ const COL_HEADERS = [
   'Vorschuß',
   'Summe',
 ] as const
+
+const TH_MAIN = 'px-2 py-2.5 text-left text-xs font-semibold tracking-tight text-[var(--text-main)] print:text-black sm:text-sm'
+const TH_NOWRAP = `${TH_MAIN} whitespace-nowrap [word-break:normal] [overflow-wrap:normal]`
+const TH_NUM = `${TH_NOWRAP} text-right`
+const TD_BASE = 'border-b border-white/[0.06] px-2 py-2.5 align-middle text-sm print:border-neutral-300 print:text-black sm:py-3'
+const TD_NAME = `${TD_BASE} text-left font-medium text-[var(--text-main)]`
+const TD_NUM = `${TD_BASE} text-right tabular-nums tracking-tight`
+const TD_SUM = `${TD_NUM} text-base font-bold text-cyan-200/95 print:text-black`
+const TD_HIDE_SCREEN_PRINT = `${TD_BASE} hidden print:table-cell`
+const TD_HIDE_XL = `${TD_BASE} hidden xl:table-cell`
+const TD_ART = `${TD_BASE} hidden text-[var(--text-muted)] md:table-cell`
 
 export function PayrollTimePage() {
   const { user } = useAuth()
@@ -214,6 +226,11 @@ export function PayrollTimePage() {
     else setSelected(new Set(data.rows.map((r) => r.employeeId)))
   }
 
+  const detailSummary = useMemo(() => {
+    if (!detailEmp || !data?.rows) return null
+    return data.rows.find((x) => x.employeeId === detailEmp) ?? null
+  }, [detailEmp, data])
+
   const rowsForExport = useMemo(() => {
     if (!data?.rows.length) return []
     if (selected.size === 0) return data.rows
@@ -261,7 +278,7 @@ export function PayrollTimePage() {
   }, [rowsForExport])
 
   const buildSheetMatrix = useCallback(() => {
-    const head = ['', ...COL_HEADERS]
+    const head = ['', ...EXPORT_COL_HEADERS]
     const body = rowsForExport.map((r) => [
       '',
       r.employeeName,
@@ -362,7 +379,7 @@ export function PayrollTimePage() {
       />
 
       <p className="rounded-lg border border-cyan-500/20 bg-cyan-500/10 px-3 py-2 text-sm text-cyan-100/95">
-        „Stunden Gesamt“ enthält freigegebene Zeiten plus genehmigten bezahlten Urlaub (täglich ohne Doppelzählung mit Arbeit am selben Tag).
+        „Stunden“ in der Tabelle = freigegebene Arbeitszeiten plus genehmigter bezahlter Urlaub (täglich ohne Doppelzählung mit Arbeit am selben Tag).
       </p>
 
       {(data?.reportSource === 'time_tracking' || data?.reportSource === undefined) && data?.hasPendingApprovedTime ? (
@@ -375,82 +392,82 @@ export function PayrollTimePage() {
         </div>
       ) : null}
 
-      <div className="flex flex-col gap-4 print:hidden xl:flex-row xl:flex-wrap xl:items-start xl:justify-between">
-        <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
-          <label className="flex flex-col gap-1 text-sm text-[var(--text-muted)]">
-            <span>Filter: Beschäftigungsart</span>
-            <select
-              value={employmentFilter}
-              onChange={(e) => setEmploymentFilter(e.target.value as EmploymentFilter)}
-              className="min-w-[14rem] rounded-lg border border-white/15 bg-black/30 px-3 py-2 text-[var(--text-main)]"
-            >
-              {FILTER_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <Button type="button" variant="outline" onClick={() => void load()} disabled={loading}>
-            Aktualisieren
-          </Button>
-          <Button type="button" variant="ghost" onClick={() => void openDetails()} className="gap-2">
-            <Table2 className="h-4 w-4" aria-hidden />
-            Arbeitszeiten (tabellarisch)
-          </Button>
+      <Card className="print:hidden">
+        <div className="flex flex-col gap-4 p-4 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
+          <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+            <label className="flex min-w-[12rem] flex-col gap-1.5 text-sm text-[var(--text-muted)]">
+              <span className="whitespace-nowrap">Beschäftigungsart</span>
+              <select
+                value={employmentFilter}
+                onChange={(e) => setEmploymentFilter(e.target.value as EmploymentFilter)}
+                className="rounded-lg border border-white/15 bg-black/30 px-3 py-2.5 text-[var(--text-main)]"
+              >
+                {FILTER_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Button type="button" variant="outline" onClick={() => void load()} disabled={loading}>
+              Aktualisieren
+            </Button>
+            <Button type="button" variant="ghost" onClick={() => void openDetails()} className="gap-2">
+              <Table2 className="h-4 w-4 shrink-0" aria-hidden />
+              <span className="whitespace-nowrap">Arbeitszeiten tabellarisch</span>
+            </Button>
+          </div>
+          <div className="flex flex-wrap items-end gap-3 sm:justify-end">
+            <label className="flex flex-col gap-1.5 text-sm text-[var(--text-muted)]">
+              <span>Von</span>
+              <input
+                type="date"
+                value={from}
+                onChange={(e) => setFrom(e.target.value)}
+                className="rounded-lg border border-white/15 bg-black/30 px-3 py-2.5 text-[var(--text-main)]"
+              />
+            </label>
+            <label className="flex flex-col gap-1.5 text-sm text-[var(--text-muted)]">
+              <span>Bis</span>
+              <input
+                type="date"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+                className="rounded-lg border border-white/15 bg-black/30 px-3 py-2.5 text-[var(--text-main)]"
+              />
+            </label>
+          </div>
         </div>
-
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-end">
-          <label className="flex flex-col gap-1 text-sm text-[var(--text-muted)]">
-            <span>Von</span>
-            <input
-              type="date"
-              value={from}
-              onChange={(e) => setFrom(e.target.value)}
-              className="rounded-lg border border-white/15 bg-black/30 px-3 py-2 text-[var(--text-main)]"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm text-[var(--text-muted)]">
-            <span>Bis</span>
-            <input
-              type="date"
-              value={to}
-              onChange={(e) => setTo(e.target.value)}
-              className="rounded-lg border border-white/15 bg-black/30 px-3 py-2 text-[var(--text-main)]"
-            />
-          </label>
+        <div className="flex flex-wrap items-center gap-2 border-t border-white/10 px-4 py-3">
+          <Button
+            type="button"
+            variant="outline"
+            className="gap-2"
+            onClick={() => window.print()}
+            disabled={!data?.rows.length}
+          >
+            <Printer className="h-4 w-4 shrink-0" aria-hidden />
+            <span className="whitespace-nowrap">Druck (PDF)</span>
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="gap-2"
+            onClick={exportXlsx}
+            disabled={!canExport || !rowsForExport.length}
+            title={!canExport ? 'reports.export oder payroll.export erforderlich' : undefined}
+          >
+            <FileSpreadsheet className="h-4 w-4 shrink-0" aria-hidden />
+            Excel (XLSX)
+          </Button>
+          <Button type="button" variant="outline" onClick={exportCsv} disabled={!canExport || !rowsForExport.length}>
+            CSV
+          </Button>
+          {!canExport ? (
+            <span className="text-xs text-[var(--text-faint)]">Export: reports.export oder payroll.export</span>
+          ) : null}
         </div>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2 print:hidden">
-        <Button
-          type="button"
-          variant="outline"
-          className="gap-2"
-          onClick={() => window.print()}
-          disabled={!data?.rows.length}
-        >
-          <Printer className="h-4 w-4" aria-hidden />
-          Druck (PDF)
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          className="gap-2"
-          onClick={exportXlsx}
-          disabled={!canExport || !rowsForExport.length}
-          title={!canExport ? 'reports.export oder payroll.export erforderlich' : undefined}
-        >
-          <FileSpreadsheet className="h-4 w-4" aria-hidden />
-          Excel (XLSX)
-        </Button>
-        <Button type="button" variant="outline" onClick={exportCsv} disabled={!canExport || !rowsForExport.length}>
-          CSV
-        </Button>
-        {!canExport ? (
-          <span className="text-xs text-[var(--text-faint)]">Export: reports.export oder payroll.export</span>
-        ) : null}
-      </div>
+      </Card>
 
       {error ? (
         <p className="text-sm text-rose-300" role="alert">
@@ -459,7 +476,7 @@ export function PayrollTimePage() {
       ) : null}
 
       <Card className="min-w-0 overflow-hidden print:shadow-none print:ring-0">
-        <div id="payroll-report-print" className="w-full min-w-0 p-2 sm:p-3 lg:p-4 print:p-2">
+        <div id="payroll-report-print" className="w-full min-w-0 p-3 sm:p-4 print:p-2">
           <p className="mb-3 text-xs text-[var(--text-muted)] print:hidden">{metaLine}</p>
           <div className="mb-4 hidden print:block">
             <h2 className="text-lg font-semibold text-black">Lohnabrechnung (Zeiterfassung)</h2>
@@ -475,116 +492,121 @@ export function PayrollTimePage() {
           ) : !data?.rows.length ? (
             <p className="text-sm text-[var(--text-muted)]">Keine Abrechnungsdaten im gewählten Zeitraum.</p>
           ) : (
-            <table className="w-full table-fixed border-collapse text-left text-[10px] leading-snug sm:text-[11px] md:text-xs lg:text-sm print:text-[10px] print:text-black">
-              <colgroup>
-                {Array.from({ length: 17 }).map((_, i) => (
-                  <col key={i} style={{ width: `${100 / 17}%` }} />
-                ))}
-              </colgroup>
-              <thead>
-                <tr className="border-b border-white/10 print:border-neutral-400">
-                  <th className="py-1.5 pr-1 print:hidden sm:pr-2">
-                    <input
-                      type="checkbox"
-                      aria-label="Alle auswählen"
-                      checked={selected.size === data.rows.length && data.rows.length > 0}
-                      onChange={toggleAll}
-                    />
-                  </th>
-                  {COL_HEADERS.map((h) => (
-                    <th
-                      key={h}
-                      className="hyphens-auto break-words px-0.5 py-1.5 pr-1 font-semibold text-[var(--text-main)] sm:px-1 sm:pr-2 print:text-black"
-                    >
-                      {h}
-                    </th>
-                  ))}
-                  <th className="py-1.5 pr-1 text-[var(--text-muted)] print:hidden sm:pr-2">Details</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.rows.map((r) => (
-                  <tr key={r.employeeId} className="border-b border-white/[0.06] print:border-neutral-300">
-                    <td className="py-1 pr-1 print:hidden sm:pr-2">
+            <div className="payroll-time-scroll -mx-1 overflow-x-auto print:overflow-visible">
+              <table className="payroll-time-main w-max min-w-full border-collapse text-left print:w-full print:text-black">
+                <thead>
+                  <tr className="border-b border-white/15 bg-white/[0.04] print:border-neutral-400 print:bg-transparent">
+                    <th className={`${TH_MAIN} w-10 print:hidden`}>
                       <input
                         type="checkbox"
-                        checked={selected.has(r.employeeId)}
-                        onChange={() => toggleRow(r.employeeId)}
-                        aria-label={`Auswahl ${r.employeeName}`}
+                        aria-label="Alle auswählen"
+                        checked={selected.size === data.rows.length && data.rows.length > 0}
+                        onChange={toggleAll}
                       />
-                    </td>
-                    <td className="py-1 pr-1 align-top font-medium text-[var(--text-main)] print:text-black sm:pr-2">
-                      <div>{r.employeeName}</div>
-                      {r.messages?.length ? (
-                        <div className="mt-0.5 text-[9px] font-normal leading-snug text-amber-200/90 print:text-neutral-700 sm:text-[10px]">
-                          {r.messages.join(' · ')}
-                        </div>
-                      ) : null}
-                    </td>
-                    <td className="px-0.5 py-1 pr-1 tabular-nums text-[var(--text-muted)] sm:pr-2">{formatRegisteredHourly(r)}</td>
-                    <td className="px-0.5 py-1 pr-1 tabular-nums sm:pr-2">{formatEuroDe(r.hourlyWage)}</td>
-                    <td className="px-0.5 py-1 pr-1 text-[var(--text-muted)] print:text-[9px] sm:pr-2">
-                      {r.minimumWageNote?.trim() ? r.minimumWageNote.trim() : '—'}
-                    </td>
-                    <td className="px-0.5 py-1 pr-1 tabular-nums sm:pr-2">
-                      <div>{formatHoursDe(r.totalHours)}</div>
-                      {r.workPlanHours != null &&
-                      (r.paidVacationHours > 0 || (r.paidOtherAbsenceHours ?? 0) > 0 || r.workPlanHours !== r.totalHours) ? (
-                        <div className="mt-0.5 text-[9px] font-normal text-[var(--text-faint)] sm:text-[10px]">
-                          Gestempelt {formatHoursDe(r.workPlanHours)}
-                          {r.paidVacationHours > 0 ? ` · Urlaub ${formatHoursDe(r.paidVacationHours)}` : ''}
-                          {(r.paidOtherAbsenceHours ?? 0) > 0
-                            ? ` · sonst. bez. Abw. ${formatHoursDe(r.paidOtherAbsenceHours ?? 0)}`
-                            : ''}
-                        </div>
-                      ) : null}
-                    </td>
-                    <td className="px-0.5 py-1 pr-1 tabular-nums text-[var(--text-faint)] sm:pr-2">
-                      {r.overtimeHours > 0 ? formatHoursDe(r.overtimeHours) : '—'}
-                    </td>
-                    <td className="px-0.5 py-1 pr-1 tabular-nums sm:pr-2">{formatDaysDe(r.vacationDays)}</td>
-                    <td className="px-0.5 py-1 pr-1 tabular-nums sm:pr-2">{formatEuroDe(r.basePay)}</td>
-                    <td className="px-0.5 py-1 pr-1 tabular-nums sm:pr-2">{formatEuroDe(r.supplementsTotal)}</td>
-                    <td className="px-0.5 py-1 pr-1 tabular-nums sm:pr-2">{formatEuroDe(r.mankogeld)}</td>
-                    <td className="px-0.5 py-1 pr-1 tabular-nums sm:pr-2">{formatEuroDe(r.vl)}</td>
-                    <td className="px-0.5 py-1 pr-1 tabular-nums sm:pr-2">{formatEuroDe(r.cashDifference)}</td>
-                    <td className="px-0.5 py-1 pr-1 tabular-nums sm:pr-2">{formatEuroDe(r.bonus)}</td>
-                    <td className="px-0.5 py-1 pr-1 tabular-nums sm:pr-2">{formatEuroDe(r.advance)}</td>
-                    <td className="px-0.5 py-1 pr-1 tabular-nums font-semibold text-cyan-200/95 print:text-black sm:pr-2">
-                      {formatEuroDe(r.total)}
-                    </td>
-                    <td className="py-1 print:hidden sm:pr-2">
-                      <Button type="button" variant="ghost" className="text-[10px] sm:text-xs" onClick={() => void openDetails(r.employeeId)}>
-                        Zeiten
-                      </Button>
-                    </td>
+                    </th>
+                    <th className={`${TH_NOWRAP} min-w-[9rem]`}>Mitarbeiter</th>
+                    <th className={`${TH_NOWRAP} hidden md:table-cell`}>Art</th>
+                    <th className={TH_NUM}>Stundenlohn</th>
+                    <th className={TH_NUM}>Verwendet</th>
+                    <th className={`${TH_NOWRAP} max-w-[12rem] hidden print:table-cell`}>Hinweis</th>
+                    <th className={TH_NUM}>Stunden</th>
+                    <th className={`${TH_NUM} hidden print:table-cell`}>Überstd.</th>
+                    <th className={TH_NUM}>U-Tage</th>
+                    <th className={TH_NUM}>Grundlohn</th>
+                    <th className={TH_NUM}>Zuschläge</th>
+                    <th className={`${TH_NUM} hidden xl:table-cell`}>Mankogeld</th>
+                    <th className={`${TH_NUM} hidden xl:table-cell`}>VL</th>
+                    <th className={`${TH_NUM} hidden print:table-cell`}>Kassendiff.</th>
+                    <th className={`${TH_NUM} hidden print:table-cell`}>Prämie</th>
+                    <th className={`${TH_NUM} hidden xl:table-cell`}>Vorschuss</th>
+                    <th className={TH_NUM}>Summe</th>
+                    <th className={`${TH_NOWRAP} w-[5.5rem] print:hidden`}>Details</th>
                   </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="border-t-2 border-white/20 font-semibold print:border-neutral-500">
-                  <td className="py-2 print:hidden" />
-                  <td className="py-2 pr-3 text-[var(--text-main)] print:text-black">Summe</td>
-                  <td className="py-2 pr-3 print:text-black" />
-                  <td className="py-2 pr-3 print:text-black" />
-                  <td className="py-2 pr-3 print:text-black" />
-                  <td className="py-2 pr-3 tabular-nums print:text-black">{formatHoursDe(data.totals.totalHours)}</td>
-                  <td className="py-2 pr-3 tabular-nums print:text-black">
-                    {data.totals.overtimeHours > 0 ? formatHoursDe(data.totals.overtimeHours) : '—'}
-                  </td>
-                  <td className="py-2 pr-3 tabular-nums print:text-black">{formatDaysDe(data.totals.vacationDays)}</td>
-                  <td className="py-2 pr-3 tabular-nums print:text-black">{formatEuroDe(data.totals.basePay)}</td>
-                  <td className="py-2 pr-3 tabular-nums print:text-black">{formatEuroDe(data.totals.supplementsTotal)}</td>
-                  <td className="py-2 pr-3 tabular-nums print:text-black">{formatEuroDe(data.totals.mankogeld)}</td>
-                  <td className="py-2 pr-3 tabular-nums print:text-black">{formatEuroDe(data.totals.vl)}</td>
-                  <td className="py-2 pr-3 tabular-nums print:text-black">{formatEuroDe(data.totals.cashDifference)}</td>
-                  <td className="py-2 pr-3 tabular-nums print:text-black">{formatEuroDe(data.totals.bonus)}</td>
-                  <td className="py-2 pr-3 tabular-nums print:text-black">{formatEuroDe(data.totals.advance)}</td>
-                  <td className="py-2 pr-3 tabular-nums text-cyan-200 print:text-black">{formatEuroDe(data.totals.total)}</td>
-                  <td className="print:hidden" />
-                </tr>
-              </tfoot>
-            </table>
+                </thead>
+                <tbody>
+                  {data.rows.map((r) => (
+                    <tr key={r.employeeId} className="hover:bg-white/[0.03] print:border-b print:border-neutral-200">
+                      <td className={`${TD_BASE} print:hidden`}>
+                        <input
+                          type="checkbox"
+                          checked={selected.has(r.employeeId)}
+                          onChange={() => toggleRow(r.employeeId)}
+                          aria-label={`Auswahl ${r.employeeName}`}
+                        />
+                      </td>
+                      <td className={TD_NAME}>
+                        <button
+                          type="button"
+                          className="text-left font-semibold text-cyan-100/95 underline-offset-2 hover:underline"
+                          onClick={() => void openDetails(r.employeeId)}
+                        >
+                          {r.employeeName}
+                        </button>
+                        {r.messages?.length ? (
+                          <div className="mt-1 max-w-[14rem] text-xs font-normal leading-snug text-amber-200/90 print:max-w-none print:text-neutral-700">
+                            {r.messages.join(' · ')}
+                          </div>
+                        ) : null}
+                      </td>
+                      <td className={TD_ART}>{r.employmentType}</td>
+                      <td className={`${TD_NUM} text-[var(--text-muted)]`}>{formatRegisteredHourly(r)}</td>
+                      <td className={TD_NUM}>{formatEuroDe(r.hourlyWage)}</td>
+                      <td className={`${TD_HIDE_SCREEN_PRINT} max-w-[14rem] text-left text-xs text-[var(--text-muted)]`}>
+                        {r.minimumWageNote?.trim() ? r.minimumWageNote.trim() : '—'}
+                      </td>
+                      <td className={TD_NUM}>
+                        <span className="font-medium">{formatHoursDe(r.totalHours)}</span>
+                      </td>
+                      <td className={`${TD_HIDE_SCREEN_PRINT} text-right tabular-nums`}>
+                        {r.overtimeHours > 0 ? formatHoursDe(r.overtimeHours) : '—'}
+                      </td>
+                      <td className={TD_NUM}>{formatDaysDe(r.vacationDays)}</td>
+                      <td className={TD_NUM}>{formatEuroDe(r.basePay)}</td>
+                      <td className={TD_NUM}>{formatEuroDe(r.supplementsTotal)}</td>
+                      <td className={`${TD_HIDE_XL} text-right tabular-nums`}>{formatEuroDe(r.mankogeld)}</td>
+                      <td className={`${TD_HIDE_XL} text-right tabular-nums`}>{formatEuroDe(r.vl)}</td>
+                      <td className={`${TD_HIDE_SCREEN_PRINT} text-right tabular-nums`}>{formatEuroDe(r.cashDifference)}</td>
+                      <td className={`${TD_HIDE_SCREEN_PRINT} text-right tabular-nums`}>{formatEuroDe(r.bonus)}</td>
+                      <td className={`${TD_HIDE_XL} text-right tabular-nums`}>{formatEuroDe(r.advance)}</td>
+                      <td className={TD_SUM}>{formatEuroDe(r.total)}</td>
+                      <td className={`${TD_BASE} print:hidden`}>
+                        <Button type="button" variant="outline" className="whitespace-nowrap px-2 py-1.5 text-xs" onClick={() => void openDetails(r.employeeId)}>
+                          Details
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-white/20 bg-white/[0.06] print:border-neutral-500 print:bg-neutral-100">
+                    <td className="py-3 print:hidden" />
+                    <td className="py-3 pr-2 font-semibold text-[var(--text-main)] print:text-black">Summe</td>
+                    <td className="hidden py-3 md:table-cell" />
+                    <td className="py-3 print:text-black" />
+                    <td className="py-3 print:text-black" />
+                    <td className="hidden py-3 print:table-cell" />
+                    <td className={`${TD_NUM} py-3 font-semibold print:text-black`}>{formatHoursDe(data.totals.totalHours)}</td>
+                    <td className={`${TD_HIDE_SCREEN_PRINT} py-3 font-semibold`}>
+                      {data.totals.overtimeHours > 0 ? formatHoursDe(data.totals.overtimeHours) : '—'}
+                    </td>
+                    <td className={`${TD_NUM} py-3 font-semibold print:text-black`}>{formatDaysDe(data.totals.vacationDays)}</td>
+                    <td className={`${TD_NUM} py-3 font-semibold print:text-black`}>{formatEuroDe(data.totals.basePay)}</td>
+                    <td className={`${TD_NUM} py-3 font-semibold print:text-black`}>{formatEuroDe(data.totals.supplementsTotal)}</td>
+                    <td className={`${TD_HIDE_XL} py-3 font-semibold print:text-black`}>{formatEuroDe(data.totals.mankogeld)}</td>
+                    <td className={`${TD_HIDE_XL} py-3 font-semibold print:text-black`}>{formatEuroDe(data.totals.vl)}</td>
+                    <td className={`${TD_HIDE_SCREEN_PRINT} py-3 font-semibold print:text-black`}>
+                      {formatEuroDe(data.totals.cashDifference)}
+                    </td>
+                    <td className={`${TD_HIDE_SCREEN_PRINT} py-3 font-semibold print:text-black`}>{formatEuroDe(data.totals.bonus)}</td>
+                    <td className={`${TD_HIDE_XL} py-3 font-semibold print:text-black`}>{formatEuroDe(data.totals.advance)}</td>
+                    <td className="border-t-2 border-white/20 py-3 text-right text-base font-bold tabular-nums text-cyan-200 print:border-neutral-500 print:text-black">
+                      {formatEuroDe(data.totals.total)}
+                    </td>
+                    <td className="print:hidden" />
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
           )}
         </div>
       </Card>
@@ -607,50 +629,110 @@ export function PayrollTimePage() {
             <div className="max-h-[calc(85vh-56px)] overflow-auto p-4">
               {detailLoading ? (
                 <p className="text-sm text-[var(--text-muted)]">Lade…</p>
-              ) : detailItems.length === 0 ? (
-                <p className="text-sm text-[var(--text-muted)]">Keine Zeiterfassungs- oder Abwesenheitszeilen im Zeitraum.</p>
               ) : (
-                <table className="w-full border-collapse text-left text-xs sm:text-sm">
-                  <thead>
-                    <tr className="border-b border-white/10 text-[var(--text-muted)]">
-                      <th className="py-2 pr-2">Datum</th>
-                      <th className="py-2 pr-2">Mitarbeiter</th>
-                      <th className="py-2 pr-2">Start</th>
-                      <th className="py-2 pr-2">Ende</th>
-                      <th className="py-2 pr-2">Pause (Min)</th>
-                      <th className="py-2 pr-2">Stunden</th>
-                      <th className="py-2 pr-2">Quelle</th>
-                      <th className="py-2 pr-2">Status</th>
-                      <th className="py-2 pr-2">Freigabe</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {detailItems.map((it) => (
-                      <tr
-                        key={it.id}
-                        className={`border-b border-white/[0.06] ${it.synthetic ? 'bg-cyan-500/5' : ''}`}
-                      >
-                        <td className="py-1.5 pr-2 whitespace-nowrap">{it.date}</td>
-                        <td className="py-1.5 pr-2">{it.employeeName}</td>
-                        <td className="py-1.5 pr-2 font-mono text-[11px]">{it.startAt}</td>
-                        <td className="py-1.5 pr-2 font-mono text-[11px]">{it.endAt}</td>
-                        <td className="py-1.5 pr-2 tabular-nums">{it.synthetic ? '—' : it.breakMinutes}</td>
-                        <td className="py-1.5 pr-2 tabular-nums">{formatHoursDe(it.hours)}</td>
-                        <td className="py-1.5 pr-2 text-[var(--text-muted)]">
-                          {it.source === 'paid_vacation_auto'
-                            ? 'Bezahlter Urlaub (automatisch)'
-                            : it.source === 'paid_other_absence_auto'
-                              ? 'Bezahlte Abwesenheit (automatisch)'
-                              : it.source === 'absence_display'
-                                ? 'Abwesenheit (Anzeige)'
-                                : it.source}
-                        </td>
-                        <td className="py-1.5 pr-2">{it.synthetic ? 'berechnet' : it.status}</td>
-                        <td className="py-1.5 pr-2">{it.approvalStatus}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <>
+                  {detailSummary ? (
+                    <div className="mb-6 rounded-xl border border-white/10 bg-black/20 p-4 text-sm">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text-faint)]">Weitere Werte (Lohnzeile)</p>
+                      <dl className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                        <div>
+                          <dt className="text-[var(--text-muted)]">Beschäftigungsart</dt>
+                          <dd className="font-medium text-[var(--text-main)]">{detailSummary.employmentType}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-[var(--text-muted)]">Eingetr. Stundenlohn</dt>
+                          <dd className="tabular-nums text-[var(--text-main)]">{formatRegisteredHourly(detailSummary)}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-[var(--text-muted)]">Verwend. Stundenlohn</dt>
+                          <dd className="tabular-nums text-[var(--text-main)]">{formatEuroDe(detailSummary.hourlyWage)}</dd>
+                        </div>
+                        {detailSummary.minimumWageNote?.trim() ? (
+                          <div className="sm:col-span-2 lg:col-span-3">
+                            <dt className="text-[var(--text-muted)]">Mindestlohn / Hinweis</dt>
+                            <dd className="text-[var(--text-main)]">{detailSummary.minimumWageNote.trim()}</dd>
+                          </div>
+                        ) : null}
+                        <div>
+                          <dt className="text-[var(--text-muted)]">Überstunden</dt>
+                          <dd className="tabular-nums text-[var(--text-main)]">
+                            {detailSummary.overtimeHours > 0 ? formatHoursDe(detailSummary.overtimeHours) : '—'}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-[var(--text-muted)]">Kassendifferenz</dt>
+                          <dd className="tabular-nums text-[var(--text-main)]">{formatEuroDe(detailSummary.cashDifference)}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-[var(--text-muted)]">Prämie</dt>
+                          <dd className="tabular-nums text-[var(--text-main)]">{formatEuroDe(detailSummary.bonus)}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-[var(--text-muted)]">Urlaubstage (U-Tage)</dt>
+                          <dd className="tabular-nums text-[var(--text-main)]">{formatDaysDe(detailSummary.vacationDays)}</dd>
+                        </div>
+                        {detailSummary.workPlanHours != null ? (
+                          <div className="sm:col-span-2 lg:col-span-3">
+                            <dt className="text-[var(--text-muted)]">Stundenaufteilung (Zeiterfassung / Abwesenheit)</dt>
+                            <dd className="text-[var(--text-main)]">
+                              Gestempelt {formatHoursDe(detailSummary.workPlanHours)}
+                              {detailSummary.paidVacationHours > 0 ? ` · Urlaub ${formatHoursDe(detailSummary.paidVacationHours)}` : ''}
+                              {(detailSummary.paidOtherAbsenceHours ?? 0) > 0
+                                ? ` · sonst. bez. Abw. ${formatHoursDe(detailSummary.paidOtherAbsenceHours ?? 0)}`
+                                : ''}
+                              {` · Summe Stunden ${formatHoursDe(detailSummary.totalHours)}`}
+                            </dd>
+                          </div>
+                        ) : null}
+                      </dl>
+                    </div>
+                  ) : null}
+                  {!detailItems.length ? (
+                    <p className="text-sm text-[var(--text-muted)]">Keine Zeiterfassungs- oder Abwesenheitszeilen im Zeitraum.</p>
+                  ) : (
+                    <table className="w-full border-collapse text-left text-xs sm:text-sm">
+                      <thead>
+                        <tr className="border-b border-white/10 text-[var(--text-muted)]">
+                          <th className="whitespace-nowrap py-2 pr-2">Datum</th>
+                          <th className="py-2 pr-2">Mitarbeiter</th>
+                          <th className="whitespace-nowrap py-2 pr-2">Start</th>
+                          <th className="whitespace-nowrap py-2 pr-2">Ende</th>
+                          <th className="whitespace-nowrap py-2 pr-2">Pause (Min)</th>
+                          <th className="whitespace-nowrap py-2 pr-2 text-right">Stunden</th>
+                          <th className="py-2 pr-2">Quelle</th>
+                          <th className="py-2 pr-2">Status</th>
+                          <th className="py-2 pr-2">Freigabe</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {detailItems.map((it) => (
+                          <tr
+                            key={it.id}
+                            className={`border-b border-white/[0.06] ${it.synthetic ? 'bg-cyan-500/5' : ''}`}
+                          >
+                            <td className="py-1.5 pr-2 whitespace-nowrap">{it.date}</td>
+                            <td className="py-1.5 pr-2">{it.employeeName}</td>
+                            <td className="py-1.5 pr-2 font-mono text-[11px]">{it.startAt}</td>
+                            <td className="py-1.5 pr-2 font-mono text-[11px]">{it.endAt}</td>
+                            <td className="py-1.5 pr-2 tabular-nums">{it.synthetic ? '—' : it.breakMinutes}</td>
+                            <td className="py-1.5 pr-2 text-right tabular-nums">{formatHoursDe(it.hours)}</td>
+                            <td className="py-1.5 pr-2 text-[var(--text-muted)]">
+                              {it.source === 'paid_vacation_auto'
+                                ? 'Bezahlter Urlaub (automatisch)'
+                                : it.source === 'paid_other_absence_auto'
+                                  ? 'Bezahlte Abwesenheit (automatisch)'
+                                  : it.source === 'absence_display'
+                                    ? 'Abwesenheit (Anzeige)'
+                                    : it.source}
+                            </td>
+                            <td className="py-1.5 pr-2">{it.synthetic ? 'berechnet' : it.status}</td>
+                            <td className="py-1.5 pr-2">{it.approvalStatus}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </>
               )}
             </div>
           </div>

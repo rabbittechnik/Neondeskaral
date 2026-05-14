@@ -68,6 +68,16 @@
     color: #ffedd5;
     box-shadow: 0 0 10px var(--holiday-other-glow);
   }
+
+  .payroll-time-main th,
+  .payroll-time-main td {
+    word-break: normal;
+    overflow-wrap: normal;
+  }
+
+  .payroll-time-main th {
+    hyphens: none;
+  }
 }
 
 @layer base {

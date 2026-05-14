@@ -4,14 +4,18 @@ import { ArrowLeft, ClipboardCheck, AlertTriangle } from 'lucide-react'
 import { useAuth } from '../../context/auth-context'
 import { apiGet, apiSend } from '../../services/api'
 import { useStation } from '../../context/station-context'
-import { canApproveTimeEntries } from '../../utils/timeApproval'
+import { canAccessTimeApprovalsPage, canApproveTimeEntries, canCorrectStampTimes } from '../../utils/timeApproval'
 import { Button } from '../../components/ui/Button'
 import type { TimeEntry } from '../../types/timeTracking'
 import { calculateWorkedMinutes, formatWorkedDuration } from '../../utils/timeTrackingUtils'
 import { earlyLeaveReasonLabelDeClient } from '../../constants/earlyLeaveCheckout'
 import { dispatchNotificationsRefresh } from '../../utils/notificationsRefresh'
 
-type PendingRow = TimeEntry & { employeeDisplayName: string }
+type PendingRow = TimeEntry & {
+  employeeDisplayName: string
+  latestCorrectionKind?: string
+  needsAutoClockOutReview?: boolean
+}
 
 type ChecklistReviewItem = {
   id: string
@@ -57,8 +61,28 @@ type MiddayCollectiveHandoverDetail = {
   source?: string
 }
 
+type CorrectionApiItem = {
+  id: string
+  kind: string
+  originalClockInAt: string
+  originalClockOutAt?: string
+  correctedClockInAt: string
+  correctedClockOutAt?: string
+  originalBreakMinutes: number
+  correctedBreakMinutes: number
+  reason: string
+  reasonLabelDe: string
+  note?: string
+  correctedByName?: string
+  createdAt: string
+}
+
 type DetailPayload = {
   timeEntry: TimeEntry
+  workDateYmdBerlin?: string
+  effectiveForPayroll?: { startAt: string; endAt?: string; breakMinutes: number }
+  correctionsHistory?: CorrectionApiItem[]
+  latestCorrection?: CorrectionApiItem | null
   employeeName: string
   checklist: Record<string, unknown> | null
   shiftCloseStructured?: ShiftCloseStructuredDetail | null
@@ -92,10 +116,37 @@ function approvalBadge(s: string | undefined) {
   return { text: 'Wartet auf Freigabe', cls: 'border-amber-400/45 bg-amber-500/12 text-amber-100' }
 }
 
+function berlinHmFromIso(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const parts = new Intl.DateTimeFormat('de-DE', {
+    timeZone: 'Europe/Berlin',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(d)
+  const h = (parts.find((p) => p.type === 'hour')?.value ?? '0').padStart(2, '0')
+  const m = (parts.find((p) => p.type === 'minute')?.value ?? '0').padStart(2, '0')
+  return `${h}:${m}`
+}
+
+const TIME_CORRECTION_REASON_OPTIONS: { key: string; label: string }[] = [
+  { key: 'forgot_checkout', label: 'Mitarbeiter hat vergessen auszustempeln' },
+  { key: 'forgot_checkin', label: 'Mitarbeiter hat vergessen einzustempeln' },
+  { key: 'system_error', label: 'Systemfehler / Tablet-Fehler' },
+  { key: 'wrong_person', label: 'falsche Person ausgewählt' },
+  { key: 'shift_ended_early', label: 'Schicht wurde früher beendet' },
+  { key: 'shift_ended_late', label: 'Schicht wurde später beendet' },
+  { key: 'management_correction', label: 'Korrektur durch Leitung' },
+  { key: 'other', label: 'Sonstiges' },
+]
+
 export function TimeApprovalsPage() {
   const { user } = useAuth()
   const { stationId } = useStation()
-  const allowed = canApproveTimeEntries(user)
+  const allowed = canAccessTimeApprovalsPage(user)
+  const canApprove = canApproveTimeEntries(user)
+  const canCorrect = canCorrectStampTimes(user)
   const [items, setItems] = useState<PendingRow[]>([])
   const [count, setCount] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -106,6 +157,12 @@ export function TimeApprovalsPage() {
   const [corrOpen, setCorrOpen] = useState(false)
   const [rejectReason, setRejectReason] = useState('')
   const [corrNote, setCorrNote] = useState('')
+  const [tcOpen, setTcOpen] = useState(false)
+  const [tcStartHm, setTcStartHm] = useState('')
+  const [tcEndHm, setTcEndHm] = useState('')
+  const [tcBreak, setTcBreak] = useState('0')
+  const [tcReason, setTcReason] = useState('forgot_checkout')
+  const [tcNote, setTcNote] = useState('')
   const [confirmApprove, setConfirmApprove] = useState(false)
   const [reviewDraft, setReviewDraft] = useState<ChecklistReviewItem[]>([])
 
@@ -203,6 +260,56 @@ export function TimeApprovalsPage() {
     dispatchNotificationsRefresh()
   }
 
+  const openTimeCorrectForm = () => {
+    if (!detail) return
+    const eff = detail.effectiveForPayroll ?? {
+      startAt: detail.timeEntry.startAt,
+      endAt: detail.timeEntry.endAt,
+      breakMinutes: detail.timeEntry.breakMinutes ?? 0,
+    }
+    setTcStartHm(berlinHmFromIso(eff.startAt))
+    setTcEndHm(eff.endAt ? berlinHmFromIso(eff.endAt) : '')
+    setTcBreak(String(Math.max(0, Math.round(Number(eff.breakMinutes ?? 0)))))
+    setTcReason('forgot_checkout')
+    setTcNote('')
+    setTcOpen(true)
+  }
+
+  const submitTimeCorrection = async () => {
+    if (!detail) return
+    const workDateYmdBerlin = detail.workDateYmdBerlin ?? detail.timeEntry.startAt.slice(0, 10)
+    if (tcReason === 'other' && !tcNote.trim()) {
+      setErr('Bei „Sonstiges“ ist eine Bemerkung Pflicht.')
+      return
+    }
+    if (!tcStartHm.trim() || !tcEndHm.trim()) {
+      setErr('Bitte korrigierten Beginn und Ende (HH:mm) angeben.')
+      return
+    }
+    setBusy(true)
+    const res = await apiSend<{ detail: DetailPayload }>(
+      'POST',
+      `/time-entries/${encodeURIComponent(detail.timeEntry.id)}/correct-times`,
+      {
+        workDateYmdBerlin: workDateYmdBerlin,
+        correctedStartHm: tcStartHm.trim(),
+        correctedEndHm: tcEndHm.trim(),
+        breakMinutes: Number(tcBreak) || 0,
+        reason: tcReason,
+        note: tcNote.trim() || undefined,
+      },
+    )
+    setBusy(false)
+    if (!res.ok) {
+      setErr(res.error)
+      return
+    }
+    setTcOpen(false)
+    if (res.data.detail) setDetail(res.data.detail)
+    await load()
+    dispatchNotificationsRefresh()
+  }
+
   const saveChecklistReview = async () => {
     if (!detail || reviewDraft.length === 0) return
     setBusy(true)
@@ -231,7 +338,7 @@ export function TimeApprovalsPage() {
       <div className="mx-auto max-w-lg space-y-4 p-6">
         <h1 className="text-xl font-semibold text-[var(--text-main)]">Zeitfreigaben</h1>
         <p className="text-sm text-[var(--text-muted)]">
-          Diese Seite ist nur für Teamleitung freigegeben (Max Vins / Mathias Raselowski).
+          Diese Seite ist nur für Teamleitung mit Berechtigung „Zeit freigeben“ oder „Zeiten korrigieren“ freigegeben.
         </p>
         <Link to="/dashboard" className="text-sm text-cyan-300 hover:underline">
           Zurück zum Dashboard
@@ -320,6 +427,16 @@ export function TimeApprovalsPage() {
                         <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold ${ab.cls}`}>
                           {ab.text}
                         </span>
+                        {row.latestCorrectionKind === 'manual' ? (
+                          <span className="ml-1 inline-flex rounded-full border border-violet-400/40 bg-violet-500/15 px-2 py-0.5 text-[10px] font-semibold text-violet-100">
+                            Korrigiert
+                          </span>
+                        ) : null}
+                        {row.needsAutoClockOutReview ? (
+                          <span className="ml-1 inline-flex rounded-full border border-amber-400/45 bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-100">
+                            Auto-Ausstempelung
+                          </span>
+                        ) : null}
                         {earlyAttention ? (
                           <p className="mt-1 text-[11px] text-amber-100/90">
                             {row.earlyLeaveReason
@@ -369,6 +486,88 @@ export function TimeApprovalsPage() {
                     : '—'}
                 </dd>
               </div>
+              {(() => {
+                const hist = detail.correctionsHistory ?? []
+                const effPay = detail.effectiveForPayroll ?? {
+                  startAt: detail.timeEntry.startAt,
+                  endAt: detail.timeEntry.endAt,
+                  breakMinutes: detail.timeEntry.breakMinutes ?? 0,
+                }
+                const stampedDiffers =
+                  detail.timeEntry.startAt !== effPay.startAt ||
+                  detail.timeEntry.endAt !== effPay.endAt ||
+                  (detail.timeEntry.breakMinutes ?? 0) !== effPay.breakMinutes
+                const show = hist.length > 0 || stampedDiffers
+                if (!show) return null
+                return (
+                  <>
+                    <div className="flex justify-between gap-2">
+                      <dt className="text-[var(--text-faint)]">Verwendet für Abrechnung</dt>
+                      <dd className="text-right text-[var(--text-main)] tabular-nums">
+                        {new Date(effPay.startAt).toLocaleTimeString('de-DE', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}{' '}
+                        –{' '}
+                        {effPay.endAt
+                          ? new Date(effPay.endAt).toLocaleTimeString('de-DE', {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })
+                          : '—'}
+                        <span className="block text-[10px] font-normal text-[var(--text-faint)]">
+                          Pause {effPay.breakMinutes} Min.
+                        </span>
+                      </dd>
+                    </div>
+                    {detail.latestCorrection?.kind === 'manual' ? (
+                      <div className="rounded-md border border-violet-400/30 bg-violet-500/10 px-3 py-2 text-xs text-violet-50/95">
+                        <p className="font-semibold text-violet-100">Korrigiert</p>
+                        <p className="mt-1 text-[var(--text-faint)]">
+                          Original gestempelt:{' '}
+                          {new Date(detail.latestCorrection.originalClockInAt).toLocaleTimeString('de-DE', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}{' '}
+                          –{' '}
+                          {detail.latestCorrection.originalClockOutAt
+                            ? new Date(detail.latestCorrection.originalClockOutAt).toLocaleTimeString('de-DE', {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })
+                            : '—'}
+                        </p>
+                        <p className="mt-1">
+                          Korrigiert auf:{' '}
+                          {new Date(detail.latestCorrection.correctedClockInAt).toLocaleTimeString('de-DE', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}{' '}
+                          –{' '}
+                          {detail.latestCorrection.correctedClockOutAt
+                            ? new Date(detail.latestCorrection.correctedClockOutAt).toLocaleTimeString('de-DE', {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })
+                            : '—'}
+                        </p>
+                        <p className="mt-1">Grund: {detail.latestCorrection.reasonLabelDe}</p>
+                        {detail.latestCorrection.note ? <p className="mt-1">Bemerkung: {detail.latestCorrection.note}</p> : null}
+                        <p className="mt-1 text-[10px] text-[var(--text-faint)]">
+                          Korrigiert von: {detail.latestCorrection.correctedByName ?? '—'} ·{' '}
+                          {new Date(detail.latestCorrection.createdAt).toLocaleString('de-DE')}
+                        </p>
+                      </div>
+                    ) : null}
+                    {detail.latestCorrection?.kind === 'auto_clock_out' ? (
+                      <div className="rounded-md border border-amber-400/45 bg-amber-500/12 px-3 py-2 text-xs text-amber-50">
+                        <p className="font-semibold text-amber-100">Automatisch ausgestempelt — bitte prüfen</p>
+                        {detail.timeEntry.endNote ? <p className="mt-1">{detail.timeEntry.endNote}</p> : null}
+                      </div>
+                    ) : null}
+                  </>
+                )
+              })()}
               {detail.timeEntry.startDeviationType && detail.timeEntry.startDeviationType !== 'on_time' ? (
                 <div className="flex justify-between gap-2">
                   <dt className="text-[var(--text-faint)]">Start vs. Plan</dt>
@@ -675,7 +874,7 @@ export function TimeApprovalsPage() {
               </div>
             ) : null}
 
-            {reviewDraft.length > 0 ? (
+            {canApprove && reviewDraft.length > 0 ? (
               <div className="mt-4 rounded-md border border-cyan-500/20 bg-cyan-500/5 p-3 text-xs text-[var(--text-muted)]">
                 <p className="font-semibold text-[var(--text-main)]">Nachprüfung durch Leitung</p>
                 <p className="mt-1 text-[var(--text-faint)]">
@@ -732,15 +931,36 @@ export function TimeApprovalsPage() {
               <Button type="button" variant="ghost" onClick={() => setDetail(null)} disabled={busy}>
                 Schließen
               </Button>
-              <Button type="button" variant="outline" onClick={() => setCorrOpen(true)} disabled={busy}>
-                Korrektur nötig
-              </Button>
-              <Button type="button" variant="outline" className="border-rose-400/40 text-rose-200" onClick={() => setRejectOpen(true)} disabled={busy}>
-                Ablehnen
-              </Button>
-              <Button type="button" variant="primary" onClick={() => setConfirmApprove(true)} disabled={busy}>
-                Bestätigen
-              </Button>
+              {canCorrect && detail.timeEntry.status === 'completed' && detail.timeEntry.endAt ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="border-violet-400/40 text-violet-100"
+                  disabled={busy}
+                  onClick={() => openTimeCorrectForm()}
+                >
+                  Zeit korrigieren
+                </Button>
+              ) : null}
+              {canApprove ? (
+                <>
+                  <Button type="button" variant="outline" onClick={() => setCorrOpen(true)} disabled={busy}>
+                    Korrektur nötig
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="border-rose-400/40 text-rose-200"
+                    onClick={() => setRejectOpen(true)}
+                    disabled={busy}
+                  >
+                    Ablehnen
+                  </Button>
+                  <Button type="button" variant="primary" onClick={() => setConfirmApprove(true)} disabled={busy}>
+                    Bestätigen
+                  </Button>
+                </>
+              ) : null}
             </div>
           </div>
         </div>
@@ -782,6 +1002,82 @@ export function TimeApprovalsPage() {
               </Button>
               <Button type="button" variant="primary" className="flex-1" disabled={busy || !rejectReason.trim()} onClick={() => void reject()}>
                 Ablehnen
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {tcOpen && detail ? (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 p-4">
+          <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl border border-violet-400/35 bg-[var(--bg-card)] p-5">
+            <p className="font-semibold text-[var(--text-main)]">Stempelzeit korrigieren</p>
+            <p className="mt-2 text-xs text-[var(--text-muted)]">
+              {detail.employeeName} ·               {detail.workDateYmdBerlin ?? detail.timeEntry.startAt.slice(0, 10)}
+              {detail.plannedShift ? ` · Geplant: ${detail.plannedShift.startTime}–${detail.plannedShift.endTime}` : ''}
+            </p>
+            <p className="mt-1 text-xs text-[var(--text-faint)]">
+              Aktuell gestempelt:{' '}
+              {new Date(detail.timeEntry.startAt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })} –{' '}
+              {detail.timeEntry.endAt
+                ? new Date(detail.timeEntry.endAt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+                : '—'}
+            </p>
+            <label className="mt-4 block text-xs text-[var(--text-muted)]">Korrigierter Beginn (HH:mm)</label>
+            <input
+              className="mt-1 w-full rounded-md border border-[var(--border-strong)] bg-[var(--bg-elevated)] px-2 py-2 text-sm tabular-nums"
+              value={tcStartHm}
+              onChange={(e) => setTcStartHm(e.target.value)}
+              placeholder="07:29"
+              autoComplete="off"
+            />
+            <label className="mt-3 block text-xs text-[var(--text-muted)]">Korrigiertes Ende (HH:mm)</label>
+            <input
+              className="mt-1 w-full rounded-md border border-[var(--border-strong)] bg-[var(--bg-elevated)] px-2 py-2 text-sm tabular-nums"
+              value={tcEndHm}
+              onChange={(e) => setTcEndHm(e.target.value)}
+              placeholder="14:00"
+              autoComplete="off"
+            />
+            <label className="mt-3 block text-xs text-[var(--text-muted)]">Pause (Minuten)</label>
+            <input
+              type="number"
+              min={0}
+              className="mt-1 w-full rounded-md border border-[var(--border-strong)] bg-[var(--bg-elevated)] px-2 py-2 text-sm"
+              value={tcBreak}
+              onChange={(e) => setTcBreak(e.target.value)}
+            />
+            <label className="mt-3 block text-xs text-[var(--text-muted)]">Grund</label>
+            <select
+              className="mt-1 w-full rounded-md border border-[var(--border-strong)] bg-[var(--bg-elevated)] px-2 py-2 text-sm"
+              value={tcReason}
+              onChange={(e) => setTcReason(e.target.value)}
+            >
+              {TIME_CORRECTION_REASON_OPTIONS.map((o) => (
+                <option key={o.key} value={o.key}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            <label className="mt-3 block text-xs text-[var(--text-muted)]">
+              Bemerkung {tcReason === 'other' ? '(Pflicht)' : '(empfohlen)'}
+            </label>
+            <textarea
+              className="mt-1 w-full rounded-md border border-[var(--border-strong)] bg-[var(--bg-elevated)] px-2 py-2 text-sm"
+              rows={3}
+              value={tcNote}
+              onChange={(e) => setTcNote(e.target.value)}
+            />
+            <p className="mt-3 text-[10px] text-[var(--text-faint)]">
+              Kalendertag (Europe/Berlin): {detail.workDateYmdBerlin ?? detail.timeEntry.startAt.slice(0, 10)} · Korrigiert von:{' '}
+              {user?.displayName?.trim() || user?.username || '—'}
+            </p>
+            <div className="mt-4 flex gap-2">
+              <Button type="button" variant="ghost" className="flex-1" onClick={() => setTcOpen(false)}>
+                Abbrechen
+              </Button>
+              <Button type="button" variant="primary" className="flex-1" disabled={busy} onClick={() => void submitTimeCorrection()}>
+                Korrektur speichern
               </Button>
             </div>
           </div>

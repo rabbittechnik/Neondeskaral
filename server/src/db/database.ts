@@ -5,6 +5,7 @@ import { runSchema } from './schema.js'
 import { runMigrations } from './migrations.js'
 import { seedIfEmpty } from './seed.js'
 import { seedImportedStationGuideSchedule } from './seedSchedule.js'
+import { processAutoClockOutsForAllStations } from '../services/timeEntryCorrectionService.js'
 
 let dbInstance: Database.Database | null = null
 
@@ -41,6 +42,18 @@ export function initDatabase(): Database.Database {
   runMigrations(db)
   seedImportedStationGuideSchedule(db)
   dbInstance = db
+  try {
+    processAutoClockOutsForAllStations(db)
+  } catch (e) {
+    console.error('[auto-clock-out] initial run:', e)
+  }
+  setInterval(() => {
+    try {
+      processAutoClockOutsForAllStations(db)
+    } catch (e) {
+      console.error('[auto-clock-out]:', e)
+    }
+  }, 90_000)
   return db
 }
 

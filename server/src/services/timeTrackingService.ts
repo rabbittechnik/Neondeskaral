@@ -12,6 +12,12 @@ import { resolveBackshopNoticeForStationAndDate, routineTypeLabelDe } from './ba
 import { isEarlyShiftForBakingNotice } from './earlyShiftForBaking.js'
 import { ymdBerlinFromUtcMs } from '../utils/europeBerlinWallTime.js'
 import {
+  effectiveTimeBounds,
+  listCorrectionsForTimeEntry,
+  loadLatestCorrectionsMapForIds,
+  rowToCorrectionApi,
+} from './timeEntryCorrectionService.js'
+import {
   MIDDAY_COLLECTIVE_HANDOVER_VARIANT,
   MIDDAY_STANDARD_HANDOVER_LABELS,
 } from '../constants/middayStandardHandover.js'
@@ -51,6 +57,30 @@ export type TimeEntryRow = {
   early_leave_confirmed_by_employee_id: string | null
   created_at: string | null
   updated_at: string | null
+}
+
+export function enrichTimeEntryApiWithEffective(db: Database, row: TimeEntryRow) {
+  const m = loadLatestCorrectionsMapForIds(db, [row.id])
+  const corr = m.get(row.id)
+  const eff = effectiveTimeBounds(row, corr)
+  const api = rowToTimeEntryApi(row)
+  const stampedBr = Math.max(0, Math.round(Number(row.break_minutes ?? 0)))
+  return {
+    ...api,
+    stampedStartAt: row.start_at,
+    stampedEndAt: row.end_at ?? undefined,
+    stampedBreakMinutes: stampedBr,
+    effectiveStartAt: eff.startAt,
+    effectiveEndAt: eff.endAt ?? undefined,
+    effectiveBreakMinutes: eff.breakMinutes,
+    latestCorrectionKind: eff.correctionKind,
+    startAt: eff.startAt,
+    endAt: eff.endAt ?? api.endAt,
+    breakMinutes: eff.breakMinutes,
+    needsAutoClockOutReview:
+      corr?.correction_kind === 'auto_clock_out' &&
+      (api.approvalStatus === 'pending' || api.approvalStatus === 'correction_required'),
+  }
 }
 
 export function rowToTimeEntryApi(r: TimeEntryRow) {
@@ -143,7 +173,7 @@ export function listTimeEntries(
     params.push(q.status)
   }
   sql += ` ORDER BY start_at DESC`
-  return (db.prepare(sql).all(...params) as TimeEntryRow[]).map(rowToTimeEntryApi)
+  return (db.prepare(sql).all(...params) as TimeEntryRow[]).map((r) => enrichTimeEntryApiWithEffective(db, r))
 }
 
 export function listRunning(db: Database, stationId = DEFAULT_STATION_ID) {
@@ -174,12 +204,12 @@ export function listToday(db: Database, stationId = DEFAULT_STATION_ID) {
   const rows = db
     .prepare(`SELECT * FROM time_entries WHERE station_id = ? AND start_at LIKE ? ORDER BY start_at DESC`)
     .all(stationId, `${prefix}%`) as TimeEntryRow[]
-  return rows.map(rowToTimeEntryApi)
+  return rows.map((r) => enrichTimeEntryApiWithEffective(db, r))
 }
 
 export function getTimeEntry(db: Database, id: string) {
   const r = db.prepare(`SELECT * FROM time_entries WHERE id = ?`).get(id) as TimeEntryRow | undefined
-  return r ? rowToTimeEntryApi(r) : undefined
+  return r ? enrichTimeEntryApiWithEffective(db, r) : undefined
 }
 
 export function getTimeEntryRow(db: Database, id: string): TimeEntryRow | undefined {
@@ -352,7 +382,9 @@ function checklistRowToApi(r: Record<string, unknown>) {
   }
 }
 
-export type PendingTimeEntryListRow = ReturnType<typeof rowToTimeEntryApi> & { employeeDisplayName: string }
+export type PendingTimeEntryListRow = ReturnType<typeof enrichTimeEntryApiWithEffective> & {
+  employeeDisplayName: string
+}
 
 export function listPendingApproval(db: Database, stationId = DEFAULT_STATION_ID): PendingTimeEntryListRow[] {
   const rows = db
@@ -369,7 +401,7 @@ export function listPendingApproval(db: Database, stationId = DEFAULT_STATION_ID
     .all(stationId) as (TimeEntryRow & { employee_display_name: string })[]
   return rows.map((r) => {
     const { employee_display_name: employeeDisplayName, ...row } = r
-    return { ...rowToTimeEntryApi(row as TimeEntryRow), employeeDisplayName }
+    return { ...enrichTimeEntryApiWithEffective(db, row as TimeEntryRow), employeeDisplayName }
   })
 }
 
@@ -387,7 +419,12 @@ export function countPendingApproval(db: Database, stationId = DEFAULT_STATION_I
 export function getTimeEntryDetail(db: Database, id: string) {
   const row = db.prepare(`SELECT * FROM time_entries WHERE id = ?`).get(id) as TimeEntryRow | undefined
   if (!row) return undefined
+  const workYmdBerlin = ymdBerlinFromUtcMs(new Date(row.start_at).getTime())
   const entry = rowToTimeEntryApi(row)
+  const corrMap = loadLatestCorrectionsMapForIds(db, [id])
+  const latestCorrRow = corrMap.get(id)
+  const eff = effectiveTimeBounds(row, latestCorrRow)
+  const correctionsHistory = listCorrectionsForTimeEntry(db, id).map(rowToCorrectionApi)
   const chkRaw = db.prepare(`SELECT * FROM shift_close_checklists WHERE time_entry_id = ?`).get(id) as
     | Record<string, unknown>
     | undefined
@@ -453,7 +490,6 @@ export function getTimeEntryDetail(db: Database, id: string) {
     })
     reviewItems = listReviewItemsForTimeEntry(db, id)
   }
-  const workYmdBerlin = ymdBerlinFromUtcMs(new Date(row.start_at).getTime())
   const planned = plannedShiftRowForEntry(db, row.station_id, row.employee_id, workYmdBerlin, row.shift_id)
   const emp = db
     .prepare(`SELECT display_name FROM employees WHERE id = ?`)
@@ -546,6 +582,14 @@ export function getTimeEntryDetail(db: Database, id: string) {
   }
   return {
     timeEntry: entry,
+    workDateYmdBerlin: workYmdBerlin,
+    effectiveForPayroll: {
+      startAt: eff.startAt,
+      endAt: eff.endAt ?? undefined,
+      breakMinutes: eff.breakMinutes,
+    },
+    correctionsHistory,
+    latestCorrection: correctionsHistory.length ? correctionsHistory[correctionsHistory.length - 1]! : null,
     employeeName: emp?.display_name ?? '',
     checklist: chkRaw && !isMiddayCollective ? checklistRowToApi(chkRaw) : null,
     shiftCloseStructured,

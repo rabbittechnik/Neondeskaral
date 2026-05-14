@@ -41,6 +41,17 @@ import {
 } from './payrollCalculationService.js'
 import { normalizeAbsenceDbType } from '../utils/vacationImpactCalculator.js'
 import { earlyLeaveReasonLabelDe } from '../constants/earlyLeaveCheckout.js'
+import {
+  effectiveTimeBounds,
+  loadLatestCorrectionsMapForIds,
+  timeCorrectionReasonLabelDe,
+  type TimeEntryCorrectionRow,
+} from './timeEntryCorrectionService.js'
+
+function effectiveTimeEntryForPayroll(te: TimeEntryRow, corrMap: Map<string, TimeEntryCorrectionRow>) {
+  const eff = effectiveTimeBounds(te, corrMap.get(te.id))
+  return { start_at: eff.startAt, end_at: eff.endAt ?? te.end_at, break_minutes: eff.breakMinutes }
+}
 
 export type { PayrollEmploymentFilter } from './payrollCalculationService.js'
 
@@ -250,6 +261,10 @@ export type PayrollTimeEntryDetailRow = {
   absenceId?: string | null
   /** Kurztext Frühgehen >30 Min. mit/ohne Grund (Tablet). */
   earlyLeaveSummary?: string
+  /** Original-Stempel, falls eine Korrektur für die Abrechnung gilt. */
+  stampedStartAt?: string
+  stampedEndAt?: string
+  timeCorrectionNote?: string
 }
 
 export function calculatePayrollTimeTrackingReport(
@@ -298,6 +313,8 @@ export function calculatePayrollTimeTrackingReport(
          AND date(te.end_at) >= date(?)`,
     )
     .all(stationId, toDate, fromDate) as TimeEntryRow[]
+
+  const entryCorrMap = loadLatestCorrectionsMapForIds(db, approvedEntries.map((e) => e.id))
 
   const pendingEntries = db
     .prepare(
@@ -354,16 +371,17 @@ export function calculatePayrollTimeTrackingReport(
     let supplementsTotal = 0
     const myEntries = entriesByEmployee.get(employeeId) ?? []
     for (const te of myEntries) {
-      if (!te.start_at || !te.end_at) continue
-      const h = entryNetHoursInRange(te.start_at, te.end_at, te.break_minutes ?? 0, fromDate, toDate)
+      const t = effectiveTimeEntryForPayroll(te, entryCorrMap)
+      if (!t.start_at || !t.end_at) continue
+      const h = entryNetHoursInRange(t.start_at, t.end_at, t.break_minutes ?? 0, fromDate, toDate)
       totalHours += h
       supplementsTotal += computeSupplementEurosForTimeEntry({
         employmentType,
         emp: surchargeFieldsFromEmployee(R),
         hourlyWage: Math.max(0, wageForSupplements),
-        startIso: te.start_at,
-        endIso: te.end_at,
-        breakMinutes: te.break_minutes ?? 0,
+        startIso: t.start_at,
+        endIso: t.end_at,
+        breakMinutes: t.break_minutes ?? 0,
         federalState,
         holidayOverlay,
       })
@@ -373,8 +391,9 @@ export function calculatePayrollTimeTrackingReport(
 
     const workByYmd = new Map<string, number>()
     for (const te of myEntries) {
-      if (!te.start_at || !te.end_at) continue
-      const m = netHoursByBerlinYmdInRange(te.start_at, te.end_at, te.break_minutes ?? 0, fromDate, toDate)
+      const t = effectiveTimeEntryForPayroll(te, entryCorrMap)
+      if (!t.start_at || !t.end_at) continue
+      const m = netHoursByBerlinYmdInRange(t.start_at, t.end_at, t.break_minutes ?? 0, fromDate, toDate)
       for (const [ymd, hx] of m) {
         workByYmd.set(ymd, (workByYmd.get(ymd) ?? 0) + hx)
       }
@@ -429,6 +448,7 @@ export function calculatePayrollTimeTrackingReport(
 
     const vacHpdDefaultTt = rNum(R, 'vacation_hours_per_day', NaN) || null
     const timeTrackingDetailLines = buildTimeTrackingPayrollDetailLines({
+      db,
       employeeId,
       fromDate,
       toDate,
@@ -987,6 +1007,7 @@ export function buildSchedulePayrollDetailLines(p: {
 
 /** Detailzeilen für Lohnabrechnung Zeiterfassung: genehmigte Einträge plus automatische Urlaubs-/Abwesenheitszeilen (keine synthetischen `time_entries`). */
 export function buildTimeTrackingPayrollDetailLines(p: {
+  db: Database
   employeeId: string
   fromDate: string
   toDate: string
@@ -999,12 +1020,14 @@ export function buildTimeTrackingPayrollDetailLines(p: {
   timeEntries: TimeEntryRow[]
 }): PayrollScheduleDetailLine[] {
   const lines: PayrollScheduleDetailLine[] = []
+  const corrMap = loadLatestCorrectionsMapForIds(p.db, p.timeEntries.map((t) => t.id))
 
   for (const te of p.timeEntries) {
     if (te.employee_id !== p.employeeId) continue
     if (te.status !== 'completed' || String(te.approval_status ?? '').trim() !== 'approved') continue
-    if (!te.start_at || !te.end_at) continue
-    const m = netHoursByBerlinYmdInRange(te.start_at, te.end_at, te.break_minutes ?? 0, p.fromDate, p.toDate)
+    const t = effectiveTimeEntryForPayroll(te, corrMap)
+    if (!t.start_at || !t.end_at) continue
+    const m = netHoursByBerlinYmdInRange(t.start_at, t.end_at, t.break_minutes ?? 0, p.fromDate, p.toDate)
     const ymKeys = [...m.keys()].filter((k) => (m.get(k) ?? 0) > 0)
     for (const ymd of ymKeys) {
       const h = Math.round((m.get(ymd) ?? 0) * 100) / 100
@@ -1016,9 +1039,15 @@ export function buildTimeTrackingPayrollDetailLines(p: {
       let von = '—'
       let bis = '—'
       let hinweis = 'Quelle: Zeiterfassung · genehmigter Eintrag'
+      const corrRow = corrMap.get(te.id)
+      if (corrRow?.correction_kind === 'manual') {
+        hinweis += ` · Abrechnung mit korrigierter Zeit (${timeCorrectionReasonLabelDe(corrRow.reason)})`
+      } else if (corrRow?.correction_kind === 'auto_clock_out') {
+        hinweis += ' · Automatisch ausgestempelt (Sicherheitsregel) — bitte prüfen'
+      }
       if (ymKeys.length === 1) {
-        const sMs = new Date(te.start_at).getTime()
-        const eMs = new Date(te.end_at).getTime()
+        const sMs = new Date(t.start_at).getTime()
+        const eMs = new Date(t.end_at).getTime()
         if (Number.isFinite(sMs) && Number.isFinite(eMs)) {
           von = formatTimeHmBerlin(sMs)
           bis = formatTimeHmBerlin(eMs)
@@ -1212,6 +1241,8 @@ export function calculatePayrollCombinedReport(
     )
     .all(stationId, toDate, fromDate) as TimeEntryRow[]
 
+  const entryCorrMap = loadLatestCorrectionsMapForIds(db, approvedEntries.map((e) => e.id))
+
   const pendingEntries = db
     .prepare(
       `SELECT COUNT(*) as c FROM time_entries te
@@ -1333,16 +1364,17 @@ export function calculatePayrollCombinedReport(
     }
 
     for (const te of myEntries) {
-      if (!te.start_at || !te.end_at) continue
-      const m = netHoursByBerlinYmdInRange(te.start_at, te.end_at, te.break_minutes ?? 0, fromDate, toDate)
+      const t = effectiveTimeEntryForPayroll(te, entryCorrMap)
+      if (!t.start_at || !t.end_at) continue
+      const m = netHoursByBerlinYmdInRange(t.start_at, t.end_at, t.break_minutes ?? 0, fromDate, toDate)
       for (const [ymd, h] of m) {
         if (h <= 0) continue
         const p = ensurePack(ymd)
         p.tr += h
         p.entries.push({
           id: te.id,
-          startAt: te.start_at,
-          endAt: te.end_at,
+          startAt: t.start_at,
+          endAt: t.end_at,
           hours: Math.round(h * 100) / 100,
           open: false,
           earlyLeaveDoc:
@@ -1560,16 +1592,17 @@ export function calculatePayrollCombinedReport(
           }
         } else if (source === 'time_tracking' || source === 'time_tracking_extra') {
           for (const te of myEntries) {
-            if (!te.start_at || !te.end_at) continue
-            const m = netHoursByBerlinYmdInRange(te.start_at, te.end_at, te.break_minutes ?? 0, fromDate, toDate)
+            const t = effectiveTimeEntryForPayroll(te, entryCorrMap)
+            if (!t.start_at || !t.end_at) continue
+            const m = netHoursByBerlinYmdInRange(t.start_at, t.end_at, t.break_minutes ?? 0, fromDate, toDate)
             if (!m.has(ymd) || (m.get(ymd) ?? 0) <= 0) continue
             daySup += computeSupplementEurosForTimeEntry({
               employmentType,
               emp: empFields,
               hourlyWage: Math.max(0, wageForSupplements),
-              startIso: te.start_at,
-              endIso: te.end_at,
-              breakMinutes: te.break_minutes ?? 0,
+              startIso: t.start_at,
+              endIso: t.end_at,
+              breakMinutes: t.break_minutes ?? 0,
               federalState,
               holidayOverlay,
               onlyBerlinYmd: ymd,
@@ -1773,10 +1806,13 @@ export function listPayrollTimeEntryDetails(
   }
   sql += ` ORDER BY te.start_at ASC`
   const list = db.prepare(sql).all(...params) as (TimeEntryRow & { employee_display_name?: string | null })[]
+  const detailCorrMap = loadLatestCorrectionsMapForIds(db, list.map((r) => r.id))
   const out: PayrollTimeEntryDetailRow[] = []
   for (const te of list) {
     if (!te.end_at) continue
-    const h = entryNetHoursInRange(te.start_at, te.end_at, te.break_minutes ?? 0, fromDate, toDate)
+    const eff = effectiveTimeEntryForPayroll(te, detailCorrMap)
+    if (!eff.end_at) continue
+    const h = entryNetHoursInRange(eff.start_at, eff.end_at, eff.break_minutes ?? 0, fromDate, toDate)
     const approval =
       te.status === 'completed'
         ? te.approval_status && String(te.approval_status).trim()
@@ -1794,19 +1830,33 @@ export function listPayrollTimeEntryDetails(
         earlyLeaveSummary = `${earlyMin} Min. früher — ohne dokumentierten Grund`
       }
     }
+    const corrRow = detailCorrMap.get(te.id)
+    let timeCorrectionNote: string | undefined
+    let stampedStartAt: string | undefined
+    let stampedEndAt: string | undefined
+    if (corrRow) {
+      stampedStartAt = te.start_at
+      stampedEndAt = te.end_at ?? undefined
+      if (corrRow.correction_kind === 'manual') {
+        timeCorrectionNote = `Korrigiert: ${timeCorrectionReasonLabelDe(corrRow.reason)}`
+      } else if (corrRow.correction_kind === 'auto_clock_out') {
+        timeCorrectionNote = 'Automatisch ausgestempelt — bitte prüfen'
+      }
+    }
     out.push({
       id: te.id,
       employeeId: te.employee_id,
       employeeName: String(te.employee_display_name ?? '').trim() || te.employee_id,
-      date: te.start_at.slice(0, 10),
-      startAt: te.start_at,
-      endAt: te.end_at,
-      breakMinutes: te.break_minutes ?? 0,
+      date: eff.start_at.slice(0, 10),
+      startAt: eff.start_at,
+      endAt: eff.end_at,
+      breakMinutes: eff.break_minutes ?? 0,
       hours: h,
       source: te.source ?? '',
       status: te.status ?? '',
       approvalStatus: approval,
       ...(earlyLeaveSummary ? { earlyLeaveSummary } : {}),
+      ...(corrRow ? { stampedStartAt, stampedEndAt, timeCorrectionNote } : {}),
     })
   }
 
@@ -1881,6 +1931,7 @@ export function listPayrollTimeEntryDetails(
     const R = emp as Record<string, unknown>
     const myT = entriesByEmp.get(eid) ?? []
     const lines = buildTimeTrackingPayrollDetailLines({
+      db,
       employeeId: eid,
       fromDate,
       toDate,

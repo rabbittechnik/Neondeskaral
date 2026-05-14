@@ -48,6 +48,15 @@ export type TimeEntry = {
   earlyLeaveNote?: string
   earlyLeaveConfirmedAt?: string
   earlyLeaveConfirmedByEmployeeId?: string
+  /** Rohstempel (bei Korrektur); sonst = startAt */
+  stampedStartAt?: string
+  stampedEndAt?: string
+  stampedBreakMinutes?: number
+  effectiveStartAt?: string
+  effectiveEndAt?: string
+  effectiveBreakMinutes?: number
+  latestCorrectionKind?: string
+  needsAutoClockOutReview?: boolean
 }
 
 export type ShiftCloseChecklist = {

@@ -80,6 +80,7 @@ function purgeStationData(db: Database, stationId: string) {
   db.prepare(
     `DELETE FROM shift_close_checklists WHERE time_entry_id IN (SELECT id FROM time_entries WHERE station_id = ?)`,
   ).run(stationId)
+  db.prepare(`DELETE FROM time_entry_corrections WHERE station_id = ?`).run(stationId)
   db.prepare(`DELETE FROM time_entries WHERE station_id = ?`).run(stationId)
   db.prepare(`DELETE FROM shifts WHERE station_id = ?`).run(stationId)
   db.prepare(`DELETE FROM absences WHERE station_id = ?`).run(stationId)
@@ -270,6 +271,15 @@ export function updateStation(db: Database, id: string, body: Record<string, unk
   if (body.defaultBreakMinutes !== undefined) {
     const n = Number(body.defaultBreakMinutes)
     set('default_break_minutes', Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0)
+  }
+  if (body.autoClockOutEnabled !== undefined) {
+    const a = body.autoClockOutEnabled
+    const num = typeof a === 'boolean' ? (a ? 1 : 0) : Number(a)
+    set('auto_clock_out_enabled', Number.isFinite(num) ? num : 1)
+  }
+  if (body.autoClockOutTime !== undefined) {
+    const s = String(body.autoClockOutTime ?? '22:45').trim() || '22:45'
+    set('auto_clock_out_time', s)
   }
   if (body.standardWorkTimesJson !== undefined) {
     set(

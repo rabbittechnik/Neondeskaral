@@ -58,6 +58,8 @@ export function GeneralSettingsPage() {
       fuelPriceRefreshMinutes: row.fuel_price_refresh_minutes,
       automaticBreakDeduction: Boolean(row.automatic_break_deduction),
       defaultBreakMinutes: row.default_break_minutes,
+      autoClockOutEnabled: row.auto_clock_out_enabled == null || Number(row.auto_clock_out_enabled) !== 0,
+      autoClockOutTime: row.auto_clock_out_time,
       tabletSettingsJson: row.tablet_settings_json,
       backshopRulesJson: row.backshop_rules_json,
       standardWorkTimesJson: row.standard_work_times_json,
@@ -206,6 +208,27 @@ export function GeneralSettingsPage() {
               value={Number(row?.default_break_minutes ?? 0)}
               disabled={!canEdit}
               onChange={(e) => setField('default_break_minutes', e.target.value)}
+            />
+          </label>
+          <label className="flex items-center gap-2 text-xs text-[var(--text-faint)] sm:col-span-2">
+            <input
+              type="checkbox"
+              checked={row?.auto_clock_out_enabled == null || Number(row?.auto_clock_out_enabled) !== 0}
+              disabled={!canEdit}
+              onChange={(e) =>
+                setRow((r) => (r ? { ...r, auto_clock_out_enabled: e.target.checked ? 1 : 0 } : r))
+              }
+            />
+            Automatisches Ausstempeln (Sicherheit, Europe/Berlin)
+          </label>
+          <label className="text-xs text-[var(--text-faint)]">
+            Auto-Ausstempeln um (HH:mm)
+            <input
+              className="mt-1 w-full rounded border border-white/10 bg-black/30 px-2 py-1.5 text-sm tabular-nums"
+              value={String(row?.auto_clock_out_time ?? '22:45')}
+              disabled={!canEdit}
+              placeholder="22:45"
+              onChange={(e) => setField('auto_clock_out_time', e.target.value)}
             />
           </label>
         </div>
