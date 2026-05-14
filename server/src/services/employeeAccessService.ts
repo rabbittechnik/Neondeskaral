@@ -19,8 +19,8 @@ import type { TaskRow } from './taskService.js'
 import { listTimeEntries, rowToTimeEntryApi, getTimeEntry } from './timeTrackingService.js'
 import { getStation } from './stationService.js'
 import { ymdBerlinFromUtcMs } from '../utils/europeBerlinWallTime.js'
-import { resolveBakingPlanForBerlinYmd } from './bakingPlanService.js'
-import { insertShiftBakingNotice } from './shiftBakingNoticeService.js'
+import { upsertBackshopNoticeAcknowledgement } from './backshopNoticeAckService.js'
+import { resolveBackshopNoticeForStationAndDate, type BackshopItemSnapshot } from './backshopRoutineService.js'
 import { listWorkAreas } from './workAreaService.js'
 import { listActiveShiftWarningsForEmployee, acknowledgeShiftWarning } from './employeeShiftWarningService.js'
 import {
@@ -518,7 +518,15 @@ export function employeeAccessCheckIn(db: Database, token: string, force: boolea
 export function employeeAccessAcknowledgeBakingNotice(
   db: Database,
   token: string,
-  body: { timeEntryId: string; remark?: string | null },
+  body: {
+    timeEntryId: string
+    remark?: string | null
+    routineType?: string
+    routineId?: string | null
+    title?: string | null
+    itemSnapshots?: BackshopItemSnapshot[]
+    items?: string[]
+  },
   meta?: EmployeeAccessRequestMeta,
 ): { ok: true } | { ok: false; error: string } {
   const ctx = resolveEmployeeAccessContext(db, token, meta)
@@ -531,15 +539,23 @@ export function employeeAccessAcknowledgeBakingNotice(
     return { ok: false, error: 'Kein passender laufender Eintrag.' }
   }
   const workYmd = ymdBerlinFromUtcMs(new Date(te.startAt).getTime())
-  const plan = resolveBakingPlanForBerlinYmd(workYmd)
-  insertShiftBakingNotice(db, {
+  const resolved = resolveBackshopNoticeForStationAndDate(db, row.station_id, workYmd)
+  const routineType = String(body.routineType ?? resolved.routineType)
+  const routineId = body.routineId !== undefined ? (body.routineId as string | null) : resolved.routineId
+  const titleSnapshot = body.title?.trim() || resolved.title
+  const itemSnapshots =
+    body.itemSnapshots && body.itemSnapshots.length > 0 ? body.itemSnapshots : resolved.itemSnapshots
+  const displayLines = body.items && body.items.length > 0 ? body.items : resolved.displayLines
+  upsertBackshopNoticeAcknowledgement(db, {
     stationId: row.station_id,
     employeeId: row.id,
     shiftId: te.shiftId ?? null,
     timeEntryId,
-    dateYmd: workYmd,
-    bakingPlanType: plan.planType,
-    items: plan.items,
+    routineId,
+    routineType,
+    titleSnapshot,
+    itemSnapshots: itemSnapshots.length ? itemSnapshots : undefined,
+    displayLines: displayLines.length ? displayLines : undefined,
     remark: body.remark ?? null,
   })
   return { ok: true }

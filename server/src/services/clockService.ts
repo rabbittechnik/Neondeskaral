@@ -39,7 +39,7 @@ import {
 } from '../utils/europeBerlinWallTime.js'
 import { shiftBoundsBerlin } from '../utils/shiftBerlinBounds.js'
 import { isEarlyShiftForBakingNotice } from './earlyShiftForBaking.js'
-import { resolveBakingPlanForBerlinYmd } from './bakingPlanService.js'
+import { resolveBackshopNoticeForStationAndDate, type BackshopItemSnapshot } from './backshopRoutineService.js'
 
 function parseHHMM(t: string): number {
   const [h, m] = t.split(':').map(Number)
@@ -481,12 +481,29 @@ export function clockCheckInByEmployeeId(
 
   const entry = getTimeEntry(db, id)!
   let bakingNotice:
-    | { timeEntryId: string; planType: 'weekday' | 'weekend_holiday'; items: string[] }
+    | {
+        timeEntryId: string
+        routineType: string
+        routineId: string | null
+        title: string
+        items: string[]
+        itemSnapshots: BackshopItemSnapshot[]
+      }
     | undefined
   if (planned && isEarlyShiftForBakingNotice(planned)) {
     const workYmd = String(planned.date ?? '').trim() || ymdBerlinFromUtcMs(nowMs)
-    const plan = resolveBakingPlanForBerlinYmd(workYmd)
-    bakingNotice = { timeEntryId: id, planType: plan.planType, items: plan.items }
+    const pack = resolveBackshopNoticeForStationAndDate(db, stationId, workYmd)
+    const show = pack.displayLines.length > 0 || pack.routineId != null
+    if (show) {
+      bakingNotice = {
+        timeEntryId: id,
+        routineType: pack.routineType,
+        routineId: pack.routineId,
+        title: pack.title,
+        items: pack.displayLines,
+        itemSnapshots: pack.itemSnapshots,
+      }
+    }
   }
   return {
     ok: true as const,

@@ -434,8 +434,25 @@ export function StaffTerminalPage() {
       setCheckInApiConfirm(null)
       setModal(null)
       setInSuccess({ name: emp?.displayName ?? 'Mitarbeiter', time: t })
-      if (out.bakingNotice?.timeEntryId && Array.isArray(out.bakingNotice.items)) {
-        setTerminalBakingNotice(out.bakingNotice)
+      if (out.bakingNotice?.timeEntryId && ((out.bakingNotice.items?.length ?? 0) > 0 || out.bakingNotice.routineId)) {
+        const bn = out.bakingNotice
+        setTerminalBakingNotice({
+          timeEntryId: bn.timeEntryId,
+          routineType: bn.routineType ?? 'weekday',
+          routineId: bn.routineId ?? null,
+          title: bn.title ?? 'Backwaren',
+          items: Array.isArray(bn.items) ? bn.items : [],
+          itemSnapshots: Array.isArray(bn.itemSnapshots)
+            ? bn.itemSnapshots
+            : (Array.isArray(bn.items) ? bn.items : []).map((line) => ({
+                itemId: null,
+                name: '',
+                quantity: 0,
+                unit: 'Stück',
+                category: null,
+                line,
+              })),
+        })
         setTerminalBakingOpen(true)
       } else {
         setTerminalBakingNotice(null)
@@ -911,6 +928,11 @@ export function StaffTerminalPage() {
           const sid = stationId ?? DEFAULT_TABLET_STATION_ID
           const body: Record<string, unknown> = {
             timeEntryId: terminalBakingNotice.timeEntryId,
+            routineType: terminalBakingNotice.routineType,
+            routineId: terminalBakingNotice.routineId,
+            title: terminalBakingNotice.title,
+            items: terminalBakingNotice.items,
+            itemSnapshots: terminalBakingNotice.itemSnapshots,
             ...(remark ? { remark } : {}),
           }
           if (tabletToken?.trim()) body.tabletToken = tabletToken.trim()

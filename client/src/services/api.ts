@@ -95,7 +95,7 @@ export async function apiGet<T>(path: string, params?: Record<string, string | u
 }
 
 export async function apiSend<T>(
-  method: 'POST' | 'PUT' | 'DELETE',
+  method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
   path: string,
   body?: unknown,
   params?: Record<string, string | undefined>,

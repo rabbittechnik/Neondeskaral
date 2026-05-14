@@ -32,6 +32,7 @@ import { ListsPage } from '../pages/lists/ListsPage'
 import { ModulesPage } from '../pages/modules/ModulesPage'
 import { AbsenceReportsPage } from '../pages/reports/AbsenceReportsPage'
 import { PayrollSchedulePage } from '../pages/reports/PayrollSchedulePage'
+import { PayrollSummaryPage } from '../pages/reports/PayrollSummaryPage'
 import { PayrollTimePage } from '../pages/reports/PayrollTimePage'
 import { TaskReportsPage } from '../pages/reports/TaskReportsPage'
 import { SchedulePage } from '../pages/schedule/SchedulePage'
@@ -310,6 +311,11 @@ export const router = createBrowserRouter([
         path: 'reports/payroll-schedule',
         element: <PayrollSchedulePage />,
         handle: { title: 'Lohnabrechnung (Schichtplan)' },
+      },
+      {
+        path: 'reports/payroll-summary',
+        element: <PayrollSummaryPage />,
+        handle: { title: 'Lohnabrechnung Zusammenfassung' },
       },
       {
         path: 'reports/tasks',

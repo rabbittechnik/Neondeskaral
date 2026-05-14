@@ -105,6 +105,8 @@ export function rowToTaskApi(r: TaskRow) {
     tabletStationBoard: (r.tablet_station_board ?? 0) === 1,
     assignedShiftType: r.assigned_shift_type?.trim() || undefined,
     requiredForShiftClose: (r.required_for_shift_close ?? 0) === 1,
+    weekendTaskTemplateSlug: r.weekend_task_template_slug?.trim() || undefined,
+    taskCategory: r.task_category?.trim() || undefined,
     confirmRequired: (r.confirm_required ?? 0) === 1,
     controlRequired: (r.control_required ?? 0) === 1,
     mandatory: (r.mandatory ?? 0) === 1,
@@ -129,6 +131,7 @@ export type TaskLogRow = {
   controlled_by: string | null
   control_result: string | null
   comment: string | null
+  not_done_reason?: string | null
 }
 
 export function rowToTaskLogApi(r: TaskLogRow) {
@@ -146,6 +149,7 @@ export function rowToTaskLogApi(r: TaskLogRow) {
       ? ((CTRL_TO_DE[r.control_result] ?? r.control_result) as string)
       : undefined,
     comment: r.comment ?? undefined,
+    notDoneReason: r.not_done_reason?.trim() || undefined,
   }
 }
 
@@ -329,7 +333,32 @@ export function deleteTask(db: Database, id: string) {
   if (r.changes === 0) throw new Error('Aufgabe nicht gefunden')
 }
 
-export function listTaskLogs(db: Database, q: { taskId?: string; from?: string; to?: string }) {
+export function listTaskLogs(
+  db: Database,
+  q: { taskId?: string; from?: string; to?: string; stationId?: string },
+) {
+  if (q.stationId?.trim()) {
+    let sql = `SELECT tl.* FROM task_logs tl
+      INNER JOIN tasks t ON t.id = tl.task_id
+      WHERE t.station_id = ?`
+    const params: string[] = [q.stationId.trim()]
+    if (q.taskId) {
+      sql += ` AND tl.task_id = ?`
+      params.push(q.taskId)
+    }
+    if (q.from) {
+      sql += ` AND tl.date >= ?`
+      params.push(q.from)
+    }
+    if (q.to) {
+      sql += ` AND tl.date <= ?`
+      params.push(q.to)
+    }
+    sql += ` ORDER BY tl.date DESC, tl.updated_at DESC`
+    const rows = db.prepare(sql).all(...params) as TaskLogRow[]
+    return rows.map(rowToTaskLogApi)
+  }
+
   let sql = `SELECT * FROM task_logs WHERE 1=1`
   const params: string[] = []
   if (q.taskId) {

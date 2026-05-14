@@ -10,6 +10,8 @@ import { seedAllStationsShiftCloseChecklistDefsIfMissing } from '../services/sta
 import { calculateVacationImpact, normalizeAbsenceDbType } from '../utils/vacationImpactCalculator.js'
 import { applyMay2026BodelshausenOfficeShifts } from '../services/may2026BodelshausenShiftImport.js'
 import { applyPersonalstammBodelshausen2026 } from '../services/personalstammBodelshausenImport.js'
+import { ensureBodelshausenStationGuideVacations2026 } from '../services/stationGuideVacationImportService.js'
+import { seedTaskTemplatesIfMissing } from '../services/taskTemplateService.js'
 
 function employeesColumnNames(db: Database.Database): Set<string> {
   const rows = db.prepare(`PRAGMA table_info(employees)`).all() as { name: string }[]
@@ -47,8 +49,8 @@ export function runMigrations(db: Database.Database) {
   addEmployeeColumn(db, empCols, 'planning_notes', 'planning_notes TEXT')
 
   migrateEmployeeExtendedColumns(db)
-  ensureMinimumWageRatesSeeded(db)
-  ensurePersonalstammBodelshausenFromForms(db)
+  migrateShiftBakingNoticesToBackshopAck(db)
+  ensureBackshopRoutineSeedForBodelshausen(db)
 
   const ewaInfo = db.prepare(`PRAGMA table_info(employee_work_areas)`).all() as { name: string }[]
   const ewaNames = new Set(ewaInfo.map((c) => c.name))
@@ -185,7 +187,51 @@ export function runMigrations(db: Database.Database) {
   syncAralBodelshausenStationDisplayName(db)
   syncAralBodelshausenEmployeeCashRegisterCards(db)
   ensureMay2026BodelshausenGuideShifts(db)
+  ensureStationGuideVacationsBodelshausen2026Migration(db)
   ensureWeekendTasksAndBakingTables(db)
+  migrateWeekendTaskTemplateSlugsToKeys(db)
+  seedTaskTemplatesIfMissing(db)
+}
+
+/** Idempotent: StationGuide-Urlaube Aral Bodelshausen (Apr–Jun 2026), nur wenn Mitarbeiter existieren. */
+function ensureStationGuideVacationsBodelshausen2026Migration(db: Database.Database) {
+  const n = db
+    .prepare(
+      `SELECT COUNT(*) as n FROM employees WHERE station_id = 'aral-bodelshausen' AND (deleted_at IS NULL OR trim(deleted_at) = '')`,
+    )
+    .get() as { n: number }
+  if ((n?.n ?? 0) < 1) return
+  const { messages } = ensureBodelshausenStationGuideVacations2026(db)
+  const noteworthy = messages.filter(
+    (m) =>
+      m.includes('neu angelegt') ||
+      m.includes('ergänzt:') ||
+      m.includes('FEHLER') ||
+      m.includes('überschneidender'),
+  )
+  if (noteworthy.length) console.log(`[migrations] StationGuide Urlaube Bodelshausen:\n${noteworthy.join('\n')}`)
+}
+
+/** Einmalig: alte Generator-Slugs auf stabile template_keys abbilden (idempotent). */
+function migrateWeekendTaskTemplateSlugsToKeys(db: Database.Database) {
+  const pairs: [string, string][] = [
+    ['pflicht_aussenbereich', 'daily_outside_area_check'],
+    ['pflicht_muell', 'daily_bins_check'],
+    ['suessigkeiten', 'weekend_candy_shelf'],
+    ['kaffeeecke', 'weekend_coffee_corner'],
+    ['chips_wein', 'weekend_chips_wine_shelf'],
+    ['kuehlschraenke', 'weekend_fridges'],
+    ['eistruhe', 'weekend_ice_freezer'],
+    ['lottoecke', 'weekend_lotto_corner'],
+    ['elfbar', 'weekend_elfbar_corner'],
+    ['kassenbereich', 'weekend_cash_area'],
+    ['backofen', 'weekend_oven_cleaning'],
+    ['fenster_putzen', 'yearly_window_cleaning'],
+  ]
+  const u = db.prepare(`UPDATE tasks SET weekend_task_template_slug = ? WHERE weekend_task_template_slug = ?`)
+  for (const [from, to] of pairs) {
+    u.run(to, from)
+  }
 }
 
 /** Idempotent: Kassenkartennummern für Aral Bodelshausen (nur nicht gelöschte Zeilen, Abgleich per display_name). */
@@ -802,6 +848,92 @@ export function ensureMinimumWageRatesSeeded(db: Database.Database) {
   ins.run('mwr-2025-01-01', '2025-01-01', 12.82, 'Standard Startwert', ts, ts)
   ins.run('mwr-2026-01-01', '2026-01-01', 13.9, 'Standard Startwert', ts, ts)
   ins.run('mwr-2027-01-01', '2027-01-01', 14.6, 'Standard Startwert', ts, ts)
+}
+
+function migrateShiftBakingNoticesToBackshopAck(db: Database.Database) {
+  const tbl = db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='backshop_notice_acknowledgements'`).get() as
+    | { name: string }
+    | undefined
+  if (!tbl) return
+  const oldTbl = db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='shift_baking_notices'`).get() as
+    | { name: string }
+    | undefined
+  if (!oldTbl) return
+  db.exec(`
+    INSERT OR IGNORE INTO backshop_notice_acknowledgements (
+      id, station_id, employee_id, shift_id, time_entry_id, routine_id, routine_type, title_snapshot, items_snapshot_json, remark, acknowledged_at, created_at
+    )
+    SELECT
+      sbn.id,
+      sbn.station_id,
+      sbn.employee_id,
+      sbn.shift_id,
+      sbn.time_entry_id,
+      NULL,
+      CASE WHEN lower(trim(sbn.baking_plan_type)) = 'weekday' THEN 'weekday' ELSE 'weekend' END,
+      NULL,
+      sbn.items_json,
+      sbn.remark,
+      sbn.acknowledged_at,
+      sbn.created_at
+    FROM shift_baking_notices sbn
+    WHERE NOT EXISTS (
+      SELECT 1 FROM backshop_notice_acknowledgements x WHERE x.time_entry_id = sbn.time_entry_id
+    )
+  `)
+}
+
+function ensureBackshopRoutineSeedForBodelshausen(db: Database.Database) {
+  const tbl = db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='backshop_routines'`).get() as
+    | { name: string }
+    | undefined
+  if (!tbl) return
+  const sid = 'aral-bodelshausen'
+  const station = db.prepare(`SELECT id FROM stations WHERE id = ?`).get(sid) as { id: string } | undefined
+  if (!station) return
+  const c = (db.prepare(`SELECT COUNT(*) as n FROM backshop_routines WHERE station_id = ?`).get(sid) as { n: number }).n
+  if ((c ?? 0) > 0) return
+  const ts = nowIso()
+  const insR = db.prepare(
+    `INSERT INTO backshop_routines (id, station_id, routine_type, title, description, active, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)`,
+  )
+  const wid = `br-${randomUUID()}`
+  const weid = `br-${randomUUID()}`
+  const hid = `br-${randomUUID()}`
+  insR.run(wid, sid, 'weekday', 'Backwaren für heute', null, 1, ts, ts)
+  insR.run(weid, sid, 'weekend', 'Backwaren für Wochenende', null, 1, ts, ts)
+  insR.run(hid, sid, 'holiday', 'Backwaren für Feiertag', null, 1, ts, ts)
+  const insI = db.prepare(
+    `INSERT INTO backshop_routine_items (id, routine_id, name, quantity, unit, category, sort_order, active, valid_from, valid_to, restrict_day_type, notes, created_at, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  )
+  const weekday: [string, number, string, string][] = [
+    ['normale Brötchen', 6, 'Stück', 'Backwaren'],
+    ['Laugenbrötchen', 6, 'Stück', 'Backwaren'],
+    ['Vitalbrötchen', 1, 'Stück', 'Backwaren'],
+    ['Butterbrezeln', 3, 'Stück', 'Backwaren'],
+    ['normale Brezeln', 6, 'Stück', 'Backwaren'],
+    ['Käsebrezeln', 3, 'Stück', 'Backwaren'],
+    ['Schnitzel-Patties', 3, 'Stück', 'Backwaren'],
+    ['Hähnchen-Patties', 3, 'Stück', 'Backwaren'],
+  ]
+  let so = 1
+  for (const [name, q, u, cat] of weekday) {
+    insI.run(`bi-${randomUUID()}`, wid, name, q, u, cat, so++, 1, null, null, null, null, ts, ts)
+  }
+  const small: [string, number, string, string][] = [
+    ['Butterbrezeln', 3, 'Stück', 'Backwaren'],
+    ['normale Brezeln', 3, 'Stück', 'Backwaren'],
+    ['Käsebrezeln', 3, 'Stück', 'Backwaren'],
+  ]
+  so = 1
+  for (const [name, q, u, cat] of small) {
+    insI.run(`bi-${randomUUID()}`, weid, name, q, u, cat, so++, 1, null, null, null, null, ts, ts)
+  }
+  so = 1
+  for (const [name, q, u, cat] of small) {
+    insI.run(`bi-${randomUUID()}`, hid, name, q, u, cat, so++, 1, null, null, null, null, ts, ts)
+  }
 }
 
 /** Einmalige Stammdaten-Übernahme Personalbögen → bestehende Profile Aral Bodelshausen (idempotent). */

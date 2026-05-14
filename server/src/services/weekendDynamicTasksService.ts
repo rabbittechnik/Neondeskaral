@@ -1,8 +1,13 @@
 import type { Database } from 'better-sqlite3'
 import { addDaysToYmd } from '../utils/europeBerlinWallTime.js'
-import { nowIso } from '../utils/timestamps.js'
 import { listShiftRowsForStationDateRange, type ShiftRow } from './shiftService.js'
 import { createTask } from './taskService.js'
+import {
+  getYearlyWindowCleaningCap,
+  insertTaskInstanceForTask,
+  loadWeekendGeneratorTemplates,
+  type WeekendGeneratorSlice,
+} from './taskTemplateService.js'
 
 export type WeekendTaskTemplateDef = {
   slug: string
@@ -14,32 +19,33 @@ export type WeekendTaskTemplateDef = {
 
 const TASK_KIND = 'weekend_generated'
 
-const MANDATORY: WeekendTaskTemplateDef[] = [
+/** Fallback nur wenn noch keine Vorlagen in der DB (z. B. frische Installation vor Schema). */
+const LEGACY_MANDATORY: WeekendTaskTemplateDef[] = [
   {
-    slug: 'pflicht_aussenbereich',
+    slug: 'daily_outside_area_check',
     title: 'Außenbereich kontrollieren',
     category: 'Außenbereich',
     yearlyCompletionCap: false,
   },
   {
-    slug: 'pflicht_muell',
+    slug: 'daily_bins_check',
     title: 'Mülleimer kontrollieren',
     category: 'Reinigung',
     yearlyCompletionCap: false,
   },
 ]
 
-const DYNAMIC_POOL: WeekendTaskTemplateDef[] = [
-  { slug: 'suessigkeiten', title: 'Süßigkeitenregal reinigen / ordentlich machen', category: 'Regalpflege', yearlyCompletionCap: false },
-  { slug: 'kaffeeecke', title: 'Kaffeeecke gründlich reinigen', category: 'Reinigung', yearlyCompletionCap: false },
-  { slug: 'chips_wein', title: 'Chips- und Weinregal reinigen / ordentlich machen', category: 'Regalpflege', yearlyCompletionCap: false },
-  { slug: 'kuehlschraenke', title: 'Kühlschränke reinigen / kontrollieren', category: 'Kontrolle', yearlyCompletionCap: false },
-  { slug: 'eistruhe', title: 'Eistruhe reinigen / kontrollieren', category: 'Kontrolle', yearlyCompletionCap: false },
-  { slug: 'lottoecke', title: 'Lottoecke reinigen / ordentlich machen', category: 'Reinigung', yearlyCompletionCap: false },
-  { slug: 'elfbar', title: 'Elfbar-Ecke reinigen / ordentlich machen', category: 'Reinigung', yearlyCompletionCap: false },
-  { slug: 'kassenbereich', title: 'Kassenbereich reinigen / ordentlich machen', category: 'Reinigung', yearlyCompletionCap: false },
-  { slug: 'backofen', title: 'Backofen Reinigung', category: 'Backshop', yearlyCompletionCap: false },
-  { slug: 'fenster_putzen', title: 'Fenster putzen', category: 'Reinigung', yearlyCompletionCap: true },
+const LEGACY_DYNAMIC_POOL: WeekendTaskTemplateDef[] = [
+  { slug: 'weekend_candy_shelf', title: 'Süßigkeitenregal reinigen / ordentlich machen', category: 'Regalpflege', yearlyCompletionCap: false },
+  { slug: 'weekend_coffee_corner', title: 'Kaffeeecke gründlich reinigen', category: 'Reinigung', yearlyCompletionCap: false },
+  { slug: 'weekend_chips_wine_shelf', title: 'Chips- und Weinregal reinigen / ordentlich machen', category: 'Regalpflege', yearlyCompletionCap: false },
+  { slug: 'weekend_fridges', title: 'Kühlschränke reinigen / kontrollieren', category: 'Kontrolle', yearlyCompletionCap: false },
+  { slug: 'weekend_ice_freezer', title: 'Eistruhe reinigen / kontrollieren', category: 'Kontrolle', yearlyCompletionCap: false },
+  { slug: 'weekend_lotto_corner', title: 'Lottoecke reinigen / ordentlich machen', category: 'Reinigung', yearlyCompletionCap: false },
+  { slug: 'weekend_elfbar_corner', title: 'Elfbar-Ecke reinigen / ordentlich machen', category: 'Reinigung', yearlyCompletionCap: false },
+  { slug: 'weekend_cash_area', title: 'Kassenbereich reinigen / ordentlich machen', category: 'Reinigung', yearlyCompletionCap: false },
+  { slug: 'weekend_oven_cleaning', title: 'Backofen Reinigung', category: 'Backshop', yearlyCompletionCap: false },
+  { slug: 'yearly_window_cleaning', title: 'Fenster putzen', category: 'Reinigung', yearlyCompletionCap: true },
 ]
 
 function parseHHMMToMinutes(t: string): number {
@@ -96,7 +102,7 @@ function countFensterCompletionsInYear(db: Database, stationId: string, year: nu
     .prepare(
       `SELECT COUNT(*) as c FROM task_logs tl
        INNER JOIN tasks t ON t.id = tl.task_id
-       WHERE t.station_id = ? AND t.weekend_task_template_slug = 'fenster_putzen'
+       WHERE t.station_id = ? AND t.weekend_task_template_slug IN ('yearly_window_cleaning','fenster_putzen')
          AND tl.status = 'done' AND tl.date >= ? AND tl.date <= ?`,
     )
     .get(stationId, from, to) as { c: number } | undefined
@@ -109,7 +115,7 @@ function lastDynamicSlugForEmployee(db: Database, stationId: string, employeeId:
       `SELECT weekend_task_template_slug as s FROM tasks
        WHERE station_id = ? AND assigned_employee_id = ? AND task_kind = ?
          AND weekend_task_template_slug IS NOT NULL
-         AND weekend_task_template_slug NOT LIKE 'pflicht_%'
+         AND weekend_task_template_slug NOT IN ('daily_outside_area_check','daily_bins_check','pflicht_aussenbereich','pflicht_muell')
        ORDER BY start_date DESC, created_at DESC LIMIT 1`,
     )
     .get(stationId, employeeId, TASK_KIND) as { s: string } | undefined
@@ -125,6 +131,12 @@ function weekendTaskExists(db: Database, stationId: string, shiftId: string, slu
   return Boolean(hit)
 }
 
+function resolveTemplates(db: Database, stationId: string): WeekendGeneratorSlice {
+  const fromDb = loadWeekendGeneratorTemplates(db, stationId)
+  if (fromDb.mandatory.length || fromDb.dynamicPool.length) return fromDb
+  return { mandatory: [...LEGACY_MANDATORY], dynamicPool: [...LEGACY_DYNAMIC_POOL] }
+}
+
 function upsertWeekendTask(
   db: Database,
   stationId: string,
@@ -136,7 +148,7 @@ function upsertWeekendTask(
   const emp = String(shift.employee_id ?? '').trim()
   if (!emp) return
   const date = String(shift.date).trim()
-  createTask(
+  const created = createTask(
     db,
     {
       title: def.title,
@@ -160,6 +172,17 @@ function upsertWeekendTask(
     },
     stationId,
   )
+  if (created?.id) {
+    insertTaskInstanceForTask(db, {
+      taskId: created.id,
+      templateKey: def.slug,
+      stationId,
+      employeeId: emp,
+      shiftId: shift.id,
+      date,
+      source: 'weekend_generator',
+    })
+  }
 }
 
 export type WeekendTaskGenSummary = {
@@ -184,7 +207,7 @@ function loadWeekendSettings(db: Database, stationId: string) {
 
 /**
  * Idempotent: je (station_id, shift_id, weekend_task_template_slug) höchstens eine Aufgabe.
- * Pflichtaufgaben pro Wochenend-Schicht; 1–2 dynamische Zusatzaufgaben; „Fenster putzen“ nur bei Jahres-Kontingent.
+ * Pflichtaufgaben pro Wochenend-Schicht; 1–2 dynamische Zusatzaufgaben; „Fenster putzen“ nur bei Jahres-Kontingent (Vorlage max_per_year / Stations-Fallback).
  */
 export function generateDynamicWeekendTasks(db: Database, stationId: string, weekStartMonday: string): WeekendTaskGenSummary {
   const sid = String(stationId ?? '').trim()
@@ -199,15 +222,18 @@ export function generateDynamicWeekendTasks(db: Database, stationId: string, wee
   const sat = addDaysToYmd(mon, 5)
   const sun = addDaysToYmd(mon, 6)
   const year = Number(mon.slice(0, 4))
+  const fensterCap = getYearlyWindowCleaningCap(db, sid, settings.maxFensterPerYear)
   const fensterDone = countFensterCompletionsInYear(db, sid, year)
+  const { mandatory: MANDATORY, dynamicPool: DYNAMIC_POOL } = resolveTemplates(db, sid)
+
   const rows = listShiftRowsForStationDateRange(db, sid, sat, sun).filter(
     (s) => (s.published ?? 0) === 1 && String(s.employee_id ?? '').trim() && String(s.shift_type ?? '').toLowerCase() !== 'frei',
   )
   rows.sort(compareWeekendShifts)
 
   let created = 0
-  const rand = mulberry32(hashString(`${sid}|${mon}|weekend-tasks-v1`))
-  const poolBase = DYNAMIC_POOL.filter((t) => !t.yearlyCompletionCap || fensterDone < settings.maxFensterPerYear)
+  const rand = mulberry32(hashString(`${sid}|${mon}|weekend-tasks-v2`))
+  const poolBase = DYNAMIC_POOL.filter((t) => !t.yearlyCompletionCap || fensterDone < fensterCap)
   const globalUsedSlugs = new Set<string>()
 
   for (const shift of rows) {

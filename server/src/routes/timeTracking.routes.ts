@@ -5,6 +5,7 @@ import { requirePermission } from '../middleware/stationAuth.js'
 import * as timeTracking from '../services/timeTrackingService.js'
 import * as terminal from '../services/terminalService.js'
 import { updateShiftChecklistReviewItems } from '../services/shiftChecklistReviewService.js'
+import type { BackshopItemSnapshot } from '../services/backshopRoutineService.js'
 import {
   resolveTerminalStationIdFromBody,
   touchTabletByToken,
@@ -289,6 +290,11 @@ terminalRouter.post('/baking-notice', (req, res) => {
       stationId: stationFromToken,
       timeEntryId,
       remark: remark != null ? String(remark) : undefined,
+      routineType: raw.routineType != null ? String(raw.routineType) : undefined,
+      routineId: raw.routineId === undefined ? undefined : raw.routineId === null ? null : String(raw.routineId),
+      title: raw.title != null ? String(raw.title) : undefined,
+      itemSnapshots: Array.isArray(raw.itemSnapshots) ? (raw.itemSnapshots as BackshopItemSnapshot[]) : undefined,
+      items: Array.isArray(raw.items) ? (raw.items as string[]) : undefined,
     })
     if (!out.ok) return res.status(200).json({ ok: false, error: out.error })
     jsonOk(res, { saved: true })

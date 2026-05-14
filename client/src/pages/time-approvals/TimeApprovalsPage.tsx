@@ -66,10 +66,12 @@ type DetailPayload = {
   shiftCloseTaskResponses?: ShiftCloseTaskResponseRow[]
   plannedShift: { id: string; date: string; startTime: string; endTime: string } | null
   bakingNotice?: {
-    acknowledged: true
-    acknowledgedAt: string
-    planType: string
-    planTypeLabel: string
+    eligible: boolean
+    popupOffered: boolean
+    acknowledged: boolean
+    acknowledgedAt?: string
+    routineType?: string
+    planTypeLabel?: string
     items: string[]
     remark?: string
   } | null
@@ -526,29 +528,49 @@ export function TimeApprovalsPage() {
               </div>
             ) : null}
 
-            {detail.bakingNotice ? (
+            {detail.bakingNotice && (detail.bakingNotice.popupOffered || detail.bakingNotice.acknowledged) ? (
               <div className="mt-4 rounded-md border border-amber-400/25 bg-amber-500/8 p-3 text-sm text-[var(--text-muted)]">
                 <p className="font-semibold text-[var(--text-main)]">Backwaren-Hinweis (Frühschicht)</p>
                 <p className="mt-1">
-                  Bestätigt: <span className="font-medium text-emerald-200">Ja</span>
+                  Hinweis angeboten:{' '}
+                  <span className="font-medium text-[var(--text-main)]">
+                    {detail.bakingNotice.popupOffered ? 'Ja' : 'Nein'}
+                  </span>
                 </p>
                 <p className="mt-1">
-                  Typ: <span className="text-[var(--text-main)]">{detail.bakingNotice.planTypeLabel}</span>
+                  Bestätigt:{' '}
+                  <span className={detail.bakingNotice.acknowledged ? 'font-medium text-emerald-200' : 'font-medium text-amber-200'}>
+                    {detail.bakingNotice.acknowledged ? 'Ja' : 'Nein'}
+                  </span>
                 </p>
-                <p className="mt-1 text-[11px] text-[var(--text-faint)]">
-                  Backwaren-Popup bestätigt um{' '}
-                  {new Date(detail.bakingNotice.acknowledgedAt).toLocaleTimeString('de-DE', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}{' '}
-                  Uhr (
-                  {new Date(detail.bakingNotice.acknowledgedAt).toLocaleDateString('de-DE', {
-                    day: '2-digit',
-                    month: '2-digit',
-                    year: 'numeric',
-                  })}
-                  ).
-                </p>
+                {detail.bakingNotice.planTypeLabel ? (
+                  <p className="mt-1">
+                    Routine-Typ: <span className="text-[var(--text-main)]">{detail.bakingNotice.planTypeLabel}</span>
+                  </p>
+                ) : null}
+                {detail.bakingNotice.acknowledged && detail.bakingNotice.acknowledgedAt ? (
+                  <p className="mt-1 text-[11px] text-[var(--text-faint)]">
+                    Backshop-Popup bestätigt um{' '}
+                    {new Date(detail.bakingNotice.acknowledgedAt).toLocaleTimeString('de-DE', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}{' '}
+                    Uhr (
+                    {new Date(detail.bakingNotice.acknowledgedAt).toLocaleDateString('de-DE', {
+                      day: '2-digit',
+                      month: '2-digit',
+                      year: 'numeric',
+                    })}
+                    ).
+                  </p>
+                ) : null}
+                {detail.bakingNotice.items?.length ? (
+                  <ul className="mt-2 list-inside list-disc text-[11px] text-[var(--text-faint)]">
+                    {detail.bakingNotice.items.map((line) => (
+                      <li key={line}>{line}</li>
+                    ))}
+                  </ul>
+                ) : null}
                 {detail.bakingNotice.remark ? (
                   <p className="mt-2 rounded border border-white/10 bg-black/20 px-2 py-1.5 text-[var(--text-main)]">
                     <span className="text-[var(--text-faint)]">Bemerkung:</span> {detail.bakingNotice.remark}

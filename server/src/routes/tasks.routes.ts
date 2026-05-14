@@ -113,6 +113,7 @@ taskLogsRouter.get('/', (req, res) => {
       res,
       taskService.listTaskLogs(db, {
         taskId,
+        stationId,
         from: typeof req.query.from === 'string' ? req.query.from : undefined,
         to: typeof req.query.to === 'string' ? req.query.to : undefined,
       }),

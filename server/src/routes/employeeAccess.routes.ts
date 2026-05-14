@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { getDb } from '../db/database.js'
 import { jsonErr, jsonOk } from '../utils/http.js'
 import * as access from '../services/employeeAccessService.js'
+import type { BackshopItemSnapshot } from '../services/backshopRoutineService.js'
 import { revokeDeviceForEmployeeSelf } from '../services/employeeAppDeviceService.js'
 
 export const employeeAccessRouter = Router()
@@ -298,12 +299,21 @@ employeeAccessRouter.post('/:token/check-in', (req, res) => {
 employeeAccessRouter.post('/:token/baking-notice', (req, res) => {
   try {
     const meta = access.parseEmployeeAccessRequestMeta(req)
-    const timeEntryId = String((req.body as { timeEntryId?: string })?.timeEntryId ?? '').trim()
-    const remark = (req.body as { remark?: string })?.remark
+    const b = (req.body ?? {}) as Record<string, unknown>
+    const timeEntryId = String(b.timeEntryId ?? '').trim()
+    const remark = b.remark
     const out = access.employeeAccessAcknowledgeBakingNotice(
       getDb(),
       req.params.token,
-      { timeEntryId, remark: remark != null ? String(remark) : undefined },
+      {
+        timeEntryId,
+        remark: remark != null ? String(remark) : undefined,
+        routineType: b.routineType != null ? String(b.routineType) : undefined,
+        routineId: b.routineId === undefined ? undefined : b.routineId === null ? null : String(b.routineId),
+        title: b.title != null ? String(b.title) : undefined,
+        itemSnapshots: Array.isArray(b.itemSnapshots) ? (b.itemSnapshots as BackshopItemSnapshot[]) : undefined,
+        items: Array.isArray(b.items) ? (b.items as string[]) : undefined,
+      },
       meta,
     )
     if (!out.ok) {

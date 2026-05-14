@@ -316,8 +316,28 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
         }
         const startLabel = d.timeEntry ? formatTimeDE(d.timeEntry.startAt) : ''
         setInOk(d.message ?? `Deine Schicht wurde gestartet. Startzeit: ${startLabel}`)
-        if (d.bakingNotice?.timeEntryId && Array.isArray(d.bakingNotice.items)) {
-          setBakingNotice(d.bakingNotice)
+        if (
+          d.bakingNotice?.timeEntryId &&
+          ((Array.isArray(d.bakingNotice.items) && d.bakingNotice.items.length > 0) || d.bakingNotice.routineId)
+        ) {
+          const bn = d.bakingNotice
+          setBakingNotice({
+            timeEntryId: bn.timeEntryId,
+            routineType: bn.routineType ?? 'weekday',
+            routineId: bn.routineId ?? null,
+            title: bn.title ?? 'Backwaren',
+            items: Array.isArray(bn.items) ? bn.items : [],
+            itemSnapshots: Array.isArray(bn.itemSnapshots)
+              ? bn.itemSnapshots
+              : (Array.isArray(bn.items) ? bn.items : []).map((line) => ({
+                  itemId: null,
+                  name: '',
+                  quantity: 0,
+                  unit: 'Stück',
+                  category: null,
+                  line,
+                })),
+          })
           setBakingNoticeOpen(true)
         } else {
           setBakingNotice(null)
@@ -985,6 +1005,11 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
           setBakingAckSubmitting(true)
           const res = await employeeAccessPostJson<{ saved: boolean }>(t, 'baking-notice', {
             timeEntryId: bakingNotice.timeEntryId,
+            routineType: bakingNotice.routineType,
+            routineId: bakingNotice.routineId,
+            title: bakingNotice.title,
+            items: bakingNotice.items,
+            itemSnapshots: bakingNotice.itemSnapshots,
             ...(remark ? { remark } : {}),
           })
           setBakingAckSubmitting(false)

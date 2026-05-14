@@ -10,8 +10,8 @@ import {
 import { getRunningForEmployee, getTimeEntry, logCardEvent } from './timeTrackingService.js'
 import { acknowledgeShiftWarning } from './employeeShiftWarningService.js'
 import { ymdBerlinFromUtcMs } from '../utils/europeBerlinWallTime.js'
-import { resolveBakingPlanForBerlinYmd } from './bakingPlanService.js'
-import { insertShiftBakingNotice } from './shiftBakingNoticeService.js'
+import { upsertBackshopNoticeAcknowledgement } from './backshopNoticeAckService.js'
+import { resolveBackshopNoticeForStationAndDate, type BackshopItemSnapshot } from './backshopRoutineService.js'
 
 function resolveEmployeeForTerminal(
   db: Database,
@@ -165,6 +165,11 @@ export function terminalAckBakingNotice(
     stationId: string
     timeEntryId: string
     remark?: string | null
+    routineType?: string
+    routineId?: string | null
+    title?: string | null
+    itemSnapshots?: BackshopItemSnapshot[]
+    items?: string[]
   },
 ): { ok: true } | { ok: false; error: string } {
   const stationId = String(body.stationId ?? '').trim() || 'aral-bodelshausen'
@@ -176,15 +181,23 @@ export function terminalAckBakingNotice(
   }
   const employeeId = te.employeeId
   const workYmd = ymdBerlinFromUtcMs(new Date(te.startAt).getTime())
-  const plan = resolveBakingPlanForBerlinYmd(workYmd)
-  insertShiftBakingNotice(db, {
+  const resolved = resolveBackshopNoticeForStationAndDate(db, stationId, workYmd)
+  const routineType = String(body.routineType ?? resolved.routineType)
+  const routineId = body.routineId !== undefined ? (body.routineId as string | null) : resolved.routineId
+  const titleSnapshot = body.title?.trim() || resolved.title
+  const itemSnapshots =
+    body.itemSnapshots && body.itemSnapshots.length > 0 ? body.itemSnapshots : resolved.itemSnapshots
+  const displayLines = body.items && body.items.length > 0 ? body.items : resolved.displayLines
+  upsertBackshopNoticeAcknowledgement(db, {
     stationId,
     employeeId,
     shiftId: te.shiftId ?? null,
     timeEntryId,
-    dateYmd: workYmd,
-    bakingPlanType: plan.planType,
-    items: plan.items,
+    routineId,
+    routineType,
+    titleSnapshot,
+    itemSnapshots: itemSnapshots.length ? itemSnapshots : undefined,
+    displayLines: displayLines.length ? displayLines : undefined,
     remark: body.remark ?? null,
   })
   return { ok: true }

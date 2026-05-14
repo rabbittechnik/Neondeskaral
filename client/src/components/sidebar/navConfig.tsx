@@ -107,6 +107,11 @@ export const navEntries: NavEntry[] = [
         label: 'Lohnabrechnung (Schichtplan)',
         anyPermission: ['payroll.view', 'reports.payroll'],
       },
+      {
+        to: '/reports/payroll-summary',
+        label: 'Lohnabrechnung Zusammenfassung',
+        anyPermission: ['payroll.view', 'reports.payroll'],
+      },
       { to: '/reports/tasks', label: 'Aufgaben' },
       {
         to: '/reports/absences',

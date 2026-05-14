@@ -7,6 +7,10 @@ import { listReviewItemsForTimeEntry, syncReviewItemsFromCloseChecklist, syncRev
 import { createShiftWarningsFromShiftCloseCheckout } from './employeeShiftWarningService.js'
 import type { ParsedStructuredChecklist } from '../utils/shiftCloseChecklistValidate.js'
 import { listShiftCloseTaskResponsesJoined } from './shiftCheckoutBlockingTasksService.js'
+import { getBackshopAckByTimeEntryId, getLegacyShiftBakingNotice } from './backshopNoticeAckService.js'
+import { resolveBackshopNoticeForStationAndDate, routineTypeLabelDe } from './backshopRoutineService.js'
+import { isEarlyShiftForBakingNotice } from './earlyShiftForBaking.js'
+import { ymdBerlinFromUtcMs } from '../utils/europeBerlinWallTime.js'
 import {
   MIDDAY_COLLECTIVE_HANDOVER_VARIANT,
   MIDDAY_STANDARD_HANDOVER_LABELS,
@@ -434,8 +438,8 @@ export function getTimeEntryDetail(db: Database, id: string) {
     })
     reviewItems = listReviewItemsForTimeEntry(db, id)
   }
-  const dateIso = row.start_at.slice(0, 10)
-  const planned = plannedShiftRowForEntry(db, row.station_id, row.employee_id, dateIso, row.shift_id)
+  const workYmdBerlin = ymdBerlinFromUtcMs(new Date(row.start_at).getTime())
+  const planned = plannedShiftRowForEntry(db, row.station_id, row.employee_id, workYmdBerlin, row.shift_id)
   const emp = db
     .prepare(`SELECT display_name FROM employees WHERE id = ?`)
     .get(row.employee_id) as { display_name: string } | undefined
@@ -448,37 +452,81 @@ export function getTimeEntryDetail(db: Database, id: string) {
     recordedAt: r.recorded_at,
     source: r.source,
   }))
-  const bakingRow = db.prepare(`SELECT * FROM shift_baking_notices WHERE time_entry_id = ?`).get(id) as
-    | {
-        baking_plan_type: string
-        items_json: string
-        remark: string | null
-        acknowledged_at: string
-      }
-    | undefined
+  const eligibleEarlyBackshop = Boolean(planned && isEarlyShiftForBakingNotice(planned))
+  const packForDay = resolveBackshopNoticeForStationAndDate(db, row.station_id, workYmdBerlin)
+  const wouldOfferPopup =
+    eligibleEarlyBackshop && (packForDay.displayLines.length > 0 || packForDay.routineId != null)
+
+  const ackRow = getBackshopAckByTimeEntryId(db, id)
+  const legacyRow = !ackRow ? getLegacyShiftBakingNotice(db, id) : undefined
+
+  function linesFromSnapshotJson(json: string): string[] {
+    try {
+      const snap = JSON.parse(json) as unknown[]
+      if (!Array.isArray(snap)) return []
+      return snap
+        .map((x) => {
+          if (typeof x === 'string') return x.trim()
+          if (x && typeof x === 'object' && 'line' in (x as object)) {
+            return String((x as { line?: string }).line ?? '').trim()
+          }
+          return ''
+        })
+        .filter(Boolean)
+    } catch {
+      return []
+    }
+  }
+
   let bakingNotice: {
-    acknowledged: true
-    acknowledgedAt: string
-    planType: string
-    planTypeLabel: string
+    eligible: boolean
+    popupOffered: boolean
+    acknowledged: boolean
+    acknowledgedAt?: string
+    routineType?: string
+    planTypeLabel?: string
     items: string[]
     remark?: string
   } | null = null
-  if (bakingRow) {
+
+  if (ackRow) {
+    const items = linesFromSnapshotJson(ackRow.items_snapshot_json)
+    bakingNotice = {
+      eligible: eligibleEarlyBackshop,
+      popupOffered: wouldOfferPopup,
+      acknowledged: true,
+      acknowledgedAt: ackRow.acknowledged_at,
+      routineType: ackRow.routine_type,
+      planTypeLabel: routineTypeLabelDe(ackRow.routine_type),
+      items,
+      remark: ackRow.remark ? String(ackRow.remark).trim() || undefined : undefined,
+    }
+  } else if (legacyRow) {
     let items: string[] = []
     try {
-      items = JSON.parse(bakingRow.items_json) as string[]
+      items = JSON.parse(legacyRow.items_json) as string[]
     } catch {
       items = []
     }
+    const rt = legacyRow.baking_plan_type === 'weekday' ? 'weekday' : 'weekend'
     bakingNotice = {
+      eligible: eligibleEarlyBackshop,
+      popupOffered: wouldOfferPopup,
       acknowledged: true,
-      acknowledgedAt: bakingRow.acknowledged_at,
-      planType: bakingRow.baking_plan_type,
-      planTypeLabel:
-        bakingRow.baking_plan_type === 'weekday' ? 'Montag–Freitag (werktags)' : 'Wochenende / Feiertag',
+      acknowledgedAt: legacyRow.acknowledged_at,
+      routineType: rt,
+      planTypeLabel: rt === 'weekday' ? 'Normaler Wochentag' : 'Wochenende / Feiertag (historisch)',
       items,
-      remark: bakingRow.remark ? String(bakingRow.remark).trim() || undefined : undefined,
+      remark: legacyRow.remark ? String(legacyRow.remark).trim() || undefined : undefined,
+    }
+  } else if (wouldOfferPopup) {
+    bakingNotice = {
+      eligible: true,
+      popupOffered: true,
+      acknowledged: false,
+      routineType: packForDay.routineType,
+      planTypeLabel: routineTypeLabelDe(packForDay.routineType),
+      items: packForDay.displayLines,
     }
   }
   return {

@@ -52,6 +52,9 @@ export type Task = {
   tabletStationBoard?: boolean
   assignedShiftType?: string
   requiredForShiftClose?: boolean
+  /** Generator: stabiler Schlüssel der Vorlage (z. B. yearly_window_cleaning). */
+  weekendTaskTemplateSlug?: string
+  taskCategory?: string
 }
 
 export type TaskLog = {
@@ -65,4 +68,5 @@ export type TaskLog = {
   controlledBy?: string
   controlResult?: ControlResult
   comment?: string
+  notDoneReason?: string
 }

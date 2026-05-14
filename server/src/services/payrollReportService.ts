@@ -9,14 +9,22 @@ import {
   defaultPaidHoursPerDayFromEmployee,
   normalizeAbsenceDbType,
 } from '../utils/vacationImpactCalculator.js'
-import { computeSupplementEurosForTimeEntry, type EmployeeSurchargeFields } from './payrollSurchargeService.js'
+import {
+  computeSupplementEurosForTimeEntry,
+  computeScheduleShiftSupplementEuros,
+  isGermanPublicHolidayYmd,
+  publicHolidayNameDe,
+  type EmployeeSurchargeFields,
+  type ScheduleShiftSurchargeDebug,
+} from './payrollSurchargeService.js'
 import {
   employmentTypeSubjectToStatutoryMinimum,
   getEffectiveHourlyRate,
   getMinimumWageForDate,
 } from './statutoryMinWageService.js'
 import { listShifts } from './shiftService.js'
-import { eachYmdInRangeInclusive, netHoursByBerlinYmdInRange, utcRangeBoundsMs } from '../utils/berlinCalendarWorkHours.js'
+import { eachYmdInRangeInclusive, netHoursByBerlinYmdInRange, utcRangeBoundsMs, berlinYmdFromMs } from '../utils/berlinCalendarWorkHours.js'
+import { berlinWallClockToUtcMs, addDaysToYmd } from '../utils/europeBerlinWallTime.js'
 
 export type PayrollReportSource = 'time_tracking' | 'schedule_plan'
 
@@ -81,6 +89,104 @@ export type PayrollTimeTrackingReport = {
   reportSource: PayrollReportSource
   rows: PayrollTimeTrackingRow[]
   totals: PayrollTimeTrackingTotals
+  /** Nur bei reportSource schedule_plan und PAYROLL_SCHEDULE_DEBUG=1 gesetzt. */
+  schedulePayrollDebug?: ScheduleShiftSurchargeDebug[]
+}
+
+export type PayrollCombinedDaySource =
+  | 'schedule'
+  | 'time_tracking'
+  | 'time_tracking_extra'
+  | 'schedule_fallback'
+  | 'manual_correction'
+  | 'none'
+
+export type PayrollCombinedDetailHighlight = 'green' | 'yellow' | 'orange' | 'red' | 'neutral'
+
+export type PayrollCombinedShiftDetail = { id: string; label: string; hours: number }
+
+export type PayrollCombinedTimeDetail = {
+  id: string
+  startAt: string
+  endAt: string | null
+  hours: number
+  open: boolean
+}
+
+export type PayrollCombinedDayDetail = {
+  date: string
+  weekdayDe: string
+  scheduleShifts: PayrollCombinedShiftDetail[]
+  scheduledHours: number
+  timeEntries: PayrollCombinedTimeDetail[]
+  trackedHours: number
+  usedHours: number
+  differenceHours: number
+  source: PayrollCombinedDaySource
+  note: string
+  highlight: PayrollCombinedDetailHighlight
+  daySupplementsEuro: number
+  hasConflict: boolean
+}
+
+export type PayrollCombinedRow = {
+  employeeId: string
+  employeeName: string
+  employmentType: string
+  hourlyWage: number
+  registeredHourlyWage?: number
+  minimumWageNote?: string
+  scheduleHoursTotal: number
+  timeTrackingHoursTotal: number
+  usedHoursTotal: number
+  differenceHours: number
+  extraUnplannedHours: number
+  missingTimeEntriesDayCount: number
+  unplannedWorkDayCount: number
+  vacationDays: number
+  paidVacationHours: number
+  overtimeHours: number
+  basePay: number
+  supplementsTotal: number
+  mankogeld: number
+  vl: number
+  cashDifference: number
+  bonus: number
+  advance: number
+  total: number
+  messages?: string[]
+  details: PayrollCombinedDayDetail[]
+}
+
+export type PayrollCombinedTotals = {
+  scheduleHours: number
+  timeTrackingHours: number
+  usedHours: number
+  differenceHours: number
+  extraUnplannedHours: number
+  missingTimeEntriesDayCount: number
+  unplannedWorkDayCount: number
+  vacationDays: number
+  basePay: number
+  supplementsTotal: number
+  mankogeld: number
+  vl: number
+  cashDifference: number
+  bonus: number
+  advance: number
+  total: number
+}
+
+export type PayrollCombinedReport = {
+  stationId: string
+  stationName: string
+  federalState: GermanState
+  fromDate: string
+  toDate: string
+  hasPendingApprovedTime: boolean
+  hasOpenRunningTimeEntries: boolean
+  rows: PayrollCombinedRow[]
+  totals: PayrollCombinedTotals
 }
 
 type PayrollAdjBuckets = {
@@ -789,6 +895,8 @@ export function calculatePayrollScheduleReport(
   }
 
   const rows: PayrollTimeTrackingRow[] = []
+  const schedulePayrollDebug: ScheduleShiftSurchargeDebug[] = []
+  const dbgSchedule = process.env.PAYROLL_SCHEDULE_DEBUG === '1'
 
   for (const emp of filteredEmployees) {
     const R = emp as Record<string, unknown>
@@ -811,16 +919,54 @@ export function calculatePayrollScheduleReport(
       if (s.date < fromDate || s.date > toDate) continue
       const h = shiftNetHoursFromPlan(s.date, s.startTime, s.endTime, s.breakMinutes ?? 0)
       totalHours += h
-      const { startIso, endIso } = shiftToIsoEndpoints(s.date, s.startTime, s.endTime)
-      supplementsTotal += computeSupplementEurosForTimeEntry({
-        employmentType,
+      const dbg: Partial<ScheduleShiftSurchargeDebug> | undefined = dbgSchedule ? {} : undefined
+      const sup = computeScheduleShiftSupplementEuros({
         emp: surchargeFieldsFromEmployee(R),
         hourlyWage: Math.max(0, wageForSupplements),
-        startIso,
-        endIso,
+        shiftDate: s.date,
+        startTime: s.startTime,
+        endTime: s.endTime,
         breakMinutes: s.breakMinutes ?? 0,
         federalState,
+        employeeId,
+        employeeName: emp.display_name,
+        debug: dbg,
       })
+      supplementsTotal += sup
+      if (dbgSchedule) {
+        const msNoon = berlinWallClockToUtcMs(s.date, '12:00')
+        const wdStr = new Intl.DateTimeFormat('en-US', {
+          timeZone: 'Europe/Berlin',
+          weekday: 'short',
+        }).format(new Date(msNoon))
+        const wdMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }
+        const wd0 = wdMap[wdStr] ?? 0
+        const base: Partial<ScheduleShiftSurchargeDebug> = {
+          employeeId,
+          employeeName: emp.display_name,
+          date: s.date,
+          shiftStart: String(s.startTime),
+          shiftEnd: String(s.endTime),
+          hoursNet: h,
+          isSunday: wd0 === 0,
+          isSaturday: wd0 === 6,
+          isPublicHoliday: isGermanPublicHolidayYmd(s.date, federalState),
+          holidayName: publicHolidayNameDe(s.date, federalState),
+          isSpecialHolidayTier: false,
+          hourlyRate: Math.max(0, wageForSupplements),
+          holidayBonusPercentApplied: 0,
+          holidayBonusAmount: 0,
+          sundayBonusAmount: 0,
+          saturdayBonusAmount: 0,
+          nightBonusAmount: 0,
+          night04BonusAmount: 0,
+          totalBonuses: sup,
+        }
+        const merged = { ...base, ...(dbg ?? {}) } as ScheduleShiftSurchargeDebug
+        merged.totalBonuses = Math.round(sup * 100) / 100
+        schedulePayrollDebug.push(merged)
+        console.info('[PAYROLL_SCHEDULE_DEBUG]', JSON.stringify(merged))
+      }
     }
     totalHours = Math.round(totalHours * 100) / 100
     supplementsTotal = Math.round(supplementsTotal * 100) / 100
@@ -996,6 +1142,572 @@ export function calculatePayrollScheduleReport(
     toDate,
     hasPendingApprovedTime: false,
     reportSource: 'schedule_plan',
+    rows,
+    totals,
+    ...(dbgSchedule && schedulePayrollDebug.length ? { schedulePayrollDebug } : {}),
+  }
+}
+
+function weekdayDeLongEuropeBerlin(ymd: string): string {
+  const ms = berlinWallClockToUtcMs(ymd, '12:00')
+  return new Intl.DateTimeFormat('de-DE', { weekday: 'long', timeZone: 'Europe/Berlin' }).format(new Date(ms))
+}
+
+function parseEmployeeIdFilter(raw: string | undefined): Set<string> | null {
+  if (!raw || !String(raw).trim()) return null
+  const ids = String(raw)
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  return ids.length ? new Set(ids) : null
+}
+
+/**
+ * Lohnabrechnung **Zusammenfassung**: pro Kalendertag (Europe/Berlin) max(Schichtplan, freigegebene Zeiterfassung),
+ * Schichtplan als Fallback bei fehlender/kürzerer Stempelung, Zuschläge je Quelle (Plan vs. gestempelt).
+ */
+export function calculatePayrollCombinedReport(
+  db: Database,
+  opts: {
+    stationId: string
+    fromDate: string
+    toDate: string
+    employmentFilter?: string
+    employeeIds?: string
+  },
+): PayrollCombinedReport {
+  const stationId = opts.stationId.trim()
+  const fromDate = opts.fromDate.trim()
+  const toDate = opts.toDate.trim()
+  const employmentFilter = parseEmploymentFilter(opts.employmentFilter)
+  const employeeIdFilter = parseEmployeeIdFilter(opts.employeeIds)
+
+  if (!stationId) throw new Error('stationId erforderlich')
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(toDate)) throw new Error('from/to als YYYY-MM-DD')
+  if (fromDate > toDate) throw new Error('from darf nicht nach to liegen')
+
+  const station = db.prepare(`SELECT name, federal_state FROM stations WHERE id = ?`).get(stationId) as
+    | { name: string; federal_state: string | null }
+    | undefined
+  if (!station) throw new Error('Station nicht gefunden')
+
+  const federalState = String(station.federal_state ?? 'BW').toUpperCase() as GermanState
+  const todayYmd = todayIso()
+
+  const employees = db
+    .prepare(`SELECT * FROM employees WHERE station_id = ? ORDER BY display_name`)
+    .all(stationId) as (EmployeeRow & Record<string, unknown>)[]
+
+  let filteredEmployees = employees.filter(
+    (e) => !hideInPayroll(e) && matchesEmploymentFilter(e, employmentFilter, todayYmd),
+  )
+  if (employeeIdFilter) {
+    filteredEmployees = filteredEmployees.filter((e) => employeeIdFilter.has(e.id))
+  }
+
+  const approvedEntries = db
+    .prepare(
+      `SELECT te.* FROM time_entries te
+       WHERE te.station_id = ?
+         AND te.status = 'completed'
+         AND te.approval_status = 'approved'
+         AND te.end_at IS NOT NULL AND trim(te.end_at) != ''
+         AND date(te.start_at) <= date(?)
+         AND date(te.end_at) >= date(?)`,
+    )
+    .all(stationId, toDate, fromDate) as TimeEntryRow[]
+
+  const pendingEntries = db
+    .prepare(
+      `SELECT COUNT(*) as c FROM time_entries te
+       WHERE te.station_id = ?
+         AND te.status = 'completed'
+         AND (te.approval_status IS NULL OR trim(te.approval_status) = '' OR te.approval_status NOT IN ('approved', 'rejected'))
+         AND te.end_at IS NOT NULL AND trim(te.end_at) != ''
+         AND date(te.start_at) <= date(?)
+         AND date(te.end_at) >= date(?)`,
+    )
+    .get(stationId, toDate, fromDate) as { c: number }
+
+  const hasPendingApprovedTime = (pendingEntries?.c ?? 0) > 0
+
+  const openRunning = db
+    .prepare(
+      `SELECT te.* FROM time_entries te
+       WHERE te.station_id = ?
+         AND te.status = 'completed'
+         AND (te.end_at IS NULL OR trim(te.end_at) = '')
+         AND date(te.start_at) <= date(?)`,
+    )
+    .all(stationId, toDate) as TimeEntryRow[]
+
+  const hasOpenRunningTimeEntries = openRunning.length > 0
+
+  const shiftList = listShifts(db, { stationId, from: fromDate, to: toDate }).filter(
+    (s) =>
+      Boolean(s.employeeId) &&
+      String(s.shiftType ?? '')
+        .toLowerCase()
+        .trim() !== 'frei',
+  )
+
+  const absences = db
+    .prepare(
+      `SELECT * FROM absences WHERE station_id = ?
+       AND start_date <= ? AND end_date >= ?`,
+    )
+    .all(stationId, toDate, fromDate) as AbsenceRow[]
+
+  const adjustments = db
+    .prepare(
+      `SELECT employee_id, type, amount FROM payroll_adjustments
+       WHERE station_id = ? AND date >= ? AND date <= ?`,
+    )
+    .all(stationId, fromDate, toDate) as { employee_id: string; type: string; amount: number }[]
+
+  const adjByEmployee = accumulatePayrollAdjustments(adjustments)
+  mergeChecklistCashIntoBuckets(db, stationId, fromDate, toDate, adjByEmployee)
+
+  const shiftsByEmployee = new Map<string, typeof shiftList>()
+  for (const s of shiftList) {
+    const id = s.employeeId!
+    const list = shiftsByEmployee.get(id) ?? []
+    list.push(s)
+    shiftsByEmployee.set(id, list)
+  }
+
+  const entriesByEmployee = new Map<string, TimeEntryRow[]>()
+  for (const te of approvedEntries) {
+    const list = entriesByEmployee.get(te.employee_id) ?? []
+    list.push(te)
+    entriesByEmployee.set(te.employee_id, list)
+  }
+
+  const openByEmployee = new Map<string, TimeEntryRow[]>()
+  for (const te of openRunning) {
+    const list = openByEmployee.get(te.employee_id) ?? []
+    list.push(te)
+    openByEmployee.set(te.employee_id, list)
+  }
+
+  type YmdPack = {
+    sh: number
+    tr: number
+    shifts: PayrollCombinedShiftDetail[]
+    entries: PayrollCombinedTimeDetail[]
+    openConflict: boolean
+  }
+
+  const rows: PayrollCombinedRow[] = []
+
+  for (const emp of filteredEmployees) {
+    const R = emp as Record<string, unknown>
+    const employeeId = emp.id
+    const rawHourly = rNum(R, 'hourly_wage', 0)
+    const monthlySalary = rNum(R, 'monthly_salary', 0)
+    const monthlyRecipient = isMonthlyWageRecipient(R)
+    const employmentType = String(emp.employment_type ?? '')
+    const subject = employmentTypeSubjectToStatutoryMinimum(employmentType)
+    const vacHpdDefault = rNum(R, 'vacation_hours_per_day', NaN) || null
+
+    const wageForSupplements =
+      monthlyRecipient ? rawHourly : subject ? getEffectiveHourlyRate(db, employmentType, rawHourly, fromDate) : rawHourly
+
+    const empFields = surchargeFieldsFromEmployee(R)
+    const myShifts = shiftsByEmployee.get(employeeId) ?? []
+    const myEntries = entriesByEmployee.get(employeeId) ?? []
+    const myOpen = openByEmployee.get(employeeId) ?? []
+
+    const byYmd = new Map<string, YmdPack>()
+    const ensurePack = (ymd: string): YmdPack => {
+      const p = byYmd.get(ymd) ?? { sh: 0, tr: 0, shifts: [], entries: [], openConflict: false }
+      byYmd.set(ymd, p)
+      return p
+    }
+
+    for (const s of myShifts) {
+      if (!s.date || !s.startTime || !s.endTime) continue
+      if (s.date < fromDate || s.date > toDate) continue
+      const { startIso, endIso } = shiftToIsoEndpoints(s.date, s.startTime, s.endTime)
+      const m = netHoursByBerlinYmdInRange(startIso, endIso, s.breakMinutes ?? 0, fromDate, toDate)
+      const label = `${String(s.startTime).slice(0, 5)}–${String(s.endTime).slice(0, 5)}`
+      for (const [ymd, h] of m) {
+        if (h <= 0) continue
+        const p = ensurePack(ymd)
+        p.sh += h
+        p.shifts.push({ id: s.id, label, hours: Math.round(h * 100) / 100 })
+      }
+    }
+
+    for (const te of myEntries) {
+      if (!te.start_at || !te.end_at) continue
+      const m = netHoursByBerlinYmdInRange(te.start_at, te.end_at, te.break_minutes ?? 0, fromDate, toDate)
+      for (const [ymd, h] of m) {
+        if (h <= 0) continue
+        const p = ensurePack(ymd)
+        p.tr += h
+        p.entries.push({
+          id: te.id,
+          startAt: te.start_at,
+          endAt: te.end_at,
+          hours: Math.round(h * 100) / 100,
+          open: false,
+        })
+      }
+    }
+
+    for (const te of myOpen) {
+      if (!te.start_at) continue
+      const startMs = new Date(te.start_at).getTime()
+      if (!Number.isFinite(startMs)) continue
+      const d0 = berlinYmdFromMs(startMs)
+      const spanStart = d0 < fromDate ? fromDate : d0
+      if (spanStart > toDate) continue
+      for (const ymd of eachYmdInRangeInclusive(spanStart, toDate)) {
+        const p = ensurePack(ymd)
+        p.openConflict = true
+        if (!p.entries.some((e) => e.id === te.id && e.open)) {
+          p.entries.push({
+            id: te.id,
+            startAt: te.start_at,
+            endAt: null,
+            hours: 0,
+            open: true,
+          })
+        }
+      }
+    }
+
+    const details: PayrollCombinedDayDetail[] = []
+    let supplementsTotal = 0
+    let scheduleHoursTotal = 0
+    let timeTrackingHoursTotal = 0
+    let usedHoursTotal = 0
+    let missingTimeEntriesDayCount = 0
+    let unplannedWorkDayCount = 0
+    let extraUnplannedHours = 0
+
+    const sortedYmd = [...byYmd.keys()].sort()
+    for (const ymd of sortedYmd) {
+      const pack = byYmd.get(ymd)!
+      const sh = Math.round(pack.sh * 100) / 100
+      const tr = Math.round(pack.tr * 100) / 100
+      scheduleHoursTotal += sh
+      timeTrackingHoursTotal += tr
+
+      let used = 0
+      let source: PayrollCombinedDaySource = 'none'
+      const hasOpen = pack.openConflict
+
+      if (!hasOpen) {
+        if (sh <= 0 && tr <= 0) {
+          used = 0
+          source = 'none'
+        } else if (sh <= 0 && tr > 0) {
+          used = tr
+          source = 'time_tracking_extra'
+        } else if (tr <= 0 && sh > 0) {
+          used = sh
+          source = 'schedule_fallback'
+        } else if (tr < sh) {
+          used = sh
+          source = 'schedule_fallback'
+        } else if (tr > sh) {
+          used = tr
+          source = 'time_tracking'
+        } else {
+          used = tr
+          source = 'time_tracking'
+        }
+      } else {
+        used = Math.max(sh, tr)
+        if (tr > sh) source = 'time_tracking'
+        else if (sh > 0) source = 'schedule_fallback'
+        else if (tr > 0) source = 'time_tracking_extra'
+        else source = 'none'
+      }
+
+      usedHoursTotal += used
+      extraUnplannedHours += Math.max(0, Math.round((tr - sh) * 100) / 100)
+      if (sh > 0 && tr <= 0 && !hasOpen) missingTimeEntriesDayCount += 1
+      if (sh <= 0 && tr > 0) unplannedWorkDayCount += 1
+
+      let note = ''
+      let highlight: PayrollCombinedDetailHighlight = 'neutral'
+      if (hasOpen) {
+        note =
+          'Offene laufende Zeiterfassung – bitte prüfen. Zuschläge an diesem Tag nicht automatisch ermittelt.'
+        highlight = 'red'
+      } else if (source === 'schedule_fallback' && tr <= 0 && sh > 0) {
+        note = 'Keine Zeiterfassung vorhanden – Schichtplanzeit verwendet.'
+        highlight = 'yellow'
+      } else if (source === 'schedule_fallback' && tr > 0 && tr < sh) {
+        note = 'Zeiterfassung kürzer als Schichtplan – Schichtplanzeit verwendet.'
+        highlight = 'yellow'
+      } else if (source === 'time_tracking_extra') {
+        note = 'Zusätzliche Arbeit ohne geplante Schicht.'
+        highlight = 'orange'
+      } else if (source === 'time_tracking' && tr > sh) {
+        const diffMin = Math.round((tr - sh) * 60)
+        const h = Math.floor(diffMin / 60)
+        const m = diffMin % 60
+        note =
+          m > 0
+            ? `+${h > 0 ? `${h} Std. ` : ''}${m} Min. länger gearbeitet als geplant.`
+            : `+${(tr - sh).toFixed(2).replace('.', ',')} Std. länger gearbeitet als geplant.`
+        highlight = 'green'
+      } else if (source === 'time_tracking' && tr === sh && sh > 0) {
+        note = 'Zeiterfassung entspricht dem Schichtplan.'
+        highlight = 'green'
+      }
+
+      let daySup = 0
+      if (!hasOpen) {
+        if (source === 'schedule_fallback') {
+          for (const s of myShifts) {
+            if (!s.date || !s.startTime || !s.endTime) continue
+            const { startIso, endIso } = shiftToIsoEndpoints(s.date, s.startTime, s.endTime)
+            const m = netHoursByBerlinYmdInRange(startIso, endIso, s.breakMinutes ?? 0, fromDate, toDate)
+            if (!m.has(ymd) || (m.get(ymd) ?? 0) <= 0) continue
+            daySup += computeScheduleShiftSupplementEuros({
+              emp: empFields,
+              hourlyWage: Math.max(0, wageForSupplements),
+              shiftDate: s.date,
+              startTime: s.startTime,
+              endTime: s.endTime,
+              breakMinutes: s.breakMinutes ?? 0,
+              federalState,
+              onlyBerlinYmd: ymd,
+            })
+          }
+        } else if (source === 'time_tracking' || source === 'time_tracking_extra') {
+          for (const te of myEntries) {
+            if (!te.start_at || !te.end_at) continue
+            const m = netHoursByBerlinYmdInRange(te.start_at, te.end_at, te.break_minutes ?? 0, fromDate, toDate)
+            if (!m.has(ymd) || (m.get(ymd) ?? 0) <= 0) continue
+            daySup += computeSupplementEurosForTimeEntry({
+              employmentType,
+              emp: empFields,
+              hourlyWage: Math.max(0, wageForSupplements),
+              startIso: te.start_at,
+              endIso: te.end_at,
+              breakMinutes: te.break_minutes ?? 0,
+              federalState,
+              onlyBerlinYmd: ymd,
+            })
+          }
+        }
+      }
+
+      daySup = Math.round(daySup * 100) / 100
+      supplementsTotal += daySup
+
+      const diffDay = Math.round((used - sh) * 100) / 100
+      details.push({
+        date: ymd,
+        weekdayDe: weekdayDeLongEuropeBerlin(ymd),
+        scheduleShifts: pack.shifts,
+        scheduledHours: sh,
+        timeEntries: pack.entries,
+        trackedHours: tr,
+        usedHours: Math.round(used * 100) / 100,
+        differenceHours: diffDay,
+        source,
+        note,
+        highlight,
+        daySupplementsEuro: daySup,
+        hasConflict: hasOpen,
+      })
+    }
+
+    scheduleHoursTotal = Math.round(scheduleHoursTotal * 100) / 100
+    timeTrackingHoursTotal = Math.round(timeTrackingHoursTotal * 100) / 100
+    usedHoursTotal = Math.round(usedHoursTotal * 100) / 100
+    extraUnplannedHours = Math.round(extraUnplannedHours * 100) / 100
+    supplementsTotal = Math.round(supplementsTotal * 100) / 100
+
+    const differenceHours = Math.round((usedHoursTotal - scheduleHoursTotal) * 100) / 100
+
+    let vacationDays = 0
+    let paidVacationHours = 0
+    for (const ab of absences) {
+      if (ab.employee_id !== employeeId) continue
+      const od = overlapPaidVacationDays(ab, fromDate, toDate)
+      if (od <= 0) continue
+      vacationDays += od
+      const hpd = paidHoursPerDayForAbsence(ab, vacHpdDefault)
+      paidVacationHours += od * hpd
+    }
+    vacationDays = Math.round(vacationDays * 100) / 100
+    paidVacationHours = Math.round(paidVacationHours * 100) / 100
+
+    const overtimeHours = 0
+    const messages: string[] = []
+    let basePay = 0
+    if (monthlyRecipient) {
+      if (monthlySalary > 0) {
+        basePay = prorateFixedMonthlyAmountOverRange(monthlySalary, fromDate, toDate)
+      } else {
+        messages.push('Monatsgehalt fehlt im Mitarbeiterprofil.')
+      }
+    } else if (subject) {
+      const workByYmd = new Map<string, number>()
+      for (const d of details) {
+        if (d.usedHours > 0) workByYmd.set(d.date, (workByYmd.get(d.date) ?? 0) + d.usedHours)
+      }
+      const vacByYmd = mergePaidVacationHoursByBerlinYmd(absences, employeeId, fromDate, toDate, vacHpdDefault)
+      const ymdKeys = new Set([...workByYmd.keys(), ...vacByYmd.keys()])
+      for (const ymd of ymdKeys) {
+        const wh = workByYmd.get(ymd) ?? 0
+        const vh = vacByYmd.get(ymd) ?? 0
+        const rate = getEffectiveHourlyRate(db, employmentType, rawHourly, ymd)
+        basePay += (wh + vh) * rate
+      }
+      basePay = Math.round(basePay * 100) / 100
+    } else {
+      const fw = festangestelltMinWageWarning(db, employmentType, rawHourly, monthlyRecipient, fromDate, toDate)
+      if (fw) messages.push(fw)
+      if (rawHourly > 0) {
+        basePay = Math.round((usedHoursTotal + paidVacationHours) * rawHourly * 100) / 100
+      } else if (usedHoursTotal > 0 || paidVacationHours > 0) {
+        messages.push('Stundenlohn fehlt im Mitarbeiterprofil.')
+      }
+    }
+
+    const denom = Math.round((usedHoursTotal + paidVacationHours) * 100) / 100
+    let effDisplay = 0
+    if (!monthlyRecipient) {
+      if (denom > 0 && basePay > 0) effDisplay = basePay / denom
+      else if (subject) effDisplay = getEffectiveHourlyRate(db, employmentType, rawHourly, fromDate)
+      else effDisplay = rawHourly
+    }
+
+    let minimumWageNote: string | undefined
+    if (!monthlyRecipient && subject && rawHourly > 0) {
+      const mx = maxMinimumWageInRange(db, fromDate, toDate)
+      if (rawHourly + 0.003 < mx) {
+        minimumWageNote =
+          'Für die Lohnabrechnung wird der gültige gesetzliche Mindestlohn je Kalendertag angewendet (eingetragener Stundenlohn bleibt im Profil).'
+        messages.push(
+          'Hinweis: Der eingetragene Stundenlohn liegt unter dem gesetzlichen Mindestlohn. Für die Lohnabrechnung wird automatisch der gültige Mindestlohn verwendet.',
+        )
+      }
+    }
+
+    if (hasOpenRunningTimeEntries && myOpen.length) {
+      messages.push('Hinweis: Mindestens eine offene Zeiterfassung (ohne Ende) im Zeitraum – bitte prüfen.')
+    }
+
+    const mankoProfile = prorateFixedMonthlyAmountOverRange(rNum(R, 'manko_money', 0), fromDate, toDate)
+    const vlProfile = prorateFixedMonthlyAmountOverRange(rNum(R, 'vl_amount', 0), fromDate, toDate)
+    const adj = adjByEmployee.get(employeeId) ?? emptyBuckets()
+    const mankogeld = Math.round((mankoProfile + adj.mankogeldExtra) * 100) / 100
+    const vl = Math.round((vlProfile + adj.vlExtra) * 100) / 100
+    const cashDifference = Math.round(adj.cash * 100) / 100
+    const bonus = Math.round(adj.bonus * 100) / 100
+    const advance = Math.round(adj.advance * 100) / 100
+
+    const total =
+      Math.round((basePay + supplementsTotal + mankogeld + vl + cashDifference + bonus - advance) * 100) / 100
+
+    const includeRow =
+      usedHoursTotal > 0 ||
+      paidVacationHours > 0 ||
+      vacationDays > 0 ||
+      basePay > 0 ||
+      supplementsTotal !== 0 ||
+      mankogeld !== 0 ||
+      vl !== 0 ||
+      cashDifference !== 0 ||
+      bonus !== 0 ||
+      advance !== 0 ||
+      scheduleHoursTotal > 0 ||
+      timeTrackingHoursTotal > 0 ||
+      details.some((d) => d.hasConflict)
+
+    if (!includeRow) continue
+
+    rows.push({
+      employeeId,
+      employeeName: emp.display_name,
+      employmentType,
+      hourlyWage: Math.round(effDisplay * 100) / 100,
+      ...(!monthlyRecipient ? { registeredHourlyWage: Math.round(rawHourly * 100) / 100 } : {}),
+      ...(minimumWageNote ? { minimumWageNote } : {}),
+      scheduleHoursTotal,
+      timeTrackingHoursTotal,
+      usedHoursTotal,
+      differenceHours,
+      extraUnplannedHours,
+      missingTimeEntriesDayCount,
+      unplannedWorkDayCount,
+      vacationDays,
+      paidVacationHours,
+      overtimeHours,
+      basePay,
+      supplementsTotal,
+      mankogeld,
+      vl,
+      cashDifference,
+      bonus,
+      advance,
+      total,
+      ...(messages.length ? { messages } : {}),
+      details,
+    })
+  }
+
+  const totals: PayrollCombinedTotals = rows.reduce(
+    (acc, r) => ({
+      scheduleHours: acc.scheduleHours + r.scheduleHoursTotal,
+      timeTrackingHours: acc.timeTrackingHours + r.timeTrackingHoursTotal,
+      usedHours: acc.usedHours + r.usedHoursTotal,
+      differenceHours: acc.differenceHours + r.differenceHours,
+      extraUnplannedHours: acc.extraUnplannedHours + r.extraUnplannedHours,
+      missingTimeEntriesDayCount: acc.missingTimeEntriesDayCount + r.missingTimeEntriesDayCount,
+      unplannedWorkDayCount: acc.unplannedWorkDayCount + r.unplannedWorkDayCount,
+      vacationDays: acc.vacationDays + r.vacationDays,
+      basePay: acc.basePay + r.basePay,
+      supplementsTotal: acc.supplementsTotal + r.supplementsTotal,
+      mankogeld: acc.mankogeld + r.mankogeld,
+      vl: acc.vl + r.vl,
+      cashDifference: acc.cashDifference + r.cashDifference,
+      bonus: acc.bonus + r.bonus,
+      advance: acc.advance + r.advance,
+      total: acc.total + r.total,
+    }),
+    {
+      scheduleHours: 0,
+      timeTrackingHours: 0,
+      usedHours: 0,
+      differenceHours: 0,
+      extraUnplannedHours: 0,
+      missingTimeEntriesDayCount: 0,
+      unplannedWorkDayCount: 0,
+      vacationDays: 0,
+      basePay: 0,
+      supplementsTotal: 0,
+      mankogeld: 0,
+      vl: 0,
+      cashDifference: 0,
+      bonus: 0,
+      advance: 0,
+      total: 0,
+    },
+  )
+
+  ;(Object.keys(totals) as (keyof PayrollCombinedTotals)[]).forEach((key) => {
+    totals[key] = Math.round(totals[key] * 100) / 100
+  })
+
+  return {
+    stationId,
+    stationName: station.name,
+    federalState,
+    fromDate,
+    toDate,
+    hasPendingApprovedTime,
+    hasOpenRunningTimeEntries,
     rows,
     totals,
   }
