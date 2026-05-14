@@ -117,6 +117,71 @@ export async function apiSend<T>(
   return json as ApiEnvelope<T>
 }
 
+/** Authentifizierter GET als Blob (Vorschau/Druck). */
+export async function apiGetBlob(
+  path: string,
+  params?: Record<string, string | undefined>,
+): Promise<{ ok: true; blob: Blob } | { ok: false; error: string }> {
+  const url = `${API_BASE}${path.startsWith('/') ? path : `/${path}`}${buildQuery(params)}`
+  const res = await fetch(url, { headers: { ...authHeaders() } })
+  if (res.status === 401) onUnauthorized()
+  if (!res.ok) {
+    try {
+      const j = (await res.json()) as { error?: string }
+      return { ok: false, error: j.error ?? `HTTP ${res.status}` }
+    } catch {
+      return { ok: false, error: `HTTP ${res.status}` }
+    }
+  }
+  return { ok: true, blob: await res.blob() }
+}
+
+/** Multipart-Upload (z. B. Dokumente); kein Content-Type setzen (Boundary). */
+export async function apiUploadMultipart<T>(
+  path: string,
+  form: FormData,
+  params?: Record<string, string | undefined>,
+): Promise<ApiEnvelope<T>> {
+  const url = `${API_BASE}${path.startsWith('/') ? path : `/${path}`}${buildQuery(params)}`
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { ...authHeaders() },
+    body: form,
+  })
+  if (res.status === 401) onUnauthorized()
+  const json = (await res.json()) as ApiEnvelope<T>
+  if (!res.ok && json && typeof json === 'object' && 'ok' in json && json.ok === false) {
+    return json as ApiEnvelope<T>
+  }
+  if (!res.ok) {
+    return { ok: false, error: `HTTP ${res.status}` }
+  }
+  return json as ApiEnvelope<T>
+}
+
+export async function apiUploadMultipartMethod<T>(
+  method: 'PUT' | 'POST',
+  path: string,
+  form: FormData,
+  params?: Record<string, string | undefined>,
+): Promise<ApiEnvelope<T>> {
+  const url = `${API_BASE}${path.startsWith('/') ? path : `/${path}`}${buildQuery(params)}`
+  const res = await fetch(url, {
+    method,
+    headers: { ...authHeaders() },
+    body: form,
+  })
+  if (res.status === 401) onUnauthorized()
+  const json = (await res.json()) as ApiEnvelope<T>
+  if (!res.ok && json && typeof json === 'object' && 'ok' in json && json.ok === false) {
+    return json as ApiEnvelope<T>
+  }
+  if (!res.ok) {
+    return { ok: false, error: `HTTP ${res.status}` }
+  }
+  return json as ApiEnvelope<T>
+}
+
 export async function scheduleAssistantGenerate(
   body: unknown,
 ): Promise<ApiEnvelope<ScheduleAssistantGenerateResult>> {

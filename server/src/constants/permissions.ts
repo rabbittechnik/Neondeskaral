@@ -58,6 +58,12 @@ export const PERMISSION_KEYS = [
   'representatives.edit',
   /** Archivieren dauerhaft entfernen (Soft-Delete); Bearbeiten reicht meist für Archiv. */
   'representatives.delete',
+  'documents.view',
+  'documents.upload',
+  'documents.edit',
+  'documents.archive',
+  'documents.print',
+  'documents.create_employee_from_document',
 ] as const
 
 export type PermissionKey = (typeof PERMISSION_KEYS)[number]

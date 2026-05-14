@@ -23,6 +23,7 @@ import { notificationsRouter } from './routes/notifications.routes.js'
 import { reportsRouter } from './routes/reports.routes.js'
 import { stationTabletsRouter } from './routes/stationTablets.routes.js'
 import { representativesRouter } from './routes/representatives.routes.js'
+import { documentsRouter } from './routes/documents.routes.js'
 import { minimumWageRouter } from './routes/minimumWage.routes.js'
 import { backshopRoutinesRouter } from './routes/backshop.routes.js'
 
@@ -72,6 +73,7 @@ export function createApp() {
   app.use('/api/reports', reportsRouter)
   app.use('/api/station-tablets', stationTabletsRouter)
   app.use('/api/representatives', representativesRouter)
+  app.use('/api/documents', documentsRouter)
   app.use('/api/minimum-wage-rates', minimumWageRouter)
   app.use('/api/backshop-routines', backshopRoutinesRouter)
   app.use('/api/dev', devRouter)

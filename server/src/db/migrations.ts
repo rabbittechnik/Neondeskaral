@@ -191,6 +191,8 @@ export function runMigrations(db: Database.Database) {
   ensureWeekendTasksAndBakingTables(db)
   migrateWeekendTaskTemplateSlugsToKeys(db)
   seedTaskTemplatesIfMissing(db)
+  ensureStationDocumentsTables(db)
+  mergeDocumentsPermissionsIntoAccess(db)
 }
 
 /** Idempotent: StationGuide-Urlaube Aral Bodelshausen (Apr–Jun 2026), nur wenn Mitarbeiter existieren. */
@@ -1355,6 +1357,88 @@ function mergeStationTabletPermissionsIntoAccess(db: Database.Database) {
     }
     if (grantManage && p['stationTablets.manage'] === undefined) {
       p['stationTablets.manage'] = true
+      changed = true
+    }
+    if (changed) {
+      db.prepare(`UPDATE user_station_access SET permissions_json = ?, updated_at = ? WHERE id = ?`).run(
+        JSON.stringify(p),
+        ts,
+        r.id,
+      )
+    }
+  }
+}
+
+function ensureStationDocumentsTables(db: Database.Database) {
+  db.exec(`CREATE TABLE IF NOT EXISTS station_documents (
+    id TEXT PRIMARY KEY,
+    station_id TEXT NOT NULL,
+    global_document INTEGER NOT NULL DEFAULT 0,
+    title TEXT NOT NULL,
+    description TEXT,
+    category TEXT,
+    document_type TEXT NOT NULL DEFAULT 'other',
+    file_name TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    file_size INTEGER NOT NULL DEFAULT 0,
+    preview_path TEXT,
+    is_template INTEGER NOT NULL DEFAULT 0,
+    active INTEGER NOT NULL DEFAULT 1,
+    previous_file_path TEXT,
+    created_by TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    archived_at TEXT,
+    FOREIGN KEY (station_id) REFERENCES stations(id)
+  )`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_station_documents_station ON station_documents(station_id, archived_at, active)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_station_documents_type ON station_documents(document_type)`)
+  db.exec(`CREATE TABLE IF NOT EXISTS station_document_employees (
+    id TEXT PRIMARY KEY,
+    document_id TEXT NOT NULL,
+    employee_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (document_id) REFERENCES station_documents(id) ON DELETE CASCADE,
+    FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
+    UNIQUE(document_id, employee_id)
+  )`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_station_document_employees_emp ON station_document_employees(employee_id)`)
+}
+
+/** Stations-Dokumente: für Stammdaten-Rollen ergänzen (fehlende Keys nur). */
+function mergeDocumentsPermissionsIntoAccess(db: Database.Database) {
+  const rows = db.prepare(`SELECT id, permissions_json FROM user_station_access`).all() as {
+    id: string
+    permissions_json: string
+  }[]
+  const ts = nowIso()
+  for (const r of rows) {
+    let p: Record<string, boolean> = {}
+    try {
+      p = JSON.parse(r.permissions_json || '{}') as Record<string, boolean>
+    } catch {
+      p = {}
+    }
+    const grant =
+      p['employees.edit'] === true ||
+      p['station.profile.edit'] === true ||
+      p['schedule.edit'] === true
+    if (!grant) continue
+    let changed = false
+    const setIfUndef = (k: string, v: boolean) => {
+      if (p[k] === undefined) {
+        p[k] = v
+        changed = true
+      }
+    }
+    setIfUndef('documents.view', true)
+    setIfUndef('documents.upload', true)
+    setIfUndef('documents.edit', true)
+    setIfUndef('documents.archive', true)
+    setIfUndef('documents.print', true)
+    if (p['documents.create_employee_from_document'] === undefined && p['employees.create'] === true) {
+      p['documents.create_employee_from_document'] = true
       changed = true
     }
     if (changed) {

@@ -48,6 +48,12 @@ export const ADMIN_PERMISSION_UI: { key: string; label: string }[] = [
   { key: 'representatives.view', label: 'Vertreter / Telefonnummern ansehen' },
   { key: 'representatives.edit', label: 'Vertreter / Telefonnummern bearbeiten' },
   { key: 'representatives.delete', label: 'Vertreter archivieren (Soft-Delete)' },
+  { key: 'documents.view', label: 'Stationsdokumente ansehen' },
+  { key: 'documents.upload', label: 'Stationsdokumente hochladen' },
+  { key: 'documents.edit', label: 'Stationsdokumente bearbeiten / verknüpfen' },
+  { key: 'documents.archive', label: 'Stationsdokumente archivieren' },
+  { key: 'documents.print', label: 'Stationsdokumente drucken' },
+  { key: 'documents.create_employee_from_document', label: 'Mitarbeiter aus Personalbogen-Dokument anlegen' },
 ]
 
 export const ADMIN_FORM_ROLES = [

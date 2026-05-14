@@ -34,6 +34,12 @@ export function mathiasStationsleiterPermissions(): Record<string, boolean> {
     'representatives.view',
     'representatives.edit',
     'representatives.delete',
+    'documents.view',
+    'documents.upload',
+    'documents.edit',
+    'documents.archive',
+    'documents.print',
+    'documents.create_employee_from_document',
   ]
   for (const k of on) {
     p[k] = true

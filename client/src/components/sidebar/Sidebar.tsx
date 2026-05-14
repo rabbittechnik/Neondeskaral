@@ -30,6 +30,9 @@ function pathMatches(pathname: string, to: string) {
   if (to === '/organisation/representatives') {
     return pathname === '/organisation/representatives' || pathname === '/contacts/representatives'
   }
+  if (to === '/documents') {
+    return pathname === '/documents' || pathname.startsWith('/documents/')
+  }
   if (to === '/reports/payroll-time') {
     return pathname === '/reports/payroll-time' || pathname === '/reports/payroll-time-tracking'
   }

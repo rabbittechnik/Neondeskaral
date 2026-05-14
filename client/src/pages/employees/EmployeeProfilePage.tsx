@@ -18,6 +18,7 @@ import { EmployeePlanningPreferencesSection } from '../../components/employees/p
 import { inputClass } from '../../components/schedule/shift/fieldStyles'
 
 import { EmployeeAppQrSection } from '../../components/employees/EmployeeAppQrSection'
+import { EmployeeProfileDocumentsSection } from '../../components/employees/EmployeeProfileDocumentsSection'
 
 function EmployeeApplyMinWageButton({ employeeId, onDone }: { employeeId: string; onDone: () => void }) {
   const [busy, setBusy] = useState(false)
@@ -460,6 +461,8 @@ export function EmployeeProfilePage() {
             </p>
           </Card>
         )
+      ) : tab === 'docs' ? (
+        <EmployeeProfileDocumentsSection employeeId={employee.id} />
       ) : (
         <Card padding="md" className="border-dashed border-[var(--border-strong)] bg-[var(--bg-elevated)]/30">
           <p className="text-sm text-[var(--text-muted)]">

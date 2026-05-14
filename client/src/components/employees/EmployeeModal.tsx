@@ -12,6 +12,8 @@ type Props = {
   open: boolean
   mode: Mode
   employee: Employee | null
+  /** Beim Anlegen: mit Stammdaten vorbefüllen (z. B. Personalbogen). */
+  createSeed?: Partial<Employee>
   onClose: () => void
   onSaveCreate: (e: Employee) => Promise<void>
   onSaveEdit: (e: Employee) => Promise<void>
@@ -36,6 +38,7 @@ export function EmployeeModal({
   open,
   mode,
   employee,
+  createSeed,
   onClose,
   onSaveCreate,
   onSaveEdit,
@@ -50,9 +53,9 @@ export function EmployeeModal({
     if (mode === 'edit' && employee) {
       setForm(structuredClone(employee))
     } else {
-      setForm(emptyEmployee())
+      setForm({ ...emptyEmployee(), ...createSeed })
     }
-  }, [open, mode, employee])
+  }, [open, mode, employee, createSeed])
 
   useEffect(() => {
     if (!open) return

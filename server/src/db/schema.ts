@@ -757,6 +757,39 @@ const statements = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_task_instances_station_date ON task_instances(station_id, date, status)`,
   `CREATE INDEX IF NOT EXISTS idx_task_instances_template ON task_instances(template_id)`,
+  `CREATE TABLE IF NOT EXISTS station_documents (
+    id TEXT PRIMARY KEY,
+    station_id TEXT NOT NULL,
+    global_document INTEGER NOT NULL DEFAULT 0,
+    title TEXT NOT NULL,
+    description TEXT,
+    category TEXT,
+    document_type TEXT NOT NULL DEFAULT 'other',
+    file_name TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    file_size INTEGER NOT NULL DEFAULT 0,
+    preview_path TEXT,
+    is_template INTEGER NOT NULL DEFAULT 0,
+    active INTEGER NOT NULL DEFAULT 1,
+    previous_file_path TEXT,
+    created_by TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    archived_at TEXT,
+    FOREIGN KEY (station_id) REFERENCES stations(id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_station_documents_station ON station_documents(station_id, archived_at, active)`,
+  `CREATE TABLE IF NOT EXISTS station_document_employees (
+    id TEXT PRIMARY KEY,
+    document_id TEXT NOT NULL,
+    employee_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (document_id) REFERENCES station_documents(id) ON DELETE CASCADE,
+    FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
+    UNIQUE(document_id, employee_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_station_document_employees_emp ON station_document_employees(employee_id)`,
 ]
 
 export function runSchema(db: Database.Database) {

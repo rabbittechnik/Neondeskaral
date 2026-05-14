@@ -62,7 +62,7 @@ export const navEntries: NavEntry[] = [
       { to: '/absences', label: 'Abwesenheiten' },
       { to: '/tasks', label: 'Aufgaben' },
       { to: '/lists', label: 'Listen' },
-      { to: '/documents', label: 'Dokumente' },
+      { to: '/documents', label: 'Dokumente', anyPermission: ['documents.view'] },
       { to: '/calendar', label: 'Terminkalender' },
       { to: '/contacts', label: 'Kontakte' },
       {
