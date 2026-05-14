@@ -30,7 +30,7 @@ import { computeTimelineRangeFromWeekBlocks } from '../../utils/scheduleTimeline
 import { useViewportScheduleDensity } from '../../hooks/useViewportScheduleDensity'
 
 export function WeeklySchedule() {
-  const { selectedStation, federalState, stationId, hasPermission } = useStation()
+  const { selectedStation, federalState, stationId, hasPermission, standardWorkTimesJson } = useStation()
   const { user } = useAuth()
   const { absences } = useAbsences()
   const { employees } = useEmployees()
@@ -79,8 +79,14 @@ export function WeeklySchedule() {
 
   const requirementGapBlocks = useMemo(() => {
     if (!stationId) return [] as ResolvedShiftBlock[]
-    return buildRequirementGapResolvedBlocks(weekMonday, stationId, federalState, shiftsThisWeek)
-  }, [weekMonday, stationId, federalState, shiftsThisWeek])
+    return buildRequirementGapResolvedBlocks(
+      weekMonday,
+      stationId,
+      federalState,
+      shiftsThisWeek,
+      standardWorkTimesJson,
+    )
+  }, [weekMonday, stationId, federalState, shiftsThisWeek, standardWorkTimesJson])
 
   const timelineRange = useMemo(
     () => computeTimelineRangeFromWeekBlocks([...allBlocks, ...requirementGapBlocks]),

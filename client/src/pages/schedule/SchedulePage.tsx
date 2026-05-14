@@ -43,10 +43,10 @@ import { useAuth } from '../../context/auth-context'
 import { formatShiftTimeRangeDE } from '../../utils/dateFormat'
 import { computeTimelineRangeFromWeekBlocks } from '../../utils/scheduleTimeline'
 import { useViewportScheduleDensity } from '../../hooks/useViewportScheduleDensity'
-import { apiGet } from '../../services/api'
+import { apiGet, apiSend } from '../../services/api'
 
 export function SchedulePage() {
-  const { federalState, stationId, hasPermission, selectedStation } = useStation()
+  const { federalState, stationId, hasPermission, selectedStation, standardWorkTimesJson } = useStation()
   const { user } = useAuth()
   const { absences } = useAbsences()
   const { employees } = useEmployees()
@@ -62,6 +62,8 @@ export function SchedulePage() {
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create')
   const [modalShift, setModalShift] = useState<ScheduleShift | null>(null)
   const [assistantOpen, setAssistantOpen] = useState(false)
+  const [pruneConfirmOpen, setPruneConfirmOpen] = useState(false)
+  const [pruneBusy, setPruneBusy] = useState(false)
 
   const viewportDensity = useViewportScheduleDensity()
 
@@ -124,8 +126,14 @@ export function SchedulePage() {
 
   const requirementGapBlocks = useMemo(() => {
     if (!stationId) return [] as ResolvedShiftBlock[]
-    return buildRequirementGapResolvedBlocks(weekMonday, stationId, federalState, shiftsThisWeek)
-  }, [weekMonday, stationId, federalState, shiftsThisWeek])
+    return buildRequirementGapResolvedBlocks(
+      weekMonday,
+      stationId,
+      federalState,
+      shiftsThisWeek,
+      standardWorkTimesJson,
+    )
+  }, [weekMonday, stationId, federalState, shiftsThisWeek, standardWorkTimesJson])
 
   const timelineRange = useMemo(
     () => computeTimelineRangeFromWeekBlocks([...allBlocks, ...requirementGapBlocks]),
@@ -290,6 +298,28 @@ export function SchedulePage() {
     setShifts((prev) => prev.filter((x) => x.id !== id))
   }
 
+  const runPruneOpenShifts = useCallback(async () => {
+    if (!stationId) return
+    setPruneBusy(true)
+    try {
+      const res = await apiSend<{ deletedIds?: string[] }>('POST', '/shifts/open/prune-covered', {
+        stationId,
+        from: weekStartIso,
+        to: weekEndIso,
+      })
+      if (!res.ok) {
+        window.alert(res.error ?? 'Offene Schichten konnten nicht bereinigt werden.')
+        return
+      }
+      const n = Array.isArray(res.data?.deletedIds) ? res.data.deletedIds.length : 0
+      await refetchRange(weekStartIso, weekEndIso)
+      window.alert(n > 0 ? `${n} überdeckte offene Schicht(en) entfernt.` : 'Keine überdeckten offenen Schichten gefunden.')
+    } finally {
+      setPruneBusy(false)
+      setPruneConfirmOpen(false)
+    }
+  }, [stationId, weekStartIso, weekEndIso, refetchRange])
+
   const stub = () => {
     alert('Funktion folgt mit Backend (später).')
   }
@@ -377,9 +407,29 @@ export function SchedulePage() {
         onNewShift={openCreate}
         onPublish={stub}
         onPrint={stub}
-        onMore={stub}
+        onMore={canEditPlan ? () => setPruneConfirmOpen(true) : stub}
+        moreDisabled={pruneBusy}
+        moreTitle={
+          canEditPlan
+            ? 'Offene Schichten neu berechnen (überdeckte Einträge entfernen)'
+            : 'Mehr (nur mit Planbearbeitung)'
+        }
         scheduleEmployees={scheduleRows}
         onOpenAssistant={() => setAssistantOpen(true)}
+      />
+
+      <ConfirmDialog
+        open={pruneConfirmOpen}
+        title="Offene Schichten neu berechnen?"
+        message="Automatisch erzeugte oder manuell angelegte offene Schichten (ohne Mitarbeiter) werden geprüft. Einträge, die durch besetzte Schichten vollständig überdeckt sind, werden entfernt. Zugewiesene Mitarbeiter-Schichten bleiben unverändert."
+        confirmLabel={pruneBusy ? 'Bitte warten…' : 'Bereinigen'}
+        cancelLabel="Abbrechen"
+        variant="danger"
+        confirmDisabled={pruneBusy}
+        onCancel={() => !pruneBusy && setPruneConfirmOpen(false)}
+        onConfirm={() => {
+          void runPruneOpenShifts()
+        }}
       />
 
       <ScheduleAssistantModal

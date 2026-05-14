@@ -110,6 +110,10 @@ export function buildAuthMeUser(db: Database, userId: string) {
     city: s.city != null ? String(s.city) : undefined,
     federalState: String(s.federal_state ?? 'BW'),
     active: (s.active as number) ?? 1,
+    standardWorkTimesJson:
+      s.standard_work_times_json != null && String(s.standard_work_times_json).trim()
+        ? String(s.standard_work_times_json)
+        : undefined,
   }))
   const stationAccess = ctx.globalAdmin
     ? []

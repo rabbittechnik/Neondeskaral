@@ -81,7 +81,9 @@ export function DashboardOpenShiftsDetailModal({ open, onClose, summary }: Props
                             <span className="text-[var(--text-main)]">· {slotLabel(m.shiftType)}</span>
                             <br />
                             <span className="text-xs">
-                              {m.detailHint ?? `${m.startTime} – ${m.endTime} Uhr`}
+                              {m.partialGap
+                                ? `${m.startTime} – ${m.endTime} Uhr (Lücke)`
+                                : m.detailHint ?? `${m.startTime} – ${m.endTime} Uhr`}
                             </span>
                           </li>
                         ))}

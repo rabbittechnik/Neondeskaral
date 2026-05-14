@@ -17,6 +17,7 @@ export type StationSummary = {
   federalState: GermanState
   brand?: string
   city?: string
+  standardWorkTimesJson?: string | null
 }
 
 /** Station fest aus Stations-Tablet-Token — kein Admin-Benutzer, kein Stationswechsel, keine Rechte. */
@@ -34,6 +35,8 @@ type StationContextValue = {
   stationId: string | null
   /** Bundesland der aktuellen Station (Kalender/Feiertage). */
   federalState: GermanState
+  /** `stations.standard_work_times_json` der aktuellen Station (für Sollzeiten). */
+  standardWorkTimesJson: string | null
   hasPermission: (key: string) => boolean
 }
 
@@ -73,6 +76,7 @@ function mapStations(user: ReturnType<typeof useAuth>['user']): StationSummary[]
       federalState: toGermanState(s.federalState),
       brand: s.brand,
       city: s.city,
+      standardWorkTimesJson: s.standardWorkTimesJson?.trim() ? s.standardWorkTimesJson : null,
     }))
   }
   return [
@@ -194,6 +198,7 @@ export function StationProvider({
       setSelectedStationId,
       stationId: selectedStation?.id ?? null,
       federalState: selectedStation?.federalState ?? 'BW',
+      standardWorkTimesJson: selectedStation?.standardWorkTimesJson ?? null,
       hasPermission,
     }),
     [selectedStation, availableStations, canSwitchStation, setSelectedStationId, hasPermission],

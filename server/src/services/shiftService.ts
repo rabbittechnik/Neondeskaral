@@ -292,6 +292,111 @@ export function getShiftRow(db: Database, id: string): ShiftRow | undefined {
   return db.prepare(`SELECT * FROM shifts WHERE id = ?`).get(id) as ShiftRow | undefined
 }
 
+const COVERAGE_TOL_MIN = 15
+
+function timeToMinutesDb(t: string): number {
+  const raw = String(t ?? '').trim()
+  const short = raw.length >= 5 ? raw.slice(0, 5) : raw
+  const [h, m] = short.split(':').map(Number)
+  return (Number.isFinite(h) ? h! : 0) * 60 + (Number.isFinite(m) ? m! : 0)
+}
+
+function minutesToHHMMDb(total: number): string {
+  const m = Math.max(0, Math.min(total, 24 * 60 - 1))
+  const h = Math.floor(m / 60)
+  const mi = m % 60
+  return `${String(h).padStart(2, '0')}:${String(mi).padStart(2, '0')}`
+}
+
+function clipAssignedRowToWindow(
+  row: ShiftRow,
+  reqStartMin: number,
+  reqEndMin: number,
+): { start: number; end: number } | null {
+  if (!row.employee_id || !String(row.employee_id).trim()) return null
+  if (String(row.shift_type ?? '').trim() === 'frei') return null
+  const sm = timeToMinutesDb(row.start_time)
+  let em = timeToMinutesDb(row.end_time)
+  const overnight = String(row.shift_type ?? '').trim() === 'nacht'
+  if (overnight && em <= sm) em += 24 * 60
+  const a = Math.max(sm, reqStartMin)
+  const b = Math.min(em, reqEndMin)
+  if (b <= a) return null
+  return { start: a, end: b }
+}
+
+/** Echte Lücken in [reqStart, reqEnd] (HH:MM) relativ zu besetzten Schichten am Tag. */
+function coverageGapsForWindow(
+  reqStart: string,
+  reqEnd: string,
+  dayRows: ShiftRow[],
+  tolMinutes: number,
+): { startTime: string; endTime: string }[] {
+  const reqS = timeToMinutesDb(reqStart)
+  const reqE = timeToMinutesDb(reqEnd)
+  if (reqE <= reqS) return []
+
+  const clips: { start: number; end: number }[] = []
+  for (const r of dayRows) {
+    const c = clipAssignedRowToWindow(r, reqS, reqE)
+    if (c) clips.push(c)
+  }
+  clips.sort((x, y) => x.start - y.start)
+
+  const merged: { start: number; end: number }[] = []
+  for (const iv of clips) {
+    const last = merged[merged.length - 1]
+    if (!last) {
+      merged.push({ ...iv })
+      continue
+    }
+    if (iv.start <= last.end + tolMinutes) {
+      last.end = Math.max(last.end, iv.end)
+    } else {
+      merged.push({ ...iv })
+    }
+  }
+
+  const gaps: { startTime: string; endTime: string }[] = []
+  let cursor = reqS
+  for (const m of merged) {
+    if (m.start > cursor + tolMinutes) {
+      gaps.push({ startTime: minutesToHHMMDb(cursor), endTime: minutesToHHMMDb(Math.min(m.start, reqE)) })
+    }
+    cursor = Math.max(cursor, m.end)
+  }
+  if (reqE > cursor + tolMinutes) {
+    gaps.push({ startTime: minutesToHHMMDb(cursor), endTime: minutesToHHMMDb(reqE) })
+  }
+  return gaps
+}
+
+/**
+ * Entfernt offene Schichten (ohne Mitarbeiter), deren Zeitfenster vollständig durch andere
+ * besetzte Schichten am selben Tag abgedeckt ist.
+ */
+export function pruneRedundantOpenShifts(db: Database, stationId: string, from: string, to: string) {
+  const sid = String(stationId ?? '').trim()
+  if (!sid) throw new Error('stationId erforderlich')
+  const openRows = db
+    .prepare(
+      `SELECT * FROM shifts WHERE station_id = ? AND date >= ? AND date <= ? AND (employee_id IS NULL OR trim(employee_id) = '')`,
+    )
+    .all(sid, from, to) as ShiftRow[]
+
+  const del = db.prepare(`DELETE FROM shifts WHERE id = ?`)
+  const deletedIds: string[] = []
+  for (const o of openRows) {
+    const dayRows = db.prepare(`SELECT * FROM shifts WHERE station_id = ? AND date = ?`).all(sid, o.date) as ShiftRow[]
+    const gaps = coverageGapsForWindow(o.start_time, o.end_time, dayRows, COVERAGE_TOL_MIN)
+    if (gaps.length === 0) {
+      del.run(o.id)
+      deletedIds.push(o.id)
+    }
+  }
+  return { deletedIds }
+}
+
 export function listShiftRowsForStationDateRange(
   db: Database,
   stationId: string,

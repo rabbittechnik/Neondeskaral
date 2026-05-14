@@ -71,7 +71,7 @@ export function PendingAbsencesCard() {
 }
 
 export function UnfilledShiftsCard() {
-  const { stationId, federalState } = useStation()
+  const { stationId, federalState, standardWorkTimesJson } = useStation()
   const [open, setOpen] = useState<ScheduleShift[]>([])
   const [weekShifts, setWeekShifts] = useState<ScheduleShift[]>([])
   const [loading, setLoading] = useState(true)
@@ -119,8 +119,16 @@ export function UnfilledShiftsCard() {
   }, [load])
 
   const weekSummary = useMemo(
-    () => calculateOpenShiftsForWeek(weekBounds.weekStart, weekShifts, open, stationId ?? '', federalState),
-    [weekBounds.weekStart, weekShifts, open, stationId, federalState],
+    () =>
+      calculateOpenShiftsForWeek(
+        weekBounds.weekStart,
+        weekShifts,
+        open,
+        stationId ?? '',
+        federalState,
+        standardWorkTimesJson,
+      ),
+    [weekBounds.weekStart, weekShifts, open, stationId, federalState, standardWorkTimesJson],
   )
 
   const hasMissing = weekSummary.missingRequiredFlat.length > 0
@@ -151,7 +159,10 @@ export function UnfilledShiftsCard() {
                       <p className="text-xs text-[var(--text-muted)]">{de}</p>
                       {items.map((m, idx) => (
                         <p key={`${date}-${idx}`} className="text-sm text-[var(--text-main)]">
-                          {m.shiftType === 'early' ? 'Früh' : 'Spät'}: {m.detailHint ?? `${m.startTime}–${m.endTime}`}
+                          {m.shiftType === 'early' ? 'Früh' : 'Spät'}:{' '}
+                          {m.partialGap
+                            ? `${m.startTime}–${m.endTime}`
+                            : m.detailHint ?? `${m.startTime}–${m.endTime}`}
                         </p>
                       ))}
                     </li>
@@ -160,11 +171,11 @@ export function UnfilledShiftsCard() {
               </ul>
             </li>
           ) : null}
-          {open.length > 0 ? (
+          {weekSummary.openDbShifts.length > 0 ? (
             <li>
               <p className="text-xs font-medium uppercase tracking-wide text-rose-200/80">Offen in DB</p>
               <ul className="mt-2 space-y-2">
-                {open.map((s) => {
+                {weekSummary.openDbShifts.map((s) => {
                   const de = `${s.date.slice(8, 10)}.${s.date.slice(5, 7)}.${s.date.slice(0, 4)}`
                   return (
                     <li

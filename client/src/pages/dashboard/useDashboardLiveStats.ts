@@ -23,7 +23,7 @@ function emptyOpenSummary(): OpenShiftWeekSummary {
 }
 
 export function useDashboardLiveStats() {
-  const { stationId, federalState } = useStation()
+  const { stationId, federalState, standardWorkTimesJson } = useStation()
   const { absences, loading: absencesLoading, error: absencesError } = useAbsences()
   const [loading, setLoading] = useState(true)
   const [shiftError, setShiftError] = useState<string | null>(null)
@@ -89,8 +89,15 @@ export function useDashboardLiveStats() {
 
   const openShiftsWeek = useMemo(() => {
     if (!stationId) return emptyOpenSummary()
-    return calculateOpenShiftsForWeek(weekAnchor.weekStart, weekShifts, openShifts, stationId, federalState)
-  }, [stationId, federalState, weekShifts, openShifts, weekAnchor.weekStart])
+    return calculateOpenShiftsForWeek(
+      weekAnchor.weekStart,
+      weekShifts,
+      openShifts,
+      stationId,
+      federalState,
+      standardWorkTimesJson,
+    )
+  }, [stationId, federalState, standardWorkTimesJson, weekShifts, openShifts, weekAnchor.weekStart])
 
   const stats = useMemo(() => {
     const today = localTodayYmd()

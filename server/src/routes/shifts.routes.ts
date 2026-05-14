@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { getDb } from '../db/database.js'
 import { jsonErr, jsonOk } from '../utils/http.js'
-import { requirePermission } from '../middleware/stationAuth.js'
+import { requirePermission, requireAnyPermission } from '../middleware/stationAuth.js'
 import * as shiftService from '../services/shiftService.js'
 import { generateDynamicWeekendTasks } from '../services/weekendDynamicTasksService.js'
 import { mondayOfCalendarWeekBerlin } from '../services/bwHolidayCalendar.js'
@@ -13,6 +13,20 @@ shiftsRouter.get('/open', (req, res) => {
     const stationId = typeof req.query.stationId === 'string' ? req.query.stationId : undefined
     if (!requirePermission(req, res, stationId, 'schedule.view')) return
     jsonOk(res, shiftService.listOpenShifts(getDb(), stationId!))
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
+  }
+})
+
+shiftsRouter.post('/open/prune-covered', (req, res) => {
+  try {
+    const body = (req.body ?? {}) as { stationId?: string; from?: string; to?: string }
+    const stationId = typeof body.stationId === 'string' ? body.stationId.trim() : ''
+    const from = typeof body.from === 'string' ? body.from.trim() : ''
+    const to = typeof body.to === 'string' ? body.to.trim() : ''
+    if (!stationId || !from || !to) return jsonErr(res, 'stationId, from und to erforderlich', 400)
+    if (!requirePermission(req, res, stationId, 'schedule.edit')) return
+    jsonOk(res, shiftService.pruneRedundantOpenShifts(getDb(), stationId, from, to))
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
   }
@@ -107,7 +121,12 @@ shiftsRouter.delete('/:id', (req, res) => {
   try {
     const row = shiftService.getShiftRow(getDb(), req.params.id)
     if (!row) return jsonErr(res, 'Schicht nicht gefunden', 404)
-    if (!requirePermission(req, res, row.station_id, 'schedule.delete')) return
+    const isOpen = !row.employee_id || !String(row.employee_id).trim()
+    if (isOpen) {
+      if (!requireAnyPermission(req, res, row.station_id, ['schedule.edit', 'schedule.delete'])) return
+    } else {
+      if (!requirePermission(req, res, row.station_id, 'schedule.delete')) return
+    }
     shiftService.deleteShift(getDb(), req.params.id)
     jsonOk(res, { deleted: true })
   } catch (e) {

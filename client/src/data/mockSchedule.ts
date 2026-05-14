@@ -195,6 +195,8 @@ export type ResolvedShiftBlock = {
   open?: boolean
   /** Synthetisch: fehlende Soll-Schicht (Standardbedarf), keine DB-Zeile */
   requirementGap?: boolean
+  /** Nur Teil der Soll-Zeit offen (Rest durch andere Schichten abgedeckt). */
+  requirementGapPartial?: boolean
 }
 
 export function scheduleShiftToResolved(

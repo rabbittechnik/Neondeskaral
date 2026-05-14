@@ -89,9 +89,14 @@ export function buildRequirementGapBarLine(p: {
   start: string
   end: string
   widthPercent: number
+  /** Nur echte Lücke innerhalb der Soll-Zeit, nicht die komplette Früh/Spät. */
+  partialGap?: boolean
 }): string {
-  const { typeId, typeLabel, start, end, widthPercent } = p
+  const { typeId, typeLabel, start, end, widthPercent, partialGap } = p
   const range = `${start}–${end}`
+  if (partialGap) {
+    return `⚠ Unbesetzt · ${range}`
+  }
   if (widthPercent < 10) {
     return `⚠ ${typeLabel} · ${range}`
   }
@@ -124,12 +129,16 @@ export function buildOpenShiftBlockTooltip(p: {
   areaLabel: string
   dateISO: string
   stationName?: string
+  /** Nur Teil-Lücke im Soll (mehrere Schichten decken den Rest). */
+  partialGap?: boolean
 }): string {
   const dateDe = formatDateISODe(p.dateISO)
   const areaLine = p.areaLabel.trim() ? `Arbeitsbereich: ${p.areaLabel.trim()}` : null
 
   if (p.mode === 'requirement') {
-    const head = requirementGapTooltipTitle(p.typeId, p.typeLabel)
+    const head = p.partialGap
+      ? `Unbesetzter Zeitraum (${p.typeLabel})`
+      : requirementGapTooltipTitle(p.typeId, p.typeLabel)
     return [head, `Datum: ${dateDe}`, `${p.start}–${p.end} Uhr`, areaLine, p.stationName ? `Station: ${p.stationName}` : null]
       .filter((x): x is string => Boolean(x && x.trim()))
       .join('\n')

@@ -51,6 +51,7 @@ export function OpenShiftBlock({ item, headerOffsetPx, layout, stationName, onSe
         start: block.start,
         end: block.end,
         widthPercent,
+        partialGap: block.requirementGapPartial,
       })
     : buildOpenDbShiftBarLine({
         start: block.start,
@@ -68,6 +69,7 @@ export function OpenShiftBlock({ item, headerOffsetPx, layout, stationName, onSe
     areaLabel: area,
     dateISO: block.dateISO,
     stationName,
+    partialGap: block.requirementGapPartial,
   })
 
   const baseGlow = isReqGap

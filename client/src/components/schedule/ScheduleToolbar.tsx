@@ -27,6 +27,9 @@ type Props = {
   onPublish: () => void
   onPrint: () => void
   onMore: () => void
+  /** Wenn false, wird der Mehr-Button trotzdem angezeigt, aber ggf. deaktiviert. */
+  moreDisabled?: boolean
+  moreTitle?: string
   scheduleEmployees: ScheduleEmployeeRow[]
   onOpenAssistant?: () => void
 }
@@ -43,6 +46,8 @@ export function ScheduleToolbar({
   onPublish,
   onPrint,
   onMore,
+  moreDisabled = false,
+  moreTitle,
   scheduleEmployees,
   onOpenAssistant,
 }: Props) {
@@ -105,7 +110,14 @@ export function ScheduleToolbar({
         <Button variant="outline" className="px-3 py-2" onClick={onPrint} leftIcon={<Printer className="h-4 w-4" />}>
           Druckansicht
         </Button>
-        <Button variant="ghost" className="px-3 py-2" onClick={onMore} aria-label="Mehr">
+        <Button
+          variant="ghost"
+          className="px-3 py-2"
+          onClick={onMore}
+          disabled={moreDisabled}
+          aria-label={moreTitle ?? 'Mehr'}
+          title={moreTitle}
+        >
           <MoreHorizontal className="h-5 w-5" />
           <span className="hidden sm:inline">Mehr</span>
         </Button>

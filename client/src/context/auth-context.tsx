@@ -16,6 +16,8 @@ export type StationInfo = {
   city?: string
   federalState: string
   active?: number
+  /** Roh-JSON der Standardarbeitszeiten (Stationseinstellungen). */
+  standardWorkTimesJson?: string
 }
 
 export type StationAccessInfo = {
