@@ -124,6 +124,7 @@ export type PayrollCombinedDaySource =
   | 'time_tracking_extra'
   | 'schedule_fallback'
   | 'paid_vacation'
+  | 'paid_other_absence'
   | 'manual_correction'
   | 'none'
 
@@ -143,7 +144,12 @@ export type PayrollCombinedDayDetail = {
   date: string
   weekdayDe: string
   scheduleShifts: PayrollCombinedShiftDetail[]
+  /** Netto aus geplanten Schichten (Start–Ende abzüglich gespeicherter Pause). */
   scheduledHours: number
+  /** Bezahlter Urlaub aus Abwesenheiten (Kalendertag), separat für Anzeige. */
+  plannedPaidVacationHours: number
+  /** Sonstige bezahlte Abwesenheit (Krankheit, Sonderurlaub …), Kalendertag. */
+  plannedOtherPaidAbsenceHours: number
   timeEntries: PayrollCombinedTimeDetail[]
   trackedHours: number
   usedHours: number
@@ -1185,6 +1191,8 @@ export function calculatePayrollCombinedReport(
       const pack = ensurePack(ymd)
       const sh = Math.round(pack.sh * 100) / 100
       const tr = Math.round(pack.tr * 100) / 100
+      const vhVac = Math.round((vacByYmd.get(ymd) ?? 0) * 100) / 100
+      const vhOther = Math.round((otherPaidByYmdCombined.get(ymd) ?? 0) * 100) / 100
       const vh = Math.round((vacByYmdAll.get(ymd) ?? 0) * 100) / 100
       scheduleHoursTotal += sh
       if (vh > 0 && sh <= 0 && tr <= 0) scheduleHoursTotal += vh
@@ -1225,7 +1233,7 @@ export function calculatePayrollCombinedReport(
       if (!hasOpen && vh > 0) {
         if (sh <= 0 && tr <= 0) {
           used = vh
-          source = 'paid_vacation'
+          source = vhVac > 0 ? 'paid_vacation' : 'paid_other_absence'
         } else {
           used = Math.max(used, vh)
         }
@@ -1265,6 +1273,9 @@ export function calculatePayrollCombinedReport(
         highlight = 'green'
       } else if (source === 'paid_vacation') {
         note = 'Bezahlter Urlaub (Abwesenheit).'
+        highlight = 'neutral'
+      } else if (source === 'paid_other_absence') {
+        note = 'Bezahlte Abwesenheit (z. B. Krankheit, Sonderurlaub).'
         highlight = 'neutral'
       }
 
@@ -1315,6 +1326,8 @@ export function calculatePayrollCombinedReport(
         weekdayDe: weekdayDeLongEuropeBerlin(ymd),
         scheduleShifts: pack.shifts,
         scheduledHours: sh,
+        plannedPaidVacationHours: vhVac,
+        plannedOtherPaidAbsenceHours: vhOther,
         timeEntries: pack.entries,
         trackedHours: tr,
         usedHours: Math.round(used * 100) / 100,

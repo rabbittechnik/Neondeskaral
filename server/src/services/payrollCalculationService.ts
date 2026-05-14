@@ -23,6 +23,7 @@ import {
   getMinimumWageForDate,
 } from './statutoryMinWageService.js'
 import { eachYmdInRangeInclusive, utcRangeBoundsMs } from '../utils/berlinCalendarWorkHours.js'
+import { isAbsenceStatusApprovedForPayrollDb } from '../utils/absencePayrollStatus.js'
 import { todayIso } from '../utils/timestamps.js'
 import { listShifts } from './shiftService.js'
 
@@ -237,10 +238,7 @@ export function vacationDayWeight(ab: AbsenceRow, ymd: string): number {
 
 /** Genehmigte Abwesenheit, die in der Lohnberechnung berücksichtigt werden darf. */
 export function absenceApprovedForPayroll(a: AbsenceRow): boolean {
-  const st = String(a.status ?? '')
-    .toLowerCase()
-    .trim()
-  return st === 'approved'
+  return isAbsenceStatusApprovedForPayrollDb(a.status)
 }
 
 /** Pro Kalendertag: bei gleichem Tag Arbeitszeit + bezahlter Urlaub nicht doppelt zählen (max). */

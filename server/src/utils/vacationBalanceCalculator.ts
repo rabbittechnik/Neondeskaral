@@ -1,4 +1,5 @@
 import { calculateAbsenceDaysInYear, type AbsenceCountMode } from './absenceYearCalculator.js'
+import { isAbsenceStatusApprovedForPayrollDb } from './absencePayrollStatus.js'
 import { normalizeAbsenceDbType } from './vacationImpactCalculator.js'
 import { calculateVacationDaysForRequest } from './vacationRequestCalculator.js'
 
@@ -74,7 +75,7 @@ export function sumApprovedPaidVacationDaysInYear(
   for (const r of rows) {
     if (r.employee_id !== employeeId) continue
     if (excludeAbsenceId && r.id === excludeAbsenceId) continue
-    if (r.status !== 'approved') continue
+    if (!isAbsenceStatusApprovedForPayrollDb(r.status)) continue
     const t = normalizeAbsenceDbType(r.type)
     if (t !== 'paid_vacation') continue
     const c = r.counts_against_vacation

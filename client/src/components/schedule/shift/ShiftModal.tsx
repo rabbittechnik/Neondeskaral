@@ -52,7 +52,7 @@ function emptyDraft(weekMonday: Date): ShiftDraft {
     date: toISODate(weekMonday),
     startTime: sug.start,
     endTime: sug.end,
-    breakMinutes: 30,
+    breakMinutes: 0,
     shiftType: 'frueh',
     note: '',
     status: 'Entwurf',

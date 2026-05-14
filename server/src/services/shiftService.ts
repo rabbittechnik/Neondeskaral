@@ -171,7 +171,7 @@ export function createShift(db: Database, body: Record<string, unknown>, station
     date,
     startTime,
     endTime,
-    Number(body.breakMinutes ?? 30),
+    Number(body.breakMinutes ?? 0),
     String(body.shiftType ?? 'frueh'),
     body.title != null ? String(body.title) : null,
     String(body.note ?? ''),

@@ -193,6 +193,7 @@ export function runMigrations(db: Database.Database) {
   seedTaskTemplatesIfMissing(db)
   ensureStationDocumentsTables(db)
   mergeDocumentsPermissionsIntoAccess(db)
+  ensureStationBreakPolicyColumnsAndZeroBodelshausenBreaks(db)
 }
 
 /** Idempotent: StationGuide-Urlaube Aral Bodelshausen (Apr–Jun 2026), nur wenn Mitarbeiter existieren. */
@@ -1404,6 +1405,22 @@ function ensureStationDocumentsTables(db: Database.Database) {
     UNIQUE(document_id, employee_id)
   )`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_station_document_employees_emp ON station_document_employees(employee_id)`)
+}
+
+/** Pausenregelung in Stammdaten + Aral Bodelshausen: keine automatische Pause (0 Min.) in bestehenden Schichten/Zeiten. */
+function ensureStationBreakPolicyColumnsAndZeroBodelshausenBreaks(db: Database.Database) {
+  const cols = new Set((db.prepare(`PRAGMA table_info(stations)`).all() as { name: string }[]).map((r) => r.name))
+  if (!cols.has('automatic_break_deduction')) {
+    db.exec(`ALTER TABLE stations ADD COLUMN automatic_break_deduction INTEGER NOT NULL DEFAULT 0`)
+  }
+  if (!cols.has('default_break_minutes')) {
+    db.exec(`ALTER TABLE stations ADD COLUMN default_break_minutes INTEGER NOT NULL DEFAULT 0`)
+  }
+  db.prepare(
+    `UPDATE stations SET automatic_break_deduction = 0, default_break_minutes = 0 WHERE id = 'aral-bodelshausen'`,
+  ).run()
+  db.prepare(`UPDATE shifts SET break_minutes = 0 WHERE station_id = 'aral-bodelshausen'`).run()
+  db.prepare(`UPDATE time_entries SET break_minutes = 0 WHERE station_id = 'aral-bodelshausen'`).run()
 }
 
 /** Stations-Dokumente: für Stammdaten-Rollen ergänzen (fehlende Keys nur). */

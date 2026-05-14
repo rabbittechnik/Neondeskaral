@@ -16,6 +16,8 @@ const statements = [
     notes TEXT,
     standard_work_times_json TEXT,
     federal_state TEXT DEFAULT 'BW',
+    automatic_break_deduction INTEGER NOT NULL DEFAULT 0,
+    default_break_minutes INTEGER NOT NULL DEFAULT 0,
     active INTEGER DEFAULT 1,
     archived_at TEXT,
     deleted_at TEXT,

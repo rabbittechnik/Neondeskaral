@@ -184,7 +184,7 @@ export function seedImportedStationGuideSchedule(
         sh.date,
         sh.startTime,
         sh.endTime,
-        30,
+        0,
         sh.shiftType,
         'stationguide_import',
         ts,

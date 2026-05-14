@@ -93,6 +93,8 @@ export type FuelPricesPayload =
     }
   | { ok: false; stationId?: string; configured: boolean; message: string; cacheWarning?: string }
 
+export type TabletEmployeeTasksBundle = { tasks: Task[]; taskLogs: TaskLog[] }
+
 type TabletTerminalContextValue = {
   employees: ClockCardEmployee[]
   timeEntries: TimeEntry[]
@@ -101,6 +103,8 @@ type TabletTerminalContextValue = {
   runningPresence: TabletRunningRow[]
   tasks: Task[]
   taskLogs: TaskLog[]
+  /** Aufgaben je eingestempeltem Mitarbeiter (Tablet). */
+  tasksByEmployee: Record<string, TabletEmployeeTasksBundle>
   loading: boolean
   error: string | null
   /** Stations-Tablet-Modus: Anfragen laufen über Token statt nur stationId */
@@ -110,6 +114,10 @@ type TabletTerminalContextValue = {
   refetch: () => Promise<void>
   refetchRunning: () => Promise<void>
   refetchTasks: (employeeId?: string | null) => Promise<void>
+  /** Lädt running-presence neu und aktualisiert `tasksByEmployee` für alle anwesenden Mitarbeiter. */
+  syncTabletRunningAndTasks: () => Promise<void>
+  /** Nur Aufgaben für die übergebenen Anwesenheitszeilen (parallel, getrennt pro `employeeId`). */
+  refetchTasksForRunning: (rows: TabletRunningRow[]) => Promise<void>
   completeShiftWithChecklist: (
     timeEntryId: string,
     checklist: Record<string, unknown>,
@@ -153,6 +161,7 @@ export function TabletTerminalProvider({
   const [runningPresence, setRunningPresence] = useState<TabletRunningRow[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
   const [taskLogs, setTaskLogs] = useState<TaskLog[]>([])
+  const [tasksByEmployee, setTasksByEmployee] = useState<Record<string, TabletEmployeeTasksBundle>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -165,6 +174,51 @@ export function TabletTerminalProvider({
     if (res.ok) setRunningPresence(res.data)
   }, [hasTabletSource, tabletQuery])
 
+  const refetchTasksForRunning = useCallback(
+    async (rows: TabletRunningRow[]) => {
+      if (!hasTabletSource) {
+        setTasksByEmployee({})
+        return
+      }
+      const ids = [...new Set(rows.map((r) => r.employeeId).filter((id) => id?.trim()))]
+      if (ids.length === 0) {
+        setTasksByEmployee({})
+        setTasks([])
+        setTaskLogs([])
+        return
+      }
+      const results = await Promise.all(
+        ids.map(async (employeeId) => {
+          const taskRes = await tabletGet<{ tasks: Task[]; taskLogs: TaskLog[] }>('/tablet/tasks-today', {
+            ...tabletQuery,
+            employeeId,
+          })
+          return { employeeId, taskRes }
+        }),
+      )
+      const next: Record<string, TabletEmployeeTasksBundle> = {}
+      for (const { employeeId, taskRes } of results) {
+        if (taskRes.ok) {
+          next[employeeId] = { tasks: taskRes.data.tasks, taskLogs: taskRes.data.taskLogs }
+        }
+      }
+      setTasksByEmployee(next)
+    },
+    [hasTabletSource, tabletQuery],
+  )
+
+  const syncTabletRunningAndTasks = useCallback(async () => {
+    if (!hasTabletSource) {
+      setRunningPresence([])
+      setTasksByEmployee({})
+      return
+    }
+    const rRes = await tabletGet<TabletRunningRow[]>('/tablet/running-presence', tabletQuery)
+    const rows = rRes.ok ? rRes.data : []
+    if (rRes.ok) setRunningPresence(rows)
+    await refetchTasksForRunning(rows)
+  }, [hasTabletSource, tabletQuery, refetchTasksForRunning])
+
   const refetch = useCallback(async () => {
     if (!hasTabletSource) {
       setEmployees([])
@@ -174,6 +228,7 @@ export function TabletTerminalProvider({
       setRunningPresence([])
       setTasks([])
       setTaskLogs([])
+      setTasksByEmployee({})
       setLoading(false)
       return
     }
@@ -204,27 +259,26 @@ export function TabletTerminalProvider({
     if (!rRes.ok) setError((p) => (p ? `${p}; ${rRes.error}` : rRes.error))
     else setRunningPresence(rRes.data)
 
-    const taskRes = await tabletGet<{ tasks: Task[]; taskLogs: TaskLog[] }>('/tablet/tasks-today', {
-      ...tabletQuery,
-    })
-    if (!taskRes.ok) setError((p) => (p ? `${p}; ${taskRes.error}` : taskRes.error))
-    else {
-      setTasks(taskRes.data.tasks)
-      setTaskLogs(taskRes.data.taskLogs)
-    }
+    await refetchTasksForRunning(rRes.ok ? rRes.data : [])
+    setTasks([])
+    setTaskLogs([])
     setLoading(false)
-  }, [hasTabletSource, tabletQuery])
+  }, [hasTabletSource, tabletQuery, refetchTasksForRunning])
 
   const refetchTasks = useCallback(
     async (employeeId?: string | null) => {
       if (!hasTabletSource) return
+      const id = employeeId?.trim()
+      if (!id) return
       const taskRes = await tabletGet<{ tasks: Task[]; taskLogs: TaskLog[] }>('/tablet/tasks-today', {
         ...tabletQuery,
-        employeeId: employeeId ?? undefined,
+        employeeId: id,
       })
       if (taskRes.ok) {
-        setTasks(taskRes.data.tasks)
-        setTaskLogs(taskRes.data.taskLogs)
+        const bundle: TabletEmployeeTasksBundle = { tasks: taskRes.data.tasks, taskLogs: taskRes.data.taskLogs }
+        setTasksByEmployee((prev) => ({ ...prev, [id]: bundle }))
+        setTasks(bundle.tasks)
+        setTaskLogs(bundle.taskLogs)
       }
     },
     [hasTabletSource, tabletQuery],
@@ -353,6 +407,7 @@ export function TabletTerminalProvider({
       runningPresence,
       tasks,
       taskLogs,
+      tasksByEmployee,
       loading,
       error,
       tabletToken,
@@ -360,6 +415,8 @@ export function TabletTerminalProvider({
       refetch,
       refetchRunning,
       refetchTasks,
+      syncTabletRunningAndTasks,
+      refetchTasksForRunning,
       completeShiftWithChecklist,
       completeTask,
       fetchFuelPrices,
@@ -372,6 +429,7 @@ export function TabletTerminalProvider({
       runningPresence,
       tasks,
       taskLogs,
+      tasksByEmployee,
       loading,
       error,
       tabletToken,
@@ -379,6 +437,8 @@ export function TabletTerminalProvider({
       refetch,
       refetchRunning,
       refetchTasks,
+      syncTabletRunningAndTasks,
+      refetchTasksForRunning,
       completeShiftWithChecklist,
       completeTask,
       fetchFuelPrices,

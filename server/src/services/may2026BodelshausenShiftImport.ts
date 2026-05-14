@@ -180,7 +180,7 @@ export function applyMay2026BodelshausenOfficeShifts(db: Database): May2026Shift
           endTime: p.endTime,
           workAreaId: targetWa,
           employeeId: empId,
-          breakMinutes: 30,
+          breakMinutes: 0,
           shiftType: 'frueh',
           published: true,
           status: 'Veröffentlicht',

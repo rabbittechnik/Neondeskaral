@@ -688,7 +688,7 @@ export function seedScheduleWeek(weekMonday: Date): ScheduleShift[] {
       date: toISODate(cell),
       startTime: t.start,
       endTime: t.end,
-      breakMinutes: t.type === 'frei' ? 0 : 30,
+      breakMinutes: 0,
       shiftType: t.type,
       note: '',
       status: t.status ?? 'Entwurf',
@@ -715,7 +715,7 @@ export function seedScheduleWeek(weekMonday: Date): ScheduleShift[] {
       date: toISODate(cell),
       startTime: o.start,
       endTime: o.end,
-      breakMinutes: 30,
+      breakMinutes: 0,
       shiftType: o.shiftType,
       note: '',
       status: 'Veröffentlicht',
@@ -750,7 +750,7 @@ export type WeekAbsence = {
   range: string
 }
 
-/** Netto-Planstunden einer Schicht (Ende − Start − Pause), wie in der Lohnabrechnung Schichtplan. */
+/** Netto-Planstunden einer Schicht (Ende − Start − explizit gespeicherte Pause; Standardpause 0). */
 export function netPlannedHoursForShift(s: ScheduleShift): number {
   if (!s.startTime || !s.endTime) return 0
   const gross = hoursBetween(s.startTime, s.endTime)

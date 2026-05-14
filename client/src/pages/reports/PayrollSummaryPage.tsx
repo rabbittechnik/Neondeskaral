@@ -25,6 +25,7 @@ type DaySource =
   | 'time_tracking_extra'
   | 'schedule_fallback'
   | 'paid_vacation'
+  | 'paid_other_absence'
   | 'manual_correction'
   | 'none'
 
@@ -35,6 +36,8 @@ type DayDetail = {
   weekdayDe: string
   scheduleShifts: { id: string; label: string; hours: number }[]
   scheduledHours: number
+  plannedPaidVacationHours?: number
+  plannedOtherPaidAbsenceHours?: number
   timeEntries: { id: string; startAt: string; endAt: string | null; hours: number; open: boolean }[]
   trackedHours: number
   usedHours: number
@@ -135,6 +138,16 @@ function formatRegisteredHourly(r: ReportRow): string {
   return formatEuroDe(r.registeredHourlyWage)
 }
 
+function formatPlanBreakdownDe(d: DayDetail): string {
+  const vVac = d.plannedPaidVacationHours ?? 0
+  const vOth = d.plannedOtherPaidAbsenceHours ?? 0
+  const parts: string[] = []
+  if (d.scheduledHours > 0) parts.push(`Schicht ${formatHoursDe(d.scheduledHours)}`)
+  if (vVac > 0) parts.push(`Urlaub ${formatHoursDe(vVac)}`)
+  if (vOth > 0) parts.push(`Abw. ${formatHoursDe(vOth)}`)
+  return parts.length ? parts.join(' · ') : formatHoursDe(0)
+}
+
 function sourceLabelDe(s: DaySource): string {
   switch (s) {
     case 'schedule':
@@ -147,6 +160,8 @@ function sourceLabelDe(s: DaySource): string {
       return 'Schichtplan (Fallback)'
     case 'paid_vacation':
       return 'Bezahlter Urlaub'
+    case 'paid_other_absence':
+      return 'Bezahlte Abwesenheit'
     case 'manual_correction':
       return 'Manuell'
     default:
@@ -398,7 +413,9 @@ export function PayrollSummaryPage() {
         const dh = [
           'Datum',
           'Wochentag',
-          'Plan Std.',
+          'Plan Schicht Std.',
+          'Plan Urlaub Std.',
+          'Plan Sonst. Abw. Std.',
           'Erfasst Std.',
           'Verwendet',
           'Differenz',
@@ -413,6 +430,8 @@ export function PayrollSummaryPage() {
               formatYmdDe(d.date),
               d.weekdayDe,
               d.scheduledHours,
+              d.plannedPaidVacationHours ?? 0,
+              d.plannedOtherPaidAbsenceHours ?? 0,
               d.trackedHours,
               d.usedHours,
               d.differenceHours,
@@ -441,7 +460,20 @@ export function PayrollSummaryPage() {
     XLSX.utils.book_append_sheet(wb, ws, 'Übersicht')
     if (rowsForExport.length) {
       const detailRows: (string | number)[][] = [
-        ['Mitarbeiter', 'Datum', 'Wochentag', 'Plan Std.', 'Erfasst Std.', 'Verwendet', 'Differenz', 'Quelle', 'Hinweis', 'Zuschlag €'],
+        [
+          'Mitarbeiter',
+          'Datum',
+          'Wochentag',
+          'Plan Schicht Std.',
+          'Plan Urlaub Std.',
+          'Plan Sonst. Abw. Std.',
+          'Erfasst Std.',
+          'Verwendet',
+          'Differenz',
+          'Quelle',
+          'Hinweis',
+          'Zuschlag €',
+        ],
       ]
       for (const r of rowsForExport) {
         for (const d of r.details) {
@@ -450,6 +482,8 @@ export function PayrollSummaryPage() {
             formatYmdDe(d.date),
             d.weekdayDe,
             d.scheduledHours,
+            d.plannedPaidVacationHours ?? 0,
+            d.plannedOtherPaidAbsenceHours ?? 0,
             d.trackedHours,
             d.usedHours,
             d.differenceHours,
@@ -781,7 +815,7 @@ export function PayrollSummaryPage() {
                       {formatYmdDe(d.date)} · {d.weekdayDe}
                     </span>
                     <span className="text-[var(--text-muted)]">
-                      Plan {formatHoursDe(d.scheduledHours)} · erfasst {formatHoursDe(d.trackedHours)} → verwendet{' '}
+                      Plan {formatPlanBreakdownDe(d)} · erfasst {formatHoursDe(d.trackedHours)} → verwendet{' '}
                       <span className="text-[var(--text-main)]">{formatHoursDe(d.usedHours)}</span>
                     </span>
                     <span className="ml-auto shrink-0 text-xs text-[var(--text-muted)]">{sourceLabelDe(d.source)}</span>
@@ -803,6 +837,19 @@ export function PayrollSummaryPage() {
                       ) : (
                         <div className="text-[var(--text-faint)]">Keine Schicht geplant.</div>
                       )}
+                      {(d.plannedPaidVacationHours ?? 0) > 0 || (d.plannedOtherPaidAbsenceHours ?? 0) > 0 ? (
+                        <div>
+                          <div className="font-medium text-[var(--text-muted)]">Geplante Abwesenheit (Lohn)</div>
+                          <ul className="list-inside list-disc">
+                            {(d.plannedPaidVacationHours ?? 0) > 0 ? (
+                              <li>Bezahlter Urlaub · {formatHoursDe(d.plannedPaidVacationHours ?? 0)}</li>
+                            ) : null}
+                            {(d.plannedOtherPaidAbsenceHours ?? 0) > 0 ? (
+                              <li>Sonstige bezahlte Abwesenheit · {formatHoursDe(d.plannedOtherPaidAbsenceHours ?? 0)}</li>
+                            ) : null}
+                          </ul>
+                        </div>
+                      ) : null}
                       <div>
                         <div className="font-medium text-[var(--text-muted)]">Zeiterfassung</div>
                         {d.timeEntries.length ? (

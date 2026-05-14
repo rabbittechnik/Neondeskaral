@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useStation } from '../../context/station-context'
-import { useTabletTerminal, tabletGet } from '../../context/tablet-terminal-context'
+import { useTabletTerminal, tabletGet, type TabletRunningRow } from '../../context/tablet-terminal-context'
 import { calculateWorkedMinutes, formatWorkedDuration } from '../../utils/timeTrackingUtils'
 import type { TimeEntry } from '../../types/timeTracking'
 import type { CashRegisterCardEvent } from '../../types/timeTracking'
@@ -71,7 +71,16 @@ type CheckoutEndConfirm = {
   plannedEnd: string
   actualEnd: string
   deviationMinutes: number
+  /** Server: `early_end` | `late_end` */
+  endDeviationReason?: string
   message: string
+}
+
+/** Anzeige „seit 07:29 Uhr“ für Tablet-Anwesenheit (lokale Uhrzeit). */
+function formatSinceClockDe(iso: string): string | null {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return null
+  return d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
 }
 
 /** Erste heutige Schicht-ID für Plan-Verknüpfung (wenn kein Vorschlags-shiftId). */
@@ -97,13 +106,13 @@ export function StaffTerminalPage() {
     shifts,
     workAreas,
     runningPresence,
-    tasks,
-    taskLogs,
+    tasksByEmployee,
     error,
     tabletToken,
     refetch,
     refetchRunning,
-    refetchTasks,
+    syncTabletRunningAndTasks,
+    refetchTasksForRunning,
     completeShiftWithChecklist,
     completeTask,
     fetchFuelPrices,
@@ -131,7 +140,12 @@ export function StaffTerminalPage() {
   }, [tab, showRadioTab])
 
   const [weekMonday, setWeekMonday] = useState(() => startOfWeekMonday(new Date()))
-  const [taskConfirm, setTaskConfirm] = useState<{ task: Task; comment: string } | null>(null)
+  const [taskConfirm, setTaskConfirm] = useState<{
+    task: Task
+    comment: string
+    employeeId: string
+    displayName: string
+  } | null>(null)
 
   const [modal, setModal] = useState<ModalMode>(null)
   const [checkInApiConfirm, setCheckInApiConfirm] = useState<CheckInApiConfirm | null>(null)
@@ -146,7 +160,7 @@ export function StaffTerminalPage() {
   const [checkoutBlockingTasks, setCheckoutBlockingTasks] = useState<Task[]>([])
   const [checkoutHandoverUiMode, setCheckoutHandoverUiMode] = useState<'midday_standard_collective' | undefined>(undefined)
   const [checkoutMiddayBullets, setCheckoutMiddayBullets] = useState<string[]>([])
-  const [inSuccess, setInSuccess] = useState<{ name: string; time: string } | null>(null)
+  const [inSuccess, setInSuccess] = useState<{ name: string; time: string; employeeId: string } | null>(null)
   const [outSuccess, setOutSuccess] = useState<{ name: string; end: string; dur: string } | null>(null)
   const [checkoutEndConfirm, setCheckoutEndConfirm] = useState<CheckoutEndConfirm | null>(null)
   const [checkoutStartBusy, setCheckoutStartBusy] = useState(false)
@@ -327,14 +341,30 @@ export function StaffTerminalPage() {
     [shifts],
   )
 
-  const activeTaskEmployeeId = runningPresence[0]?.employeeId ?? null
-  const activeTaskEmployeeName =
-    employees.find((e) => e.id === activeTaskEmployeeId)?.displayName ?? runningPresence[0]?.displayName ?? null
+  const sortedPresenceForTasks = useMemo(() => {
+    return [...runningPresence].sort(
+      (a, b) => a.startAt.localeCompare(b.startAt) || a.displayName.localeCompare(b.displayName, 'de'),
+    )
+  }, [runningPresence])
 
   useEffect(() => {
     if (tab !== 'tasks') return
-    void refetchTasks(activeTaskEmployeeId)
-  }, [tab, activeTaskEmployeeId, refetchTasks])
+    void syncTabletRunningAndTasks()
+  }, [tab, syncTabletRunningAndTasks])
+
+  useEffect(() => {
+    if (tab !== 'tasks') return
+    void refetchTasksForRunning(runningPresence)
+  }, [runningPresence, tab, refetchTasksForRunning])
+
+  const runningPresenceTasksRef = useRef<TabletRunningRow[]>(runningPresence)
+  runningPresenceTasksRef.current = runningPresence
+
+  useEffect(() => {
+    if (tab !== 'tasks') return
+    const id = window.setInterval(() => void refetchTasksForRunning(runningPresenceTasksRef.current), 30_000)
+    return () => window.clearInterval(id)
+  }, [tab, refetchTasksForRunning])
 
   const workAreaLabel = useCallback(
     (id: string) => workAreas.find((w) => w.id === id)?.name ?? id,
@@ -433,7 +463,7 @@ export function StaffTerminalPage() {
       const t = new Date(entry.startAt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
       setCheckInApiConfirm(null)
       setModal(null)
-      setInSuccess({ name: emp?.displayName ?? 'Mitarbeiter', time: t })
+      setInSuccess({ name: emp?.displayName ?? 'Mitarbeiter', time: t, employeeId: empTrim })
       if (out.bakingNotice?.timeEntryId && ((out.bakingNotice.items?.length ?? 0) > 0 || out.bakingNotice.routineId)) {
         const bn = out.bakingNotice
         setTerminalBakingNotice({
@@ -458,7 +488,6 @@ export function StaffTerminalPage() {
         setTerminalBakingNotice(null)
         setTerminalBakingOpen(false)
       }
-      void refetchTasks(empTrim)
       void refetchRunning()
       setTab('tasks')
       window.setTimeout(() => setInSuccess(null), 28_000)
@@ -741,18 +770,20 @@ export function StaffTerminalPage() {
               >
                 <div className="mt-3 max-h-[40vh] space-y-2 overflow-y-auto text-left text-sm text-[var(--text-muted)]">
                   <p className="font-medium text-emerald-100">Aufgaben für heute</p>
-                  {tasks.length === 0 ? (
+                  {(() => {
+                    const bundle = tasksByEmployee[inSuccess.employeeId] ?? { tasks: [], taskLogs: [] }
+                    return bundle.tasks.length === 0 ? (
                     <p>
-                      Für deine Schicht sind keine zusätzlichen Aufgaben eingetragen. Bitte normalen Ablauf und Abschlusscheck
-                      beachten.
+                      Aktuell keine zusätzlichen Aufgaben. Normale Schichtaufgaben und Abschlusscheck bleiben bestehen.
                     </p>
                   ) : (
                     <ul className="list-inside list-disc space-y-1">
-                      {tasks.slice(0, 12).map((t) => (
+                      {bundle.tasks.slice(0, 12).map((t) => (
                         <li key={t.id}>{t.title}</li>
                       ))}
                     </ul>
-                  )}
+                  )
+                  })()}
                 </div>
                 <Button variant="ghost" type="button" onClick={() => setInSuccess(null)}>
                   Schließen
@@ -810,54 +841,104 @@ export function StaffTerminalPage() {
       ) : null}
 
       {tab === 'tasks' ? (
-        <div className="mx-auto mt-8 w-full max-w-4xl px-2">
-          <h2 className="text-center text-xl font-semibold text-[var(--text-main)] sm:text-2xl">
-            {activeTaskEmployeeName ? `Aufgaben für ${activeTaskEmployeeName} heute` : 'Aufgaben'}
-          </h2>
-          {!activeTaskEmployeeId && tasks.length > 0 ? (
-            <p className="mt-4 text-center text-sm text-[var(--text-muted)]">
-              Allgemeine Stationsaufgaben. Zum Abhaken persönlicher Aufgaben bitte zuerst einstempeln.
-            </p>
-          ) : null}
-          {!activeTaskEmployeeId && tasks.length === 0 ? (
-            <p className="mt-4 text-center text-sm text-[var(--text-muted)]">
-              Bitte einstempeln, um Aufgaben für deine Schicht zu sehen.
-            </p>
-          ) : null}
-          {tasks.length === 0 ? (
-            <p className="mt-6 text-center text-[var(--text-muted)]">Aktuell keine zusätzlichen Aufgaben.</p>
+        <div className="mx-auto mt-8 w-full max-w-6xl px-3 pb-8">
+          <h2 className="text-center text-xl font-semibold text-[var(--text-main)] sm:text-2xl">Aufgaben</h2>
+          <p className="mt-2 text-center text-sm text-[var(--text-muted)]">
+            Pro eingestempeltem Mitarbeiter nur die zugehörigen Aufgaben (Schichtabschluss separat beim Ausstempeln).
+          </p>
+
+          {sortedPresenceForTasks.length === 0 ? (
+            <p className="mt-10 text-center text-lg text-[var(--text-muted)]">Aktuell ist kein Mitarbeiter eingestempelt.</p>
           ) : (
-            <ul className="mt-6 space-y-4">
-              {tasks.map((t) => {
-                const st = getTaskStatusForDate(t, taskLogs, toISODateLocal(new Date()))
-                const done = st === 'erledigt' || st === 'kontrolliert'
-                const timing = taskDisplayTimingLine(t)
+            <div
+              className={`task-presence-grid mt-8 grid w-full gap-4 ${
+                sortedPresenceForTasks.length === 1 ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2'
+              }`}
+            >
+              {sortedPresenceForTasks.map((row) => {
+                const bundle = tasksByEmployee[row.employeeId] ?? { tasks: [], taskLogs: [] }
+                const emp = employees.find((e) => e.id === row.employeeId)
+                const displayName = emp?.displayName ?? row.displayName
+                const roleLabel = (emp?.role ?? emp?.employmentRole)?.trim() || null
+                const since = formatSinceClockDe(row.startAt)
+                const todayYmd = toISODateLocal(new Date())
+                let openCt = 0
+                let doneCt = 0
+                for (const t of bundle.tasks) {
+                  const st = getTaskStatusForDate(t, bundle.taskLogs, todayYmd)
+                  const isDone = st === 'erledigt' || st === 'kontrolliert'
+                  if (isDone) doneCt += 1
+                  else openCt += 1
+                }
                 return (
-                  <li
-                    key={t.id}
-                    className="rounded-2xl border border-white/10 bg-black/25 p-4 sm:flex sm:items-start sm:justify-between sm:gap-4"
+                  <section
+                    key={`${row.employeeId}-${row.id}`}
+                    className="flex min-h-0 min-w-0 flex-col rounded-2xl border border-cyan-500/25 bg-black/35 p-4 shadow-[0_0_24px_rgba(34,211,238,0.08)] sm:p-5"
                   >
-                    <div>
-                      <p className="text-lg font-semibold text-[var(--text-main)]">{t.title}</p>
-                      <p className="mt-1 text-sm text-[var(--text-muted)]">
-                        {timing ? `${timing} · ` : ''}
-                        {workAreaLabel(t.workAreaId)} · Pflicht: {t.mandatory ? 'ja' : 'nein'}
+                    <header className="border-b border-white/10 pb-3">
+                      <h3 className="text-lg font-semibold leading-snug text-cyan-50 sm:text-xl">
+                        Aufgaben für {displayName} heute
+                      </h3>
+                      {since ? (
+                        <p className="mt-1 text-sm text-[var(--text-muted)]">Eingestempelt seit {since} Uhr</p>
+                      ) : null}
+                      {roleLabel ? <p className="mt-1 text-sm text-[var(--text-faint)]">{roleLabel}</p> : null}
+                      <p className="mt-2 text-sm text-[var(--text-muted)]">
+                        Offen: {openCt} · Erledigt: {doneCt}
                       </p>
-                      <p className="mt-1 text-sm text-[var(--text-faint)]">Status: {st ?? '—'}</p>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="primary"
-                      className="mt-3 shrink-0 sm:mt-0"
-                      disabled={!activeTaskEmployeeId || done}
-                      onClick={() => setTaskConfirm({ task: t, comment: '' })}
-                    >
-                      Erledigt markieren
-                    </Button>
-                  </li>
+                    </header>
+
+                    {bundle.tasks.length === 0 ? (
+                      <div className="mt-4 text-center text-[var(--text-muted)]">
+                        <p>Aktuell keine zusätzlichen Aufgaben.</p>
+                        <p className="mt-2 text-sm text-[var(--text-faint)]">
+                          Normale Schichtaufgaben und Abschlusscheck bleiben bestehen.
+                        </p>
+                      </div>
+                    ) : (
+                      <ul className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto">
+                        {bundle.tasks.map((t) => {
+                          const st = getTaskStatusForDate(t, bundle.taskLogs, todayYmd)
+                          const done = st === 'erledigt' || st === 'kontrolliert'
+                          const timing = taskDisplayTimingLine(t)
+                          return (
+                            <li
+                              key={t.id}
+                              className="rounded-2xl border border-white/10 bg-black/25 p-4 sm:flex sm:items-start sm:justify-between sm:gap-4"
+                            >
+                              <div className="min-w-0">
+                                <p className="text-lg font-semibold text-[var(--text-main)]">{t.title}</p>
+                                <p className="mt-1 text-sm text-[var(--text-muted)]">
+                                  {timing ? `${timing} · ` : ''}
+                                  {workAreaLabel(t.workAreaId)} · Pflicht: {t.mandatory ? 'ja' : 'nein'}
+                                </p>
+                                <p className="mt-1 text-sm text-[var(--text-faint)]">Status: {st ?? '—'}</p>
+                              </div>
+                              <Button
+                                type="button"
+                                variant="primary"
+                                className="mt-3 shrink-0 sm:mt-0"
+                                disabled={done}
+                                onClick={() =>
+                                  setTaskConfirm({
+                                    task: t,
+                                    comment: '',
+                                    employeeId: row.employeeId,
+                                    displayName,
+                                  })
+                                }
+                              >
+                                Erledigt markieren
+                              </Button>
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    )}
+                  </section>
                 )
               })}
-            </ul>
+            </div>
           )}
         </div>
       ) : null}
@@ -874,6 +955,7 @@ export function StaffTerminalPage() {
             <h2 className="text-lg font-semibold text-[var(--text-main)]">Aufgabe erledigt?</h2>
             <p className="mt-2 text-sm text-[var(--text-muted)]">Bestätigst du, dass du diese Aufgabe erledigt hast?</p>
             <p className="mt-3 text-sm font-medium text-cyan-100">{taskConfirm.task.title}</p>
+            <p className="mt-1 text-sm text-[var(--text-muted)]">Für: {taskConfirm.displayName}</p>
             <label className="mt-4 block text-sm text-[var(--text-muted)]">
               Bemerkung (optional)
               <textarea
@@ -893,15 +975,16 @@ export function StaffTerminalPage() {
                 className="flex-1"
                 onClick={() => {
                   void (async () => {
-                    if (!activeTaskEmployeeId || !activeTaskEmployeeName) {
+                    const { employeeId, displayName } = taskConfirm
+                    if (!employeeId.trim()) {
                       window.alert('Bitte zuerst einstempeln.')
                       return
                     }
                     try {
                       await completeTask(taskConfirm.task.id, {
                         date: toISODateLocal(new Date()),
-                        employeeId: activeTaskEmployeeId,
-                        displayName: activeTaskEmployeeName,
+                        employeeId,
+                        displayName,
                         comment: taskConfirm.comment.trim() || undefined,
                       })
                       setTaskConfirm(null)
@@ -973,7 +1056,13 @@ export function StaffTerminalPage() {
                 <span className="text-[var(--text-faint)]">Aktuell:</span> {checkoutEndConfirm.actualEnd} Uhr
               </p>
               <p>
-                <span className="text-[var(--text-faint)]">Differenz:</span> {checkoutEndConfirm.deviationMinutes} Minuten
+                <span className="text-[var(--text-faint)]">Differenz:</span>{' '}
+                {checkoutEndConfirm.deviationMinutes} Minuten{' '}
+                {checkoutEndConfirm.endDeviationReason === 'late_end'
+                  ? 'später'
+                  : checkoutEndConfirm.endDeviationReason === 'early_end'
+                    ? 'früher'
+                    : ''}
               </p>
             </div>
             <div className="mt-5 flex flex-wrap gap-2">
@@ -1080,8 +1169,28 @@ export function StaffTerminalPage() {
                   plannedEnd: String(d.plannedEnd ?? ''),
                   actualEnd: String(d.actualEnd ?? ''),
                   deviationMinutes: Number(d.deviationMinutes ?? 0),
+                  endDeviationReason: typeof d.reason === 'string' ? d.reason : undefined,
                   message: String(d.message ?? ''),
                 })
+                const clientNowIso = new Date().toISOString()
+                if (import.meta.env.DEV) {
+                  console.info('[tablet checkout end confirm]', {
+                    employeeName: displayName,
+                    timeEntryClockInAt: entry.startAt,
+                    plannedEndHm: d.plannedEnd,
+                    actualEndHmFromServer: d.actualEnd,
+                    deviationMinutes: d.deviationMinutes,
+                    reason: d.reason,
+                    clientNowIso,
+                    clientNowHmBerlin: new Intl.DateTimeFormat('de-DE', {
+                      timeZone: 'Europe/Berlin',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      hour12: false,
+                    }).format(new Date()),
+                    stationTimezone: 'Europe/Berlin',
+                  })
+                }
                 return
               }
               window.alert(err instanceof Error ? err.message : 'Ausstempeln fehlgeschlagen')

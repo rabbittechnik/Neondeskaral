@@ -503,7 +503,7 @@ export function applyScheduleSuggestions(db: Database, body: ApplyBody) {
       s.date,
       s.startTime,
       s.endTime,
-      30,
+      0,
       s.shiftType,
       'schedule_assistant',
       ts,
