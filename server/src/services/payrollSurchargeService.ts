@@ -184,7 +184,12 @@ function shiftEndYmd(shiftDate: string, startTime: string, endTime: string): str
 
 /**
  * Zuschläge für eine **geplante** Schicht: Uhrzeit immer als Europe/Berlin (nicht Server-TZ).
- * Kumuliert Nacht + Samstag + Sonntag + Feiertag + besondere Feiertage (Summe der Sätze).
+ *
+ * **Sonntag + gesetzlicher Feiertag:** Samstags-, Sonntags-, Feiertags- und Nachtanteile werden hier
+ * **additiv** je 5-Minuten-Scheibe aufsummiert (Feiertag ersetzt den Sonntagssatz dabei nicht automatisch).
+ * Das weicht von der Zeiterfassungslogik ab und ist bewusst so dokumentiert.
+ *
+ * Nachtzuschlag und 0–4-Uhr-Zuschläge werden zusätzlich berechnet, sofern Profilwerte > 0.
  */
 export function computeScheduleShiftSupplementEuros(opts: {
   emp: EmployeeSurchargeFields
@@ -333,6 +338,11 @@ export function computeScheduleShiftSupplementEuros(opts: {
 /**
  * Zuschläge in EUR für einen freigegebenen Zeiteintrag (Stundenlohn × Prozentsatz je Zeitscheibe).
  * Aushilfen, Minijobber und geringfügig Beschäftigte: immer 0. Modus „Keine Zuschläge“ (none): 0. Sonst Profil-Prozente (individual / tax_free …).
+ *
+ * **Sonntag + Feiertag:** Pro Scheibe werden die anwendbaren Sätze (Samstag, Sonntag, Feiertag, besonderer Feiertag, Nacht, 0–4-Uhr)
+ * gesammelt; der effektive Prozentsatz ist standardmäßig **`Math.max(...)`** (`surcharge_calculation_mode` ≠ stack/add/summe),
+ * d. h. Feiertag/besonderer Feiertag **verdrängt** den niedrigeren Sonntagssatz, kein Doppelzuschlag aus beiden.
+ * Ausnahme: Profil `surcharge_calculation_mode` = stack/add/summe → Summe der Sätze.
  */
 export function computeSupplementEurosForTimeEntry(opts: {
   employmentType: string

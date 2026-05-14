@@ -10,6 +10,7 @@ import {
   calculatePayrollTimeTrackingReport,
   listPayrollTimeEntryDetails,
 } from '../services/payrollReportService.js'
+import { buildPayrollValidationReport } from '../services/payrollCalculationService.js'
 
 export const reportsRouter = Router()
 
@@ -107,6 +108,29 @@ reportsRouter.get('/payroll-combined', (req, res) => {
       toDate: to,
       employmentFilter: employmentType,
       employeeIds,
+    })
+    jsonOk(res, data)
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
+  }
+})
+
+reportsRouter.get('/payroll-validation', (req, res) => {
+  try {
+    const stationId = typeof req.query.stationId === 'string' ? req.query.stationId : undefined
+    if (!requireAnyPermission(req, res, stationId, PAYROLL_TIME_KEYS)) return
+    const from = typeof req.query.from === 'string' ? req.query.from.trim() : ''
+    const to = typeof req.query.to === 'string' ? req.query.to.trim() : ''
+    if (!from || !to) {
+      jsonErr(res, 'from und to (YYYY-MM-DD) erforderlich', 400)
+      return
+    }
+    const employmentType = typeof req.query.employmentType === 'string' ? req.query.employmentType : undefined
+    const data = buildPayrollValidationReport(getDb(), {
+      stationId: stationId!,
+      fromDate: from,
+      toDate: to,
+      employmentFilter: employmentType,
     })
     jsonOk(res, data)
   } catch (e) {
