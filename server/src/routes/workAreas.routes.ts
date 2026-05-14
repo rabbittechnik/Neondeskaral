@@ -10,7 +10,8 @@ workAreasRouter.get('/', (req, res) => {
   try {
     const stationId = typeof req.query.stationId === 'string' ? req.query.stationId : undefined
     if (!requirePermission(req, res, stationId, 'settings.view')) return
-    jsonOk(res, workAreaService.listWorkAreas(getDb(), stationId!))
+    const includeInactive = String(req.query.includeInactive ?? '') === 'true'
+    jsonOk(res, workAreaService.listWorkAreas(getDb(), stationId!, { includeInactive }))
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
   }

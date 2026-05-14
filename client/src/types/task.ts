@@ -60,6 +60,8 @@ export type Task = {
 export type TaskLog = {
   id: string
   taskId: string
+  /** Mitarbeiter, dem der Log-Eintrag zugeordnet ist (Tablet/Schichtabschluss). */
+  employeeId?: string
   date: string
   status: TaskStatus
   confirmedAt?: string

@@ -60,14 +60,15 @@ export function checkAbsenceConflicts(
 
   for (const vb of ctx.vacationBlocks) {
     if (!vb.active) continue
-    const overlap =
-      draft.startDate <= vb.endDate &&
-      draft.endDate >= vb.startDate &&
-      emp.workAreaIds.some((wid) => vb.workAreaIds.includes(wid))
-    if (overlap) {
+    if (draft.type !== 'paid_vacation') continue
+    const overlap = draft.startDate <= vb.endDate && draft.endDate >= vb.startDate
+    if (!overlap) continue
+    const blockAreas = vb.workAreaIds ?? []
+    const blockApplies = blockAreas.length === 0 || emp.workAreaIds.some((wid) => blockAreas.includes(wid))
+    if (blockApplies) {
       warnings.push({
         id: `vb-${vb.id}`,
-        message: `Zeitraum liegt in Urlaubssperre „${vb.title}“ (${vb.startDate} – ${vb.endDate}).`,
+        message: `Für diesen Zeitraum ist eine Urlaubssperre aktiv („${vb.title}“, ${vb.startDate} – ${vb.endDate}).`,
       })
       break
     }

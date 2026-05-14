@@ -84,7 +84,7 @@ export function getUserDisplayName(db: Database, userId: string): string {
 export function buildAuthMeUser(db: Database, userId: string) {
   const row = db
     .prepare(
-      `SELECT u.id, u.username, u.display_name, u.role_id,
+      `SELECT u.id, u.username, u.display_name, u.email, u.phone, u.role_id,
               r.role_key as role_key, r.role_label as role_label
        FROM users u
        LEFT JOIN roles r ON r.id = u.role_id
@@ -95,6 +95,8 @@ export function buildAuthMeUser(db: Database, userId: string) {
         id: string
         username: string | null
         display_name: string | null
+        email: string | null
+        phone: string | null
         role_id: string | null
         role_key: string | null
         role_label: string | null
@@ -130,6 +132,8 @@ export function buildAuthMeUser(db: Database, userId: string) {
     id: row.id,
     username: row.username ?? '',
     displayName: row.display_name ?? '',
+    email: row.email?.trim() || '',
+    phone: row.phone?.trim() || '',
     roleId: row.role_id ?? '',
     roleKey,
     roleLabel,
@@ -177,4 +181,37 @@ export function loginAdminUser(
     token,
     user,
   }
+}
+
+export function updateAdminUserProfile(
+  db: Database,
+  userId: string,
+  body: Record<string, unknown>,
+) {
+  const row = db.prepare(`SELECT * FROM users WHERE id = ?`).get(userId) as AuthUserRow | undefined
+  if (!row) throw new Error('Benutzer nicht gefunden')
+  const ts = nowIso()
+  if (String(body.newPassword ?? '').trim()) {
+    const cur = String(body.currentPassword ?? '')
+    if (!verifyPassword(row, cur)) throw new Error('Aktuelles Passwort ist falsch')
+    const hash = bcrypt.hashSync(String(body.newPassword), 10)
+    db.prepare(`UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?`).run(hash, ts, userId)
+  }
+  if (body.displayName !== undefined || body.email !== undefined || body.phone !== undefined) {
+    db.prepare(
+      `UPDATE users SET
+        display_name = COALESCE(?, display_name),
+        email = COALESCE(?, email),
+        phone = COALESCE(?, phone),
+        updated_at = ?
+      WHERE id = ?`,
+    ).run(
+      body.displayName != null ? String(body.displayName) : null,
+      body.email !== undefined ? (body.email == null ? null : String(body.email)) : null,
+      body.phone !== undefined ? (body.phone == null ? null : String(body.phone)) : null,
+      ts,
+      userId,
+    )
+  }
+  return buildAuthMeUser(db, userId)
 }

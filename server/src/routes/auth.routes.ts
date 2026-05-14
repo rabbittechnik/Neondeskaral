@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { getDb } from '../db/database.js'
 import { jsonErr, jsonOk } from '../utils/http.js'
-import { loginAdminUser, buildAuthMeUser, findUserByUsername } from '../services/authService.js'
+import { loginAdminUser, buildAuthMeUser, findUserByUsername, updateAdminUserProfile } from '../services/authService.js'
 import { appendUserAudit } from '../services/userAuditLogService.js'
 
 export const authRouter = Router()
@@ -43,4 +43,21 @@ authRouter.get('/me', (req, res) => {
     return
   }
   jsonOk(res, me)
+})
+
+authRouter.put('/me', (req, res) => {
+  if (!req.adminUser) {
+    jsonErr(res, 'Nicht angemeldet', 401)
+    return
+  }
+  try {
+    const me = updateAdminUserProfile(getDb(), req.adminUser.sub, (req.body ?? {}) as Record<string, unknown>)
+    if (!me) {
+      jsonErr(res, 'Benutzer nicht gefunden', 404)
+      return
+    }
+    jsonOk(res, me)
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
+  }
 })

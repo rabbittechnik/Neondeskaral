@@ -48,12 +48,30 @@ export function stationHasHistoricalData(db: Database, stationId: string): boole
     one(`SELECT COUNT(*) as c FROM station_tablet_devices WHERE station_id = ?`) ||
     one(`SELECT COUNT(*) as c FROM card_entry_events WHERE station_id = ?`) ||
     one(`SELECT COUNT(*) as c FROM vacation_blocks WHERE station_id = ?`) ||
+    one(`SELECT COUNT(*) as c FROM station_extra_holidays WHERE station_id = ?`) ||
+    one(`SELECT COUNT(*) as c FROM station_announcements WHERE station_id = ?`) ||
     one(`SELECT COUNT(*) as c FROM employee_shift_warnings WHERE station_id = ?`) ||
     one(`SELECT COUNT(*) as c FROM shift_checklist_review_items WHERE station_id = ?`)
   )
 }
 
 function purgeStationData(db: Database, stationId: string) {
+  db.prepare(`DELETE FROM station_meter_readings WHERE station_id = ?`).run(stationId)
+  db.prepare(`DELETE FROM station_meters WHERE station_id = ?`).run(stationId)
+  db.prepare(`DELETE FROM station_org_contacts WHERE station_id = ?`).run(stationId)
+  db.prepare(`DELETE FROM station_calendar_events WHERE station_id = ?`).run(stationId)
+  db.prepare(`DELETE FROM station_org_list_items WHERE list_id IN (SELECT id FROM station_org_lists WHERE station_id = ?)`).run(
+    stationId,
+  )
+  db.prepare(`DELETE FROM station_org_lists WHERE station_id = ?`).run(stationId)
+  db.prepare(`DELETE FROM station_chat_group_members WHERE group_id IN (SELECT id FROM station_chat_groups WHERE station_id = ?)`).run(
+    stationId,
+  )
+  db.prepare(`DELETE FROM station_chat_groups WHERE station_id = ?`).run(stationId)
+  db.prepare(`DELETE FROM station_announcements WHERE station_id = ?`).run(stationId)
+  db.prepare(`DELETE FROM station_extra_holidays WHERE station_id = ?`).run(stationId)
+  db.prepare(`DELETE FROM account_billing_documents WHERE station_id = ?`).run(stationId)
+  db.prepare(`DELETE FROM account_invoices WHERE station_id = ?`).run(stationId)
   db.prepare(`DELETE FROM task_logs WHERE task_id IN (SELECT id FROM tasks WHERE station_id = ?)`).run(stationId)
   db.prepare(`DELETE FROM tasks WHERE station_id = ?`).run(stationId)
   db.prepare(
@@ -233,6 +251,26 @@ export function updateStation(db: Database, id: string, body: Record<string, unk
       raw == null || (typeof raw === 'string' && raw.trim() === '') ? null : String(raw).trim(),
     )
   }
+  if (body.timezone !== undefined) set('timezone', body.timezone == null ? 'Europe/Berlin' : String(body.timezone).trim() || 'Europe/Berlin')
+  if (body.fuelPriceRefreshMinutes !== undefined) {
+    const n = Number(body.fuelPriceRefreshMinutes)
+    set('fuel_price_refresh_minutes', Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1)
+  }
+  if (body.tabletSettingsJson !== undefined) {
+    set('tablet_settings_json', body.tabletSettingsJson == null ? null : String(body.tabletSettingsJson))
+  }
+  if (body.backshopRulesJson !== undefined) {
+    set('backshop_rules_json', body.backshopRulesJson == null ? null : String(body.backshopRulesJson))
+  }
+  if (body.automaticBreakDeduction !== undefined) {
+    const a = body.automaticBreakDeduction
+    const num = typeof a === 'boolean' ? (a ? 1 : 0) : Number(a)
+    set('automatic_break_deduction', Number.isFinite(num) ? num : 0)
+  }
+  if (body.defaultBreakMinutes !== undefined) {
+    const n = Number(body.defaultBreakMinutes)
+    set('default_break_minutes', Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0)
+  }
   if (body.standardWorkTimesJson !== undefined) {
     set(
       'standard_work_times_json',
@@ -257,7 +295,7 @@ export function updateStation(db: Database, id: string, body: Record<string, unk
     if (line || body.street !== undefined || body.houseNumber !== undefined) set('address', line || null)
   }
 
-  if (setPart.length === 0 && !Object.prototype.hasOwnProperty.call(body, 'tankerkoenigStationId')) {
+  if (setPart.length === 0) {
     return row
   }
 

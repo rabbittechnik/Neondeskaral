@@ -49,7 +49,7 @@ export function TaskLogsHistoryTable({ logs, tasks, employees }: Props) {
               <td className="px-3 py-2 whitespace-nowrap text-[var(--text-main)]">{l.date}</td>
               <td className="px-3 py-2 text-[var(--text-main)]">{taskTitle.get(l.taskId) ?? l.taskId}</td>
               <td className="px-3 py-2 text-[var(--text-muted)]">{l.status}</td>
-              <td className="px-3 py-2 text-[var(--text-muted)]">{empName(l.confirmedBy)}</td>
+              <td className="px-3 py-2 text-[var(--text-muted)]">{empName(l.employeeId ?? l.confirmedBy)}</td>
               <td className="px-3 py-2 text-xs text-[var(--text-muted)]">
                 {l.confirmedAt ? l.confirmedAt.slice(0, 16).replace('T', ' ') : '—'}
                 {l.controlledAt ? ` · K: ${l.controlledAt.slice(0, 16).replace('T', ' ')}` : ''}

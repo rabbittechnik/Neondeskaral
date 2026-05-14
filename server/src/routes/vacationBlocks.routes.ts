@@ -15,7 +15,8 @@ vacationBlocksRouter.get('/', (req, res) => {
   try {
     const stationId = typeof req.query.stationId === 'string' ? req.query.stationId : undefined
     if (!requirePermission(req, res, stationId, 'absences.view')) return
-    jsonOk(res, vacationBlockService.listVacationBlocks(getDb(), stationId!))
+    const includeInactive = String(req.query.includeInactive ?? '') === 'true'
+    jsonOk(res, vacationBlockService.listVacationBlocks(getDb(), stationId!, includeInactive))
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
   }

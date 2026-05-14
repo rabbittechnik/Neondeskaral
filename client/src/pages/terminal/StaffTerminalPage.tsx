@@ -734,7 +734,7 @@ export function StaffTerminalPage() {
     if (earlyLeaveReason === 'other' && !earlyLeaveNote.trim()) return
     setCheckoutEarlyBusy(true)
     try {
-      const te = await completeShiftWithChecklist(
+      await completeShiftWithChecklist(
         checkoutEarlyLeave.timeEntryId,
         checkoutEarlyLeave.checklist,
         undefined,

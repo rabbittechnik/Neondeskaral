@@ -12,6 +12,8 @@ import {
   type EmployeeSurchargeFields,
   type ScheduleShiftSurchargeDebug,
 } from './payrollSurchargeService.js'
+import { buildStationHolidayOverlay } from './stationExtraHolidayService.js'
+import type { StationHolidayOverlay } from '../types/stationHolidayOverlay.js'
 import { employmentTypeSubjectToStatutoryMinimum, getEffectiveHourlyRate } from './statutoryMinWageService.js'
 import { listShifts } from './shiftService.js'
 import { eachYmdInRangeInclusive, netHoursByBerlinYmdInRange, berlinYmdFromMs } from '../utils/berlinCalendarWorkHours.js'
@@ -274,6 +276,7 @@ export function calculatePayrollTimeTrackingReport(
   if (!station) throw new Error('Station nicht gefunden')
 
   const federalState = String(station.federal_state ?? 'BW').toUpperCase() as GermanState
+  const holidayOverlay = buildStationHolidayOverlay(db, stationId)
   const todayYmd = todayIso()
 
   const employees = db
@@ -362,6 +365,7 @@ export function calculatePayrollTimeTrackingReport(
         endIso: te.end_at,
         breakMinutes: te.break_minutes ?? 0,
         federalState,
+        holidayOverlay,
       })
     }
     totalHours = Math.round(totalHours * 100) / 100
@@ -429,6 +433,7 @@ export function calculatePayrollTimeTrackingReport(
       fromDate,
       toDate,
       federalState,
+      holidayOverlay,
       employmentType,
       employmentRole: String(R.employment_role ?? ''),
       vacHpdDefault: vacHpdDefaultTt,
@@ -536,6 +541,7 @@ export function calculatePayrollScheduleReport(
   if (!station) throw new Error('Station nicht gefunden')
 
   const federalState = String(station.federal_state ?? 'BW').toUpperCase() as GermanState
+  const holidayOverlay = buildStationHolidayOverlay(db, stationId)
   const todayYmd = todayIso()
 
   const employees = db
@@ -616,6 +622,7 @@ export function calculatePayrollScheduleReport(
         endTime: s.endTime,
         breakMinutes: s.breakMinutes ?? 0,
         federalState,
+        holidayOverlay,
         employeeId,
         employeeName: emp.display_name,
         debug: dbg,
@@ -638,8 +645,8 @@ export function calculatePayrollScheduleReport(
           hoursNet: h,
           isSunday: wd0 === 0,
           isSaturday: wd0 === 6,
-          isPublicHoliday: isGermanPublicHolidayYmd(s.date, federalState),
-          holidayName: publicHolidayNameDe(s.date, federalState),
+          isPublicHoliday: isGermanPublicHolidayYmd(s.date, federalState, holidayOverlay),
+          holidayName: publicHolidayNameDe(s.date, federalState, holidayOverlay),
           isSpecialHolidayTier: false,
           hourlyRate: Math.max(0, wageForSupplements),
           holidayBonusPercentApplied: 0,
@@ -723,6 +730,7 @@ export function calculatePayrollScheduleReport(
       fromDate,
       toDate,
       federalState,
+      holidayOverlay,
       employmentType,
       employmentRole: String(R.employment_role ?? ''),
       vacHpdDefault,
@@ -827,6 +835,7 @@ export function buildSchedulePayrollDetailLines(p: {
   fromDate: string
   toDate: string
   federalState: GermanState
+  holidayOverlay?: StationHolidayOverlay | null
   employmentType: string
   employmentRole: string
   vacHpdDefault: number | null
@@ -863,7 +872,9 @@ export function buildSchedulePayrollDetailLines(p: {
       .trim()
     if (st === 'frei') continue
     const h = shiftNetHoursFromPlan(s.date, s.startTime, s.endTime, s.breakMinutes ?? 0)
-    const feiertag = isGermanPublicHolidayYmd(s.date, p.federalState) ? publicHolidayNameDe(s.date, p.federalState) : ''
+    const feiertag = isGermanPublicHolidayYmd(s.date, p.federalState, p.holidayOverlay ?? null)
+      ? publicHolidayNameDe(s.date, p.federalState, p.holidayOverlay ?? null)
+      : ''
     const { sat, sun } = weekdayShortFlags(s.date)
     const area = p.workAreaNameById.get(String(s.workAreaId ?? ''))?.trim() || 'Schicht'
     const note = String(s.note ?? '').trim()
@@ -888,7 +899,9 @@ export function buildSchedulePayrollDetailLines(p: {
     const vh = vacByYmd.get(ymd) ?? 0
     if (vh <= 0) continue
     const { sat, sun } = weekdayShortFlags(ymd)
-    const hol = isGermanPublicHolidayYmd(ymd, p.federalState) ? publicHolidayNameDe(ymd, p.federalState) : ''
+    const hol = isGermanPublicHolidayYmd(ymd, p.federalState, p.holidayOverlay ?? null)
+      ? publicHolidayNameDe(ymd, p.federalState, p.holidayOverlay ?? null)
+      : ''
     lines.push({
       date: ymd,
       weekdayDe: weekdayDeLongEuropeBerlin(ymd),
@@ -927,7 +940,9 @@ export function buildSchedulePayrollDetailLines(p: {
               ? 'Sonderurlaub'
               : 'Abwesenheit'
       const { sat, sun } = weekdayShortFlags(ymd)
-      const hol = isGermanPublicHolidayYmd(ymd, p.federalState) ? publicHolidayNameDe(ymd, p.federalState) : ''
+      const hol = isGermanPublicHolidayYmd(ymd, p.federalState, p.holidayOverlay ?? null)
+      ? publicHolidayNameDe(ymd, p.federalState, p.holidayOverlay ?? null)
+      : ''
       const paidOther =
         (t === 'sick' || t === 'child_sick' || t === 'special_leave') &&
         (ab.paid ?? 0) === 1 &&
@@ -976,6 +991,7 @@ export function buildTimeTrackingPayrollDetailLines(p: {
   fromDate: string
   toDate: string
   federalState: GermanState
+  holidayOverlay?: StationHolidayOverlay | null
   employmentType: string
   employmentRole: string
   vacHpdDefault: number | null
@@ -994,7 +1010,9 @@ export function buildTimeTrackingPayrollDetailLines(p: {
       const h = Math.round((m.get(ymd) ?? 0) * 100) / 100
       if (h <= 0) continue
       const { sat, sun } = weekdayShortFlags(ymd)
-      const feiertag = isGermanPublicHolidayYmd(ymd, p.federalState) ? publicHolidayNameDe(ymd, p.federalState) : ''
+      const feiertag = isGermanPublicHolidayYmd(ymd, p.federalState, p.holidayOverlay ?? null)
+        ? publicHolidayNameDe(ymd, p.federalState, p.holidayOverlay ?? null)
+        : ''
       let von = '—'
       let bis = '—'
       let hinweis = 'Quelle: Zeiterfassung · genehmigter Eintrag'
@@ -1042,7 +1060,9 @@ export function buildTimeTrackingPayrollDetailLines(p: {
     const vh = vacByYmd.get(ymd) ?? 0
     if (vh <= 0) continue
     const { sat, sun } = weekdayShortFlags(ymd)
-    const hol = isGermanPublicHolidayYmd(ymd, p.federalState) ? publicHolidayNameDe(ymd, p.federalState) : ''
+    const hol = isGermanPublicHolidayYmd(ymd, p.federalState, p.holidayOverlay ?? null)
+      ? publicHolidayNameDe(ymd, p.federalState, p.holidayOverlay ?? null)
+      : ''
     lines.push({
       date: ymd,
       weekdayDe: weekdayDeLongEuropeBerlin(ymd),
@@ -1081,7 +1101,9 @@ export function buildTimeTrackingPayrollDetailLines(p: {
               ? 'Sonderurlaub'
               : 'Abwesenheit'
       const { sat, sun } = weekdayShortFlags(ymd)
-      const hol = isGermanPublicHolidayYmd(ymd, p.federalState) ? publicHolidayNameDe(ymd, p.federalState) : ''
+      const hol = isGermanPublicHolidayYmd(ymd, p.federalState, p.holidayOverlay ?? null)
+      ? publicHolidayNameDe(ymd, p.federalState, p.holidayOverlay ?? null)
+      : ''
       const paidOther =
         (t === 'sick' || t === 'child_sick' || t === 'special_leave') &&
         (ab.paid ?? 0) === 1 &&
@@ -1164,6 +1186,7 @@ export function calculatePayrollCombinedReport(
   if (!station) throw new Error('Station nicht gefunden')
 
   const federalState = String(station.federal_state ?? 'BW').toUpperCase() as GermanState
+  const holidayOverlay = buildStationHolidayOverlay(db, stationId)
   const todayYmd = todayIso()
 
   const employees = db
@@ -1531,6 +1554,7 @@ export function calculatePayrollCombinedReport(
               endTime: s.endTime,
               breakMinutes: s.breakMinutes ?? 0,
               federalState,
+              holidayOverlay,
               onlyBerlinYmd: ymd,
             })
           }
@@ -1547,6 +1571,7 @@ export function calculatePayrollCombinedReport(
               endIso: te.end_at,
               breakMinutes: te.break_minutes ?? 0,
               federalState,
+              holidayOverlay,
               onlyBerlinYmd: ymd,
             })
           }
@@ -1789,6 +1814,7 @@ export function listPayrollTimeEntryDetails(
     .prepare(`SELECT federal_state FROM stations WHERE id = ?`)
     .get(stationId) as { federal_state: string | null } | undefined
   const federalState = String(station?.federal_state ?? 'BW').toUpperCase() as GermanState
+  const holidayOverlay = buildStationHolidayOverlay(db, stationId)
 
   const absences = db
     .prepare(`SELECT * FROM absences WHERE station_id = ? AND start_date <= ? AND end_date >= ?`)
@@ -1859,6 +1885,7 @@ export function listPayrollTimeEntryDetails(
       fromDate,
       toDate,
       federalState,
+      holidayOverlay,
       employmentType: String(emp.employment_type ?? ''),
       employmentRole: String(R.employment_role ?? ''),
       vacHpdDefault: rNum(R, 'vacation_hours_per_day', NaN) || null,

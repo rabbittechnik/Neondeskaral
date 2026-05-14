@@ -139,6 +139,7 @@ export function rowToTaskLogApi(r: TaskLogRow) {
   return {
     id: r.id,
     taskId: r.task_id,
+    employeeId: r.employee_id?.trim() || undefined,
     date: r.date,
     status: (LOG_STATUS_TO_DE[st] ?? 'offen') as string,
     confirmedAt: r.confirmed_at ?? undefined,

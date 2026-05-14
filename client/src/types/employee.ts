@@ -23,6 +23,10 @@ export type WorkAreaDefinition = {
   shortCode: string
   /** Hex, für Badges / Karten */
   color: string
+  description?: string
+  sortOrder?: number
+  isDefault?: boolean
+  active?: boolean
 }
 
 export type Employee = {

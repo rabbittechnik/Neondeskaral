@@ -32,10 +32,11 @@ export function rowToVacationBlockApi(r: VacationBlockRow) {
   }
 }
 
-export function listVacationBlocks(db: Database, stationId = DEFAULT_STATION_ID) {
-  const rows = db
-    .prepare(`SELECT * FROM vacation_blocks WHERE station_id = ? ORDER BY start_date`)
-    .all(stationId) as VacationBlockRow[]
+export function listVacationBlocks(db: Database, stationId = DEFAULT_STATION_ID, includeInactive?: boolean) {
+  let sql = `SELECT * FROM vacation_blocks WHERE station_id = ?`
+  if (!includeInactive) sql += ` AND (active IS NULL OR active = 1)`
+  sql += ` ORDER BY start_date`
+  const rows = db.prepare(sql).all(stationId) as VacationBlockRow[]
   return rows.map(rowToVacationBlockApi)
 }
 
@@ -74,6 +75,7 @@ export function updateVacationBlock(db: Database, id: string, body: Record<strin
       end_date = COALESCE(?, end_date),
       description = COALESCE(?, description),
       work_area_ids_json = COALESCE(?, work_area_ids_json),
+      active = COALESCE(?, active),
       updated_at = ?
     WHERE id = ?`,
   ).run(
@@ -82,6 +84,7 @@ export function updateVacationBlock(db: Database, id: string, body: Record<strin
     body.endDate != null ? String(body.endDate) : null,
     body.description != null ? String(body.description) : null,
     body.workAreaIds != null ? JSON.stringify(body.workAreaIds) : null,
+    body.active != null ? (body.active === false || Number(body.active) === 0 ? 0 : 1) : null,
     ts,
     id,
   )
@@ -89,6 +92,7 @@ export function updateVacationBlock(db: Database, id: string, body: Record<strin
 }
 
 export function deleteVacationBlock(db: Database, id: string) {
-  const r = db.prepare(`DELETE FROM vacation_blocks WHERE id = ?`).run(id)
+  const ts = nowIso()
+  const r = db.prepare(`UPDATE vacation_blocks SET active = 0, updated_at = ? WHERE id = ?`).run(ts, id)
   if (r.changes === 0) throw new Error('Block nicht gefunden')
 }

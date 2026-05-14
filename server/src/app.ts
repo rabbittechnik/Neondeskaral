@@ -26,6 +26,8 @@ import { representativesRouter } from './routes/representatives.routes.js'
 import { documentsRouter } from './routes/documents.routes.js'
 import { minimumWageRouter } from './routes/minimumWage.routes.js'
 import { backshopRoutinesRouter } from './routes/backshop.routes.js'
+import { stationExtraHolidaysRouter } from './routes/stationExtraHolidays.routes.js'
+import { stationHubRouter } from './routes/stationHub.routes.js'
 
 function parseCorsOrigins(): boolean | string[] {
   const raw = process.env.CLIENT_ORIGIN?.trim()
@@ -76,6 +78,8 @@ export function createApp() {
   app.use('/api/documents', documentsRouter)
   app.use('/api/minimum-wage-rates', minimumWageRouter)
   app.use('/api/backshop-routines', backshopRoutinesRouter)
+  app.use('/api/station-extra-holidays', stationExtraHolidaysRouter)
+  app.use('/api/station-hub', stationHubRouter)
   app.use('/api/dev', devRouter)
 
   app.use((_req, res) => {

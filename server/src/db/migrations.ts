@@ -198,6 +198,7 @@ export function runMigrations(db: Database.Database) {
   seedTaskTemplatesIfMissing(db)
   ensureStationDocumentsTables(db)
   mergeDocumentsPermissionsIntoAccess(db)
+  ensureStationExtendedModules2026(db)
   ensureStationBreakPolicyColumnsAndZeroBodelshausenBreaks(db)
 }
 
@@ -1410,6 +1411,222 @@ function ensureStationDocumentsTables(db: Database.Database) {
     UNIQUE(document_id, employee_id)
   )`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_station_document_employees_emp ON station_document_employees(employee_id)`)
+}
+
+/** Station: Arbeitsbereiche sortieren/Standard, Stammdaten-Zusatzfelder, Zusatz-Feiertage, Organisations-/Kommunikations-/Abrechnungs-Tabellen. */
+function ensureStationExtendedModules2026(db: Database.Database) {
+  const waCols = new Set((db.prepare(`PRAGMA table_info(work_areas)`).all() as { name: string }[]).map((c) => c.name))
+  if (!waCols.has('sort_order')) {
+    db.exec(`ALTER TABLE work_areas ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0`)
+  }
+  if (!waCols.has('is_default')) {
+    db.exec(`ALTER TABLE work_areas ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0`)
+  }
+
+  const stCols = new Set((db.prepare(`PRAGMA table_info(stations)`).all() as { name: string }[]).map((c) => c.name))
+  if (!stCols.has('timezone')) {
+    db.exec(`ALTER TABLE stations ADD COLUMN timezone TEXT NOT NULL DEFAULT 'Europe/Berlin'`)
+  }
+  if (!stCols.has('fuel_price_refresh_minutes')) {
+    db.exec(`ALTER TABLE stations ADD COLUMN fuel_price_refresh_minutes INTEGER NOT NULL DEFAULT 1`)
+  }
+  if (!stCols.has('tablet_settings_json')) {
+    db.exec(`ALTER TABLE stations ADD COLUMN tablet_settings_json TEXT`)
+  }
+  if (!stCols.has('backshop_rules_json')) {
+    db.exec(`ALTER TABLE stations ADD COLUMN backshop_rules_json TEXT`)
+  }
+
+  const usrCols = new Set((db.prepare(`PRAGMA table_info(users)`).all() as { name: string }[]).map((c) => c.name))
+  if (!usrCols.has('phone')) {
+    db.exec(`ALTER TABLE users ADD COLUMN phone TEXT`)
+  }
+
+  db.exec(`CREATE TABLE IF NOT EXISTS station_extra_holidays (
+    id TEXT PRIMARY KEY,
+    station_id TEXT NOT NULL,
+    date TEXT NOT NULL,
+    name TEXT NOT NULL,
+    federal_state TEXT,
+    is_legal INTEGER NOT NULL DEFAULT 0,
+    is_special INTEGER NOT NULL DEFAULT 0,
+    counts_as_public INTEGER NOT NULL DEFAULT 1,
+    counts_as_special INTEGER NOT NULL DEFAULT 0,
+    opening_hours_note TEXT,
+    remark TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    created_by TEXT,
+    FOREIGN KEY (station_id) REFERENCES stations(id)
+  )`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_station_extra_holidays_station ON station_extra_holidays(station_id, date, active)`)
+
+  db.exec(`CREATE TABLE IF NOT EXISTS station_announcements (
+    id TEXT PRIMARY KEY,
+    station_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    audience TEXT NOT NULL DEFAULT 'all',
+    priority TEXT NOT NULL DEFAULT 'normal',
+    valid_from TEXT,
+    valid_to TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    archived_at TEXT,
+    created_by TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (station_id) REFERENCES stations(id)
+  )`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_station_announcements_station ON station_announcements(station_id, active, valid_from)`)
+
+  db.exec(`CREATE TABLE IF NOT EXISTS station_chat_groups (
+    id TEXT PRIMARY KEY,
+    station_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    archived_at TEXT,
+    created_by TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (station_id) REFERENCES stations(id)
+  )`)
+  db.exec(`CREATE TABLE IF NOT EXISTS station_chat_group_members (
+    group_id TEXT NOT NULL,
+    employee_id TEXT NOT NULL,
+    role TEXT,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (group_id, employee_id),
+    FOREIGN KEY (group_id) REFERENCES station_chat_groups(id) ON DELETE CASCADE,
+    FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE
+  )`)
+
+  db.exec(`CREATE TABLE IF NOT EXISTS station_org_lists (
+    id TEXT PRIMARY KEY,
+    station_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    category TEXT,
+    description TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    archived_at TEXT,
+    created_by TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (station_id) REFERENCES stations(id)
+  )`)
+  db.exec(`CREATE TABLE IF NOT EXISTS station_org_list_items (
+    id TEXT PRIMARY KEY,
+    list_id TEXT NOT NULL,
+    text TEXT NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    mandatory INTEGER NOT NULL DEFAULT 0,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (list_id) REFERENCES station_org_lists(id) ON DELETE CASCADE
+  )`)
+
+  db.exec(`CREATE TABLE IF NOT EXISTS station_calendar_events (
+    id TEXT PRIMARY KEY,
+    station_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT,
+    date TEXT NOT NULL,
+    time_from TEXT,
+    time_to TEXT,
+    all_day INTEGER NOT NULL DEFAULT 0,
+    category TEXT,
+    repeat_rule TEXT,
+    reminder_minutes INTEGER,
+    attendee_employee_ids_json TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    archived_at TEXT,
+    created_by TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (station_id) REFERENCES stations(id)
+  )`)
+
+  db.exec(`CREATE TABLE IF NOT EXISTS station_org_contacts (
+    id TEXT PRIMARY KEY,
+    station_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    company TEXT,
+    role_label TEXT,
+    email TEXT,
+    phone TEXT,
+    mobile TEXT,
+    fax TEXT,
+    address TEXT,
+    note TEXT,
+    category TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    archived_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (station_id) REFERENCES stations(id)
+  )`)
+
+  db.exec(`CREATE TABLE IF NOT EXISTS station_meters (
+    id TEXT PRIMARY KEY,
+    station_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    category TEXT,
+    unit TEXT NOT NULL DEFAULT '',
+    active INTEGER NOT NULL DEFAULT 1,
+    archived_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (station_id) REFERENCES stations(id)
+  )`)
+  db.exec(`CREATE TABLE IF NOT EXISTS station_meter_readings (
+    id TEXT PRIMARY KEY,
+    station_id TEXT NOT NULL,
+    meter_id TEXT NOT NULL,
+    date TEXT NOT NULL,
+    time TEXT,
+    value REAL NOT NULL,
+    note TEXT,
+    photo_path TEXT,
+    captured_by TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (station_id) REFERENCES stations(id),
+    FOREIGN KEY (meter_id) REFERENCES station_meters(id) ON DELETE CASCADE
+  )`)
+
+  db.exec(`CREATE TABLE IF NOT EXISTS account_invoices (
+    id TEXT PRIMARY KEY,
+    station_id TEXT NOT NULL,
+    invoice_number TEXT NOT NULL,
+    invoice_date TEXT NOT NULL,
+    period_from TEXT,
+    period_to TEXT,
+    amount_cents INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'open',
+    pdf_path TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (station_id) REFERENCES stations(id)
+  )`)
+
+  db.exec(`CREATE TABLE IF NOT EXISTS account_billing_documents (
+    id TEXT PRIMARY KEY,
+    station_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    category TEXT,
+    file_name TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    file_size INTEGER NOT NULL DEFAULT 0,
+    active INTEGER NOT NULL DEFAULT 1,
+    archived_at TEXT,
+    uploaded_by TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (station_id) REFERENCES stations(id)
+  )`)
 }
 
 /** Pausenregelung in Stammdaten + Aral Bodelshausen: keine automatische Pause (0 Min.) in bestehenden Schichten/Zeiten. */

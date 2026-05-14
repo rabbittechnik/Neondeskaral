@@ -1,5 +1,6 @@
 import type { GermanState } from '../data/germanHolidays2026.js'
 import { GERMAN_HOLIDAYS_2026, holidayAppliesToState } from '../data/germanHolidays2026.js'
+import type { StationHolidayOverlay } from '../types/stationHolidayOverlay.js'
 import { addDaysToYmd, berlinWallClockToUtcMs, padHHMM } from '../utils/europeBerlinWallTime.js'
 
 export type EmployeeSurchargeFields = {
@@ -66,13 +67,20 @@ function minuteInSpan(mod: number, startM: number, endM: number): boolean {
 }
 
 /** Gesetzliche Feiertage laut Stammdatenliste (aktuell Kalender 2026; weitere Jahre: Liste erweitern). */
-export function isGermanPublicHolidayYmd(ymd: string, state: GermanState): boolean {
+export function isGermanPublicHolidayYmd(ymd: string, state: GermanState, overlay?: StationHolidayOverlay | null): boolean {
+  if (overlay?.extraPublicDates.has(ymd)) return true
   return GERMAN_HOLIDAYS_2026.some((h) => h.date === ymd && holidayAppliesToState(h, state))
 }
 
-export function publicHolidayNameDe(ymd: string, state: GermanState): string {
-  const hits = GERMAN_HOLIDAYS_2026.filter((h) => h.date === ymd && holidayAppliesToState(h, state))
-  return hits.map((h) => h.name).join(' · ')
+export function publicHolidayNameDe(ymd: string, state: GermanState, overlay?: StationHolidayOverlay | null): string {
+  const parts: string[] = []
+  for (const h of GERMAN_HOLIDAYS_2026) {
+    if (h.date !== ymd || !holidayAppliesToState(h, state)) continue
+    parts.push(h.name)
+  }
+  const extra = overlay?.extraNames.get(ymd)
+  if (extra && !parts.includes(extra)) parts.push(extra)
+  return parts.join(' · ')
 }
 
 /** Besondere Feiertage / Brückentage: Silvester ab 14 Uhr, Neujahr, Weihnachten (Profil „besondere Feiertage“). */
@@ -112,7 +120,12 @@ function berlinWallClock(isoMs: number): { ymd: string; hour: number; minute: nu
 }
 
 /** Alle anwendbaren Zuschlags-Prozente für einen Zeitpunkt (Europe/Berlin), ohne Kombinationslogik. */
-function collectSurchargePercentsForInstant(emp: EmployeeSurchargeFields, isoMs: number, state: GermanState): number[] {
+function collectSurchargePercentsForInstant(
+  emp: EmployeeSurchargeFields,
+  isoMs: number,
+  state: GermanState,
+  overlay?: StationHolidayOverlay | null,
+): number[] {
   const { ymd, hour, minute, weekday0Sun } = berlinWallClock(isoMs)
   const mod = toMinuteOfDay(hour, minute)
   const percents: number[] = []
@@ -127,8 +140,9 @@ function collectSurchargePercentsForInstant(emp: EmployeeSurchargeFields, isoMs:
   const n04Hol = numOr0(emp.night_0_4_after_holiday_percent)
   const n04Spec = numOr0(emp.night_0_4_after_special_holiday_percent)
 
-  const isPublicHol = isGermanPublicHolidayYmd(ymd, state)
-  const isSpecialMoment = isSpecialHolidayCalendarMoment(ymd, hour, minute)
+  const isPublicHol = isGermanPublicHolidayYmd(ymd, state, overlay)
+  const isCustomSpecialAllDay = overlay?.specialAllDayDates.has(ymd) ?? false
+  const isSpecialMoment = isSpecialHolidayCalendarMoment(ymd, hour, minute) || isCustomSpecialAllDay
   const isDec31Afternoon = ymd.endsWith('-12-31') && hour >= 14
 
   if (weekday0Sun === 6 && satPct > 0) percents.push(satPct)
@@ -167,8 +181,13 @@ function combinePercents(percents: number[], emp: EmployeeSurchargeFields): numb
   return Math.max(...percents)
 }
 
-function maxPercentForInstant(emp: EmployeeSurchargeFields, isoMs: number, state: GermanState): number {
-  return combinePercents(collectSurchargePercentsForInstant(emp, isoMs, state), emp)
+function maxPercentForInstant(
+  emp: EmployeeSurchargeFields,
+  isoMs: number,
+  state: GermanState,
+  overlay?: StationHolidayOverlay | null,
+): number {
+  return combinePercents(collectSurchargePercentsForInstant(emp, isoMs, state, overlay), emp)
 }
 
 function shiftEndYmd(shiftDate: string, startTime: string, endTime: string): string {
@@ -199,6 +218,8 @@ export function computeScheduleShiftSupplementEuros(opts: {
   endTime: string
   breakMinutes: number
   federalState: GermanState
+  /** Stationsspezifische Zusatz-Feiertage (Lohn). */
+  holidayOverlay?: StationHolidayOverlay | null
   employeeId?: string
   employeeName?: string
   /** Nur Zuschlagsminuten, deren Europe/Berlin-Kalendertag dieser YYYY-MM-DD ist (Kombi-Lohn). */
@@ -235,6 +256,7 @@ export function computeScheduleShiftSupplementEuros(opts: {
   let maxHolPctApplied = 0
 
   const ymdFilter = opts.onlyBerlinYmd?.trim()
+  const holOv = opts.holidayOverlay ?? null
 
   for (let t = startMs; t < workEnd; t += STEP_MS) {
     const sliceEnd = Math.min(t + STEP_MS, workEnd)
@@ -252,8 +274,9 @@ export function computeScheduleShiftSupplementEuros(opts: {
     const n04Sun = numOr0(opts.emp.night_0_4_after_sunday_percent)
     const n04Hol = numOr0(opts.emp.night_0_4_after_holiday_percent)
     const n04Spec = numOr0(opts.emp.night_0_4_after_special_holiday_percent)
-    const isPublicHol = isGermanPublicHolidayYmd(ymd, opts.federalState)
-    const isSpecialMoment = isSpecialHolidayCalendarMoment(ymd, hour, minute)
+    const isPublicHol = isGermanPublicHolidayYmd(ymd, opts.federalState, holOv)
+    const isCustomSpecialAllDay = holOv?.specialAllDayDates.has(ymd) ?? false
+    const isSpecialMoment = isSpecialHolidayCalendarMoment(ymd, hour, minute) || isCustomSpecialAllDay
     const isDec31Afternoon = ymd.endsWith('-12-31') && hour >= 14
 
     if (weekday0Sun === 6 && satPct > 0) {
@@ -306,7 +329,7 @@ export function computeScheduleShiftSupplementEuros(opts: {
 
   if (opts.debug && process.env.PAYROLL_SCHEDULE_DEBUG === '1') {
     const wall0 = berlinWallClock(startMs)
-    const isPH = isGermanPublicHolidayYmd(wall0.ymd, opts.federalState)
+    const isPH = isGermanPublicHolidayYmd(wall0.ymd, opts.federalState, holOv)
     const grossH = (endMs - startMs) / 3_600_000
     const netH = Math.max(0, grossH - (Number(opts.breakMinutes) || 0) / 60)
     Object.assign(opts.debug, {
@@ -319,8 +342,10 @@ export function computeScheduleShiftSupplementEuros(opts: {
       isSunday: wall0.weekday0Sun === 0,
       isSaturday: wall0.weekday0Sun === 6,
       isPublicHoliday: isPH,
-      holidayName: publicHolidayNameDe(wall0.ymd, opts.federalState),
-      isSpecialHolidayTier: isSpecialHolidayCalendarMoment(wall0.ymd, wall0.hour, wall0.minute),
+      holidayName: publicHolidayNameDe(wall0.ymd, opts.federalState, holOv),
+      isSpecialHolidayTier:
+        isSpecialHolidayCalendarMoment(wall0.ymd, wall0.hour, wall0.minute) ||
+        (holOv?.specialAllDayDates.has(wall0.ymd) ?? false),
       hourlyRate: wage,
       holidayBonusPercentApplied: maxHolPctApplied,
       holidayBonusAmount: Math.round(holAmt * 100) / 100,
@@ -352,6 +377,7 @@ export function computeSupplementEurosForTimeEntry(opts: {
   endIso: string
   breakMinutes: number
   federalState: GermanState
+  holidayOverlay?: StationHolidayOverlay | null
   /** Nur Zuschlagsminuten mit diesem Europe/Berlin-Kalendertag (Kombi-Lohn). */
   onlyBerlinYmd?: string
 }): number {
@@ -375,13 +401,14 @@ export function computeSupplementEurosForTimeEntry(opts: {
   const STEP_MS = 5 * 60 * 1000
   let supplement = 0
   const ymdFilter = opts.onlyBerlinYmd?.trim()
+  const holOv = opts.holidayOverlay ?? null
 
   for (let t = start; t < workEnd; t += STEP_MS) {
     const sliceEnd = Math.min(t + STEP_MS, workEnd)
     const hours = (sliceEnd - t) / 3_600_000
     const mid = (t + sliceEnd) / 2
     if (ymdFilter && berlinWallClock(mid).ymd !== ymdFilter) continue
-    const pct = maxPercentForInstant(opts.emp, mid, opts.federalState)
+    const pct = maxPercentForInstant(opts.emp, mid, opts.federalState, holOv)
     if (pct > 0) supplement += hours * wage * (pct / 100)
   }
   return Math.round(supplement * 100) / 100

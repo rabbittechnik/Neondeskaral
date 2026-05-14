@@ -31,6 +31,8 @@ export type AuthUser = {
   id: string
   username: string
   displayName: string
+  email?: string
+  phone?: string
   /** Optional, falls später aus dem Backend geliefert */
   firstName?: string
   /** Optionaler alternativer vollständiger Name */

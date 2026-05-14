@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { getDb } from '../db/database.js'
 import { jsonErr, jsonOk } from '../utils/http.js'
+import { nowIso } from '../utils/timestamps.js'
 import * as stationService from '../services/stationService.js'
 import {
   ensureStationShiftCloseChecklistDefsSeeded,
@@ -117,6 +118,60 @@ stationsRouter.get('/:id/summary', (req, res) => {
     jsonOk(res, stationService.getStationSummary(getDb(), id))
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
+  }
+})
+
+stationsRouter.get('/:id/email-notification-settings', (req, res) => {
+  try {
+    const ctx = req.accessContext
+    if (!ctx || !canAccessStationsAdminUi(ctx)) return jsonErr(res, 'Keine Berechtigung', 403)
+    const id = req.params.id
+    if (!canReadStation(ctx, id)) return jsonErr(res, 'Kein Zugriff auf diese Station', 403)
+    const db = getDb()
+    const row = db
+      .prepare(`SELECT value FROM settings WHERE station_id = ? AND key = ?`)
+      .get(id, 'email_notifications_v1') as { value: string } | undefined
+    let parsed: unknown = {}
+    if (row?.value?.trim()) {
+      try {
+        parsed = JSON.parse(row.value) as unknown
+      } catch {
+        parsed = {}
+      }
+    }
+    jsonOk(res, parsed)
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
+  }
+})
+
+stationsRouter.put('/:id/email-notification-settings', (req, res) => {
+  try {
+    const ctx = req.accessContext
+    if (!ctx || !canAccessStationsAdminUi(ctx)) return jsonErr(res, 'Keine Berechtigung', 403)
+    const id = req.params.id
+    if (!canEditStation(ctx, id)) return jsonErr(res, 'Keine Berechtigung', 403)
+    const db = getDb()
+    const ts = nowIso()
+    const key = 'email_notifications_v1'
+    const value = JSON.stringify(req.body ?? {})
+    const existing = db.prepare(`SELECT id FROM settings WHERE station_id = ? AND key = ?`).get(id, key) as { id: string } | undefined
+    if (existing) {
+      db.prepare(`UPDATE settings SET value = ?, updated_at = ? WHERE station_id = ? AND key = ?`).run(value, ts, id, key)
+    } else {
+      const rid = `set-${id}-${key}`
+      db.prepare(`INSERT INTO settings (id, station_id, key, value, type, created_at, updated_at) VALUES (?, ?, ?, ?, 'json', ?, ?)`).run(
+        rid,
+        id,
+        key,
+        value,
+        ts,
+        ts,
+      )
+    }
+    jsonOk(res, JSON.parse(value))
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
   }
 })
 
