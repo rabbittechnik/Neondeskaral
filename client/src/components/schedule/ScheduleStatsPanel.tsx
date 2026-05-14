@@ -18,6 +18,8 @@ type Props = {
   conflictsLoadError?: string | null
   /** Kurzname in Stundenliste (erster Vorname) */
   employeeHourLabels: { id: string; label: string }[]
+  /** Wenn gesetzt: gleiche Wochenstunden wie Mitarbeiterkarten (inkl. bezahlter Urlaub) */
+  weeklyEmployeeHoursById?: Map<string, number>
 }
 
 export function ScheduleStatsPanel({
@@ -27,9 +29,16 @@ export function ScheduleStatsPanel({
   conflicts,
   conflictsLoadError,
   employeeHourLabels,
+  weeklyEmployeeHoursById,
 }: Props) {
-  const hoursMap = computeWeeklyHoursByEmployee(blocks)
-  const total = totalPlannedHours(blocks)
+  const hoursMap =
+    weeklyEmployeeHoursById ??
+    computeWeeklyHoursByEmployee(blocks)
+  const total = weeklyEmployeeHoursById
+    ? Math.round(
+        employeeHourLabels.reduce((acc, e) => acc + (hoursMap.get(e.id) ?? 0), 0) * 10,
+      ) / 10
+    : totalPlannedHours(blocks)
   const avg =
     employeeHourLabels.length > 0
       ? Math.round((total / employeeHourLabels.length) * 10) / 10
@@ -93,7 +102,9 @@ export function ScheduleStatsPanel({
         </h3>
         <p className="mt-2 text-2xl font-semibold tabular-nums text-lime-200">{total} h</p>
         <p className="mt-1 text-xs text-[var(--text-muted)]">
-          Summe aller Schichten · Ø {avg} h / Mitarbeiter
+          {weeklyEmployeeHoursById
+            ? `Summe Schichten + bezahlter Urlaub (wie Mitarbeiterkarten) · Ø ${avg} h / Mitarbeiter`
+            : `Summe aller Schichten · Ø ${avg} h / Mitarbeiter`}
         </p>
         <div className="mt-3 max-h-32 space-y-1 overflow-y-auto text-[10px] text-[var(--text-faint)]">
           {employeeHourLabels.map((e) => (

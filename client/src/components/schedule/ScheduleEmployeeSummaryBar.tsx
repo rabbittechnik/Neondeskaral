@@ -1,5 +1,6 @@
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import type { ScheduleEmployeeRow } from '../../types/employee'
+import type { EmployeePlannedHoursBreakdown } from '../../utils/employeePlannedHours'
 import { Users } from 'lucide-react'
 import type { TimelineViewportDensity } from './timelineLayout'
 import { EmployeeSummaryCard } from './EmployeeSummaryCard'
@@ -10,6 +11,9 @@ type Props = {
   weeklyHoursById: Map<string, number>
   /** Geplante Monatsstunden (Kalendermonat); fehlt die Map → Fallback Profilfeld `monthlyHours` */
   monthlyPlannedHoursById?: Map<string, number>
+  /** Optional: gleiche Berechnung wie Zahlen, für Tooltip-Aufschlüsselung */
+  weeklyHoursBreakdownById?: Map<string, EmployeePlannedHoursBreakdown>
+  monthlyHoursBreakdownById?: Map<string, EmployeePlannedHoursBreakdown>
   /** Entspricht Filter „ein Mitarbeiter“ / Karte aktiv */
   selectedId: string | null
   onToggleEmployee: (id: string) => void
@@ -26,6 +30,8 @@ export function ScheduleEmployeeSummaryBar({
   employees,
   weeklyHoursById,
   monthlyPlannedHoursById,
+  weeklyHoursBreakdownById,
+  monthlyHoursBreakdownById,
   selectedId,
   onToggleEmployee,
   dashboardCompact,
@@ -47,7 +53,8 @@ export function ScheduleEmployeeSummaryBar({
               Mitarbeiter
             </h2>
             <p className="truncate text-[10px] text-[var(--text-faint)]">
-              W = Woche aus Plan · M = geplante Std. Monat · Karte klicken zum Filtern
+              W / M = Schichtplan + genehmigter bezahlter Urlaub (8 Std./Tag, Urlaub ersetzt Schicht am selben Tag) ·
+              Karte klicken zum Filtern
               {assignDragEnabled ? ' · Zum Zuweisen Mitarbeiter ziehen' : null}
             </p>
           </div>
@@ -78,6 +85,8 @@ export function ScheduleEmployeeSummaryBar({
                     ? (monthlyPlannedHoursById.get(e.id) ?? 0)
                     : undefined
                 }
+                weekHoursBreakdown={weeklyHoursBreakdownById?.get(e.id)}
+                monthHoursBreakdown={monthlyHoursBreakdownById?.get(e.id)}
                 selected={selectedId === e.id}
                 compact={Boolean(dashboardCompact)}
                 fluid

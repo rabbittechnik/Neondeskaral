@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { buildRequirementGapResolvedBlocks } from '../../data/defaultShiftRequirements'
 import {
-  computePlannedHoursByEmployeeInDateRange,
-  computeWeeklyHoursByEmployee,
   resolveShiftsForWeekGrid,
   shiftsInWeek,
   toISODate,
@@ -12,6 +10,7 @@ import {
   type ScheduleShift,
   type WeekAbsence,
 } from '../../data/mockSchedule'
+import { buildEmployeePlannedHoursMap } from '../../utils/employeePlannedHours'
 import { ScheduleStatsPanel } from '../../components/schedule/ScheduleStatsPanel'
 import { ScheduleToolbar } from '../../components/schedule/ScheduleToolbar'
 import type { ScheduleViewMode } from '../../components/schedule/ScheduleViewTabs'
@@ -113,6 +112,17 @@ export function SchedulePage() {
     [employees],
   )
 
+  const employeesByIdForHours = useMemo(
+    () =>
+      new Map(
+        employees.map((e) => [
+          e.id,
+          { displayName: e.displayName, employmentType: e.employmentType },
+        ]),
+      ),
+    [employees],
+  )
+
   useEffect(() => {
     ensureWeekSeeded(weekMonday)
   }, [weekMonday, ensureWeekSeeded])
@@ -156,15 +166,48 @@ export function SchedulePage() {
     return [...list, ...gaps]
   }, [allBlocks, workAreaFilter, employeeFilter, requirementGapBlocks])
 
-  const hoursByEmployee = useMemo(
-    () => computeWeeklyHoursByEmployee(allBlocks),
-    [allBlocks],
+  const weeklyHoursBreakdownById = useMemo(
+    () =>
+      buildEmployeePlannedHoursMap(
+        employees.map((e) => e.id),
+        shifts,
+        absences,
+        employeesByIdForHours,
+        weekStartIso,
+        weekEndIso,
+        federalState,
+      ),
+    [employees, shifts, absences, employeesByIdForHours, weekStartIso, weekEndIso, federalState],
   )
 
-  const monthlyPlannedHoursById = useMemo(() => {
+  const monthlyHoursBreakdownById = useMemo(() => {
     const { fromYmd, toYmd } = calendarMonthRangeForDate(weekMonday)
-    return computePlannedHoursByEmployeeInDateRange(shifts, fromYmd, toYmd)
-  }, [shifts, weekMonday])
+    return buildEmployeePlannedHoursMap(
+      employees.map((e) => e.id),
+      shifts,
+      absences,
+      employeesByIdForHours,
+      fromYmd,
+      toYmd,
+      federalState,
+    )
+  }, [employees, shifts, absences, employeesByIdForHours, weekMonday, federalState])
+
+  const hoursByEmployee = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const e of employees) {
+      m.set(e.id, weeklyHoursBreakdownById.get(e.id)?.totalHours ?? 0)
+    }
+    return m
+  }, [employees, weeklyHoursBreakdownById])
+
+  const monthlyPlannedHoursById = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const e of employees) {
+      m.set(e.id, monthlyHoursBreakdownById.get(e.id)?.totalHours ?? 0)
+    }
+    return m
+  }, [employees, monthlyHoursBreakdownById])
 
   const openShiftsThisWeek = useMemo(
     () => openShiftSlotsFromBlocks(allBlocks),
@@ -388,6 +431,8 @@ export function SchedulePage() {
           employees={scheduleRows}
           weeklyHoursById={hoursByEmployee}
           monthlyPlannedHoursById={monthlyPlannedHoursById}
+          weeklyHoursBreakdownById={weeklyHoursBreakdownById}
+          monthlyHoursBreakdownById={monthlyHoursBreakdownById}
           selectedId={employeeFilter === 'all' ? null : employeeFilter}
           onToggleEmployee={toggleEmployeeFilter}
           viewportDensity={viewportDensity}
@@ -546,6 +591,7 @@ export function SchedulePage() {
               conflicts={panelConflicts}
               conflictsLoadError={conflictsError}
               employeeHourLabels={employeeHourLabels}
+              weeklyEmployeeHoursById={hoursByEmployee}
             />
           </div>
         </div>

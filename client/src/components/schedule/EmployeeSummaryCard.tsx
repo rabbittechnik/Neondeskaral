@@ -1,5 +1,6 @@
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import type { ScheduleEmployeeRow } from '../../types/employee'
+import type { EmployeePlannedHoursBreakdown } from '../../utils/employeePlannedHours'
 import { EmployeeStatusBadge } from '../employees/EmployeeStatusBadge'
 import { Avatar } from '../ui/Avatar'
 import type { TimelineViewportDensity } from './timelineLayout'
@@ -30,6 +31,10 @@ type Props = {
   weeklyHours: number
   /** Geplante Stunden im Kalendermonat (Schichtplan); ohne Angabe wird `employee.monthlyHours` (Profil) genutzt */
   monthPlannedHours?: number
+  /** Aufschlüsselung Wochenstunden (Schichten / Urlaub / Gesamt), z. B. für Tooltip */
+  weekHoursBreakdown?: EmployeePlannedHoursBreakdown
+  /** Aufschlüsselung Monatsstunden (Schichten / Urlaub / Gesamt), z. B. für Tooltip */
+  monthHoursBreakdown?: EmployeePlannedHoursBreakdown
   selected: boolean
   onClick: () => void
   /** Schmalere Karte (z. B. Dashboard) */
@@ -46,6 +51,8 @@ export function EmployeeSummaryCard({
   employee,
   weeklyHours,
   monthPlannedHours,
+  weekHoursBreakdown,
+  monthHoursBreakdown,
   selected,
   onClick,
   compact,
@@ -93,10 +100,34 @@ export function EmployeeSummaryCard({
   const nameShown = tight ? compactDisplayName(employee.name) : employee.name
   const monthHoursShown = monthPlannedHours ?? employee.monthlyHours
 
+  const formatBreakdownLines = (label: string, b: EmployeePlannedHoursBreakdown) =>
+    [
+      '',
+      `${label}:`,
+      `- Schichten: ${formatHoursDe(b.plannedShiftHours)}`,
+      `- Bezahlter Urlaub: ${formatHoursDe(b.paidVacationHours)}`,
+      `- Gesamt: ${formatHoursDe(b.totalHours)}`,
+      b.shiftDaysWithPaidVacationConflict > 0
+        ? `- Hinweis: ${b.shiftDaysWithPaidVacationConflict} Tag(e) mit Schicht und Urlaub (Urlaub zählt, Schicht nicht doppelt).`
+        : '',
+    ]
+      .filter(Boolean)
+      .join('\n')
+
+  const detailTooltip = [
+    weekHoursBreakdown ? formatBreakdownLines('Wochenstunden', weekHoursBreakdown) : '',
+    monthHoursBreakdown ? formatBreakdownLines('Monatsstunden', monthHoursBreakdown) : '',
+  ]
+    .filter(Boolean)
+    .join('\n')
+
+  const titleBase = `${employee.name}${employee.role ? ` · ${employee.role}` : ''}`
+  const title = detailTooltip ? `${titleBase}${detailTooltip}` : titleBase
+
   return (
     <button
       type="button"
-      title={`${employee.name}${employee.role ? ` · ${employee.role}` : ''}`}
+      title={title}
       onClick={onClick}
       onPointerDownCapture={onPointerDownCapture}
       className={`group relative flex ${fluid ? '' : 'shrink-0 snap-start'} ${widthClass} flex-col overflow-hidden rounded-[var(--radius-sm)] border text-left transition
