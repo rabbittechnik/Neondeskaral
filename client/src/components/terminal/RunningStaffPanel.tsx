@@ -1,4 +1,5 @@
 import type { TabletRunningRow } from '../../context/tablet-terminal-context'
+import { formatTimeDE } from '../../utils/dateFormat'
 import { calculateWorkedMinutes, formatWorkedDuration } from '../../utils/timeTrackingUtils'
 
 function sourceLabelDe(source: string): string {
@@ -24,7 +25,7 @@ export function RunningStaffPanel({ rows }: Props) {
       ) : (
         <ul className="mt-5 space-y-3">
           {rows.map((e) => {
-            const seit = new Date(e.startAt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+            const seit = formatTimeDE(e.startAt).replace(/\s*Uhr\s*$/i, '').trim()
             const mins = calculateWorkedMinutes(e.startAt, undefined, now)
             const dur = formatWorkedDuration(mins)
             return (

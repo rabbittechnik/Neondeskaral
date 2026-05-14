@@ -1,6 +1,7 @@
 import type { Employee } from '../types/employee'
 import type { ScheduleShift } from '../data/mockSchedule'
 import type { ShiftCloseChecklist, TimeEntry } from '../types/timeTracking'
+import { formatTimeDE } from './dateFormat'
 import { toISODateLocal } from './taskUtils'
 
 /** Minimal-Mitarbeiter für Kassen-Terminal (Einstempeln/Ausstempeln). */
@@ -249,13 +250,13 @@ export function buildShiftSnapshotRows(
 
     if (running) {
       status = 'läuft'
-      actualStart = new Date(running.startAt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+      actualStart = formatTimeDE(running.startAt).replace(/\s*Uhr\s*$/i, '').trim()
       const mins = calculateWorkedMinutes(running.startAt, undefined, now)
       runningDur = formatWorkedDuration(mins)
       statusDetail = 'Eingestempelt'
     } else if (doneToday && !running) {
       status = 'beendet'
-      actualStart = new Date(doneToday.startAt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+      actualStart = formatTimeDE(doneToday.startAt).replace(/\s*Uhr\s*$/i, '').trim()
       const mins = calculateWorkedMinutes(doneToday.startAt, doneToday.endAt, now)
       runningDur = formatWorkedDuration(mins)
       statusDetail = 'Schicht beendet'

@@ -25,6 +25,7 @@ import { calculateWorkedMinutes, formatWorkedDuration } from '../../utils/timeTr
 import {
   addDaysYmd,
   formatDateDE,
+  formatEmployeeClockInDE,
   formatShiftTimeRangeDE,
   formatTimeDE,
   formatWeekdayDateDE,
@@ -314,7 +315,7 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
           timeEntry?: TimeEntry
           bakingNotice?: BakingNoticePayload
         }
-        const startLabel = d.timeEntry ? formatTimeDE(d.timeEntry.startAt) : ''
+        const startLabel = d.timeEntry ? formatEmployeeClockInDE(d.timeEntry.startAt) : ''
         setInOk(d.message ?? `Deine Schicht wurde gestartet. Startzeit: ${startLabel}`)
         if (
           d.bakingNotice?.timeEntryId &&
@@ -671,7 +672,7 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
                 </p>
                 <p className="mt-2 text-sm text-emerald-100/95">Status: Schicht läuft</p>
                 <p className="mt-1 text-sm text-slate-300">
-                  Anwesend seit: <span className="text-white">{formatTimeDE(shiftStatus.running.startAt)}</span>
+                  Anwesend seit: <span className="text-white">{formatEmployeeClockInDE(shiftStatus.running.startAt)}</span>
                 </p>
                 <p className="mt-1 text-sm text-slate-300">
                   Laufende Zeit:{' '}
@@ -708,8 +709,8 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
               <>
                 <p className="mt-3 text-base font-semibold text-white">Heutige Schicht beendet</p>
                 <p className="mt-1 text-sm text-slate-200">
-                  Gestempelt: {formatTimeDE(shiftStatus.entry.startAt)} –{' '}
-                  {shiftStatus.entry.endAt ? formatTimeDE(shiftStatus.entry.endAt) : '—'}
+                  Gestempelt: {formatEmployeeClockInDE(shiftStatus.entry.startAt)} –{' '}
+                  {shiftStatus.entry.endAt ? formatEmployeeClockInDE(shiftStatus.entry.endAt) : '—'}
                 </p>
                 <p className="mt-2 text-sm text-slate-300">{timeEntryApprovalHint(shiftStatus.entry)}</p>
               </>
@@ -1062,7 +1063,7 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
                 <span className="text-slate-500">Mitarbeiter:</span> {employee.displayName}
               </p>
               <p>
-                <span className="text-slate-500">Startzeit:</span> {formatTimeDE(running.startAt)}
+                <span className="text-slate-500">Startzeit:</span> {formatEmployeeClockInDE(running.startAt)}
               </p>
               <p>
                 <span className="text-slate-500">Bisherige Arbeitszeit:</span> {runningDuration(running.startAt)}

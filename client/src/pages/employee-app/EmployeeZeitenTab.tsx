@@ -4,9 +4,9 @@ import { Button } from '../../components/ui/Button'
 import { employeeAccessGetQuery } from '../../services/api'
 import {
   formatDateDE,
+  formatEmployeeClockInDE,
   formatMonthYearDE,
   formatShiftTimeRangeDE,
-  formatTimeDE,
   formatWeekdayLongDE,
 } from '../../utils/dateFormat'
 
@@ -191,11 +191,9 @@ export function EmployeeZeitenTab({ accessToken }: Props) {
               const st = statusPresentation(e.status)
               const planned =
                 e.plannedStart && e.plannedEnd ? formatShiftTimeRangeDE(e.plannedStart, e.plannedEnd) : null
-              const clockInShort = formatTimeDE(e.clockInAt).replace(/\s*Uhr\s*$/i, '').trim()
-              const clocked =
-                e.clockOutAt != null
-                  ? `${clockInShort} – ${formatTimeDE(e.clockOutAt)}`
-                  : `${formatTimeDE(e.clockInAt)} (noch aktiv)`
+              const clockInLabel = formatEmployeeClockInDE(e.clockInAt)
+              const clockOutLabel = e.clockOutAt != null ? formatEmployeeClockInDE(e.clockOutAt) : null
+              const clocked = clockOutLabel != null ? `${clockInLabel} – ${clockOutLabel}` : `${clockInLabel} – noch aktiv`
               return (
                 <li key={e.id} className={`rounded-xl border px-4 py-3 text-sm ${st.className}`}>
                   <p className="text-base font-semibold text-white">{formatWeekdayLongDE(e.date)}</p>

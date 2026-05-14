@@ -18,15 +18,75 @@ function parseYmd(ymd: string): Date | null {
   return dt
 }
 
+/**
+ * Kalenderdatum oder vollständiger Zeitstempel.
+ * Wichtig: ISO-Strings mit Uhrzeit (…T13:59…) dürfen nicht auf Tagesbeginn gekürzt werden,
+ * sonst entsteht fälschlich 00:00 Uhr in der Anzeige.
+ */
 function parseAnyDate(input: string | Date): Date | null {
   if (input instanceof Date) return Number.isNaN(input.getTime()) ? null : input
   const s = String(input ?? '').trim()
   if (!s) return null
-  const ymd = parseYmd(s.slice(0, 10))
-  if (ymd) return ymd
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return parseYmd(s)
   const t = Date.parse(s)
-  if (Number.isNaN(t)) return null
-  return new Date(t)
+  if (!Number.isNaN(t)) return new Date(t)
+  return null
+}
+
+const DEFAULT_DISPLAY_TZ = 'Europe/Berlin'
+
+function formatHourMinuteInZone(d: Date, timeZone: string): { hh: string; mm: string } {
+  const parts = new Intl.DateTimeFormat('de-DE', {
+    timeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(d)
+  const hRaw = parts.find((p) => p.type === 'hour')?.value ?? '0'
+  const mRaw = parts.find((p) => p.type === 'minute')?.value ?? '0'
+  return { hh: hRaw.padStart(2, '0'), mm: mRaw.padStart(2, '0') }
+}
+
+/**
+ * Uhrzeit in fester Zeitzone (Standard: Europe/Berlin), z. B. für Einstempel-Anzeige.
+ * Reine Schichtzeiten „HH:mm“ bleiben unverändert (kein TZ-Bezug).
+ */
+export function formatTimeLocal(
+  timestamp: string | Date | null | undefined,
+  timeZone: string = DEFAULT_DISPLAY_TZ,
+): string {
+  if (timestamp == null) return '—'
+  if (timestamp instanceof Date) {
+    if (Number.isNaN(timestamp.getTime())) return '—'
+    const { hh, mm } = formatHourMinuteInZone(timestamp, timeZone)
+    return `${hh}:${mm} Uhr`
+  }
+  const s = String(timestamp).trim()
+  if (!s) return '—'
+  const hm = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(s)
+  if (hm) {
+    const h = String(Math.min(23, Math.max(0, parseInt(hm[1], 10)))).padStart(2, '0')
+    const m = String(Math.min(59, Math.max(0, parseInt(hm[2], 10)))).padStart(2, '0')
+    return `${h}:${m} Uhr`
+  }
+  const d = parseAnyDate(s)
+  if (!d || Number.isNaN(d.getTime())) return s
+  const { hh, mm } = formatHourMinuteInZone(d, timeZone)
+  return `${hh}:${mm} Uhr`
+}
+
+/** Einstempelzeit in der Mitarbeiter-App: kein 00:00-Fallback bei fehlender Uhrzeit. */
+export function formatEmployeeClockInDE(iso: string | null | undefined): string {
+  const s = iso != null ? String(iso).trim() : ''
+  if (!s) {
+    console.warn('[Mitarbeiter-App] time_entry ohne gültiges startAt/clock_in_at für die Anzeige')
+    return 'Einstempelzeit nicht verfügbar'
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    console.warn('[Mitarbeiter-App] time_entry nur mit Datum ohne Uhrzeit (startAt)', { startAt: s })
+    return 'Einstempelzeit nicht verfügbar'
+  }
+  return formatTimeLocal(s, DEFAULT_DISPLAY_TZ)
 }
 
 /** TT.MM.JJJJ */
@@ -39,26 +99,9 @@ export function formatDateDE(date: string | Date): string {
   return `${dd}.${mm}.${yyyy}`
 }
 
-/** HH:mm Uhr (aus ISO-Datetime oder reiner Uhrzeit HH:mm) */
+/** HH:mm Uhr (aus ISO-Datetime oder reiner Uhrzeit HH:mm). Datumszeiten: Europe/Berlin. */
 export function formatTimeDE(time: string | Date): string {
-  if (time instanceof Date) {
-    const hh = String(time.getHours()).padStart(2, '0')
-    const mm = String(time.getMinutes()).padStart(2, '0')
-    return `${hh}:${mm} Uhr`
-  }
-  const s = String(time ?? '').trim()
-  if (!s) return '—'
-  const hm = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(s)
-  if (hm) {
-    const h = String(Math.min(23, Math.max(0, parseInt(hm[1], 10)))).padStart(2, '0')
-    const m = String(Math.min(59, Math.max(0, parseInt(hm[2], 10)))).padStart(2, '0')
-    return `${h}:${m} Uhr`
-  }
-  const d = parseAnyDate(s)
-  if (!d) return s
-  const hh = String(d.getHours()).padStart(2, '0')
-  const mm = String(d.getMinutes()).padStart(2, '0')
-  return `${hh}:${mm} Uhr`
+  return formatTimeLocal(time, DEFAULT_DISPLAY_TZ)
 }
 
 /** TT.MM.JJJJ, HH:mm Uhr */
