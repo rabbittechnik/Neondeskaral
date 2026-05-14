@@ -13,13 +13,14 @@ import {
   Stethoscope,
   Timer,
 } from 'lucide-react'
-import { employeeAccessGet, employeeAccessGetQuery, employeeAccessPost } from '../../services/api'
+import { employeeAccessGet, employeeAccessGetQuery, employeeAccessPost, employeeAccessPostJson } from '../../services/api'
 import type { Task, TaskLog } from '../../types/task'
 import type { TimeEntry } from '../../types/timeTracking'
 import { ShiftCloseChecklistModal, type ShiftCloseCatalogItem, type ShiftCloseCompletionPayload, type ShiftCloseWizardGroup } from '../../components/terminal/ShiftCloseChecklistModal'
 import { normalizeShiftCloseCatalogItems, parseShiftCloseWizardGroups } from '../../utils/shiftCloseChecklistClient'
 import { ShiftCloseSuccessCard } from '../../components/terminal/ShiftCloseSuccessCard'
 import { Button } from '../../components/ui/Button'
+import { BakingNoticeModal, type BakingNoticePayload } from '../../components/baking/BakingNoticeModal'
 import { calculateWorkedMinutes, formatWorkedDuration } from '../../utils/timeTrackingUtils'
 import {
   addDaysYmd,
@@ -164,9 +165,15 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
   const [checkInConfirmOpen, setCheckInConfirmOpen] = useState(false)
   const [checkoutConfirmOpen, setCheckoutConfirmOpen] = useState(false)
 
+  const [bakingNotice, setBakingNotice] = useState<BakingNoticePayload | null>(null)
+  const [bakingNoticeOpen, setBakingNoticeOpen] = useState(false)
+  const [bakingAckSubmitting, setBakingAckSubmitting] = useState(false)
+
   const [checklistOpen, setChecklistOpen] = useState(false)
   const [checkoutEntry, setCheckoutEntry] = useState<TimeEntry | null>(null)
   const [checkoutBlockingTasks, setCheckoutBlockingTasks] = useState<Task[]>([])
+  const [checkoutHandoverUiMode, setCheckoutHandoverUiMode] = useState<'midday_standard_collective' | undefined>(undefined)
+  const [checkoutMiddayBullets, setCheckoutMiddayBullets] = useState<string[]>([])
   const [checkoutCatalog, setCheckoutCatalog] = useState<{
     checklistType: 'handover' | 'closing'
     items: ShiftCloseCatalogItem[]
@@ -302,9 +309,20 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
     try {
       const raw = await employeeAccessPost(t, 'check-in', { force })
       if (raw.ok === true && raw.data && typeof raw.data === 'object') {
-        const d = raw.data as { message?: string; timeEntry?: TimeEntry }
+        const d = raw.data as {
+          message?: string
+          timeEntry?: TimeEntry
+          bakingNotice?: BakingNoticePayload
+        }
         const startLabel = d.timeEntry ? formatTimeDE(d.timeEntry.startAt) : ''
         setInOk(d.message ?? `Deine Schicht wurde gestartet. Startzeit: ${startLabel}`)
+        if (d.bakingNotice?.timeEntryId && Array.isArray(d.bakingNotice.items)) {
+          setBakingNotice(d.bakingNotice)
+          setBakingNoticeOpen(true)
+        } else {
+          setBakingNotice(null)
+          setBakingNoticeOpen(false)
+        }
         await load()
         setBusy(false)
         return
@@ -369,11 +387,17 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
           items?: unknown[]
           wizardGroups?: unknown
           blockingTasks?: Task[]
+          handoverUiMode?: string
+          middayHandoverBullets?: string[]
         }
         const itemsNorm = Array.isArray(d.items) ? normalizeShiftCloseCatalogItems(d.items) : []
         const blocking = Array.isArray(d.blockingTasks) ? d.blockingTasks : []
+        const middayMode = d.handoverUiMode === 'midday_standard_collective'
+        const bullets = Array.isArray(d.middayHandoverBullets) ? d.middayHandoverBullets.map(String) : []
         setCheckoutBlockingTasks(blocking)
-        if (d.timeEntry && d.checklistType && (itemsNorm.length > 0 || blocking.length > 0)) {
+        setCheckoutHandoverUiMode(middayMode ? 'midday_standard_collective' : undefined)
+        setCheckoutMiddayBullets(middayMode ? bullets : [])
+        if (d.timeEntry && d.checklistType && (itemsNorm.length > 0 || blocking.length > 0 || middayMode)) {
           setCheckoutEntry(d.timeEntry)
           setCheckoutCatalog({
             checklistType: d.checklistType === 'closing' ? 'closing' : 'handover',
@@ -383,6 +407,8 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
           setChecklistOpen(true)
         } else {
           setCheckoutBlockingTasks([])
+          setCheckoutHandoverUiMode(undefined)
+          setCheckoutMiddayBullets([])
           setMsg(String(raw.message ?? 'Ausstempeln nicht möglich'))
         }
         setBusy(false)
@@ -421,7 +447,11 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
         setCheckoutEntry(null)
         setCheckoutCatalog(null)
         setCheckoutBlockingTasks([])
+        setCheckoutHandoverUiMode(undefined)
+        setCheckoutMiddayBullets([])
         await load()
+        setBakingNotice(null)
+        setBakingNoticeOpen(false)
       } else {
         setMsg(String(raw.error ?? 'Abschluss fehlgeschlagen'))
       }
@@ -627,6 +657,15 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
                   Laufende Zeit:{' '}
                   <span className="font-medium text-cyan-100">{runningDuration(shiftStatus.running.startAt)}</span>
                 </p>
+                {bakingNotice && running?.id === bakingNotice.timeEntryId && !bakingNoticeOpen ? (
+                  <button
+                    type="button"
+                    className="mt-2 text-left text-sm font-medium text-cyan-200 underline decoration-cyan-400/50 hover:text-cyan-100"
+                    onClick={() => setBakingNoticeOpen(true)}
+                  >
+                    Backwaren-Hinweis erneut anzeigen
+                  </button>
+                ) : null}
               </>
             ) : null}
 
@@ -936,6 +975,27 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
         </div>
       </nav>
 
+      <BakingNoticeModal
+        open={bakingNoticeOpen && Boolean(bakingNotice)}
+        payload={bakingNotice}
+        submitting={bakingAckSubmitting}
+        onDismiss={() => setBakingNoticeOpen(false)}
+        onConfirm={async (remark) => {
+          if (!bakingNotice || !t) return
+          setBakingAckSubmitting(true)
+          const res = await employeeAccessPostJson<{ saved: boolean }>(t, 'baking-notice', {
+            timeEntryId: bakingNotice.timeEntryId,
+            ...(remark ? { remark } : {}),
+          })
+          setBakingAckSubmitting(false)
+          if (res.ok && res.data?.saved) {
+            setBakingNoticeOpen(false)
+            return
+          }
+          setMsg(res.ok === false ? res.error : 'Backwaren-Hinweis konnte nicht gespeichert werden.')
+        }}
+      />
+
       {checkInConfirmOpen ? (
         <div className="fixed inset-0 z-[115] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-2xl border border-emerald-400/35 bg-slate-900 p-5 shadow-xl">
@@ -1059,13 +1119,17 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
           checklistType={checkoutCatalog.checklistType}
           catalogItems={checkoutCatalog.items}
           wizardGroups={checkoutCatalog.wizardGroups}
-          blockingTasks={checkoutBlockingTasks}
+          blockingTasks={checkoutBlockingTasks.length > 0 ? checkoutBlockingTasks : undefined}
           submitButtonLabel="Schicht endgültig beenden"
+          handoverUiMode={checkoutHandoverUiMode}
+          middayHandoverBullets={checkoutMiddayBullets.length > 0 ? checkoutMiddayBullets : undefined}
           onClose={() => {
             setChecklistOpen(false)
             setCheckoutEntry(null)
             setCheckoutCatalog(null)
             setCheckoutBlockingTasks([])
+            setCheckoutHandoverUiMode(undefined)
+            setCheckoutMiddayBullets([])
           }}
           onComplete={(c) => void completeCheckout(c)}
         />

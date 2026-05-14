@@ -9,6 +9,7 @@ import {
   getTimeEntry,
   insertChecklist,
   insertShiftCloseChecklistParsed,
+  insertShiftCloseMiddayCollectiveHandover,
   logCardEvent,
   type TimeEntryRow,
 } from './timeTrackingService.js'
@@ -17,6 +18,11 @@ import { listActiveShiftWarningsForEmployee } from './employeeShiftWarningServic
 import { buildShiftCloseChecklistStartPayload } from './stationShiftChecklistDefService.js'
 import { resolveShiftCloseChecklistKind } from '../utils/shiftCloseChecklistResolve.js'
 import { isStructuredShiftClosePayload, validateStructuredShiftCloseChecklistForStation } from '../utils/shiftCloseChecklistValidate.js'
+import {
+  isCollectiveMiddayHandoverSubmission,
+  validateCollectiveMiddayHandover,
+} from '../utils/middayCollectiveHandoverValidate.js'
+import { middayCollectiveHandoverApplies, MIDDAY_STANDARD_HANDOVER_LABELS } from '../constants/middayStandardHandover.js'
 import {
   listCheckoutBlockingTaskRows,
   mapCheckoutBlockingTasksToApi,
@@ -32,6 +38,8 @@ import {
   ymdBerlinFromUtcMs,
 } from '../utils/europeBerlinWallTime.js'
 import { shiftBoundsBerlin } from '../utils/shiftBerlinBounds.js'
+import { isEarlyShiftForBakingNotice } from './earlyShiftForBaking.js'
+import { resolveBakingPlanForBerlinYmd } from './bakingPlanService.js'
 
 function parseHHMM(t: string): number {
   const [h, m] = t.split(':').map(Number)
@@ -472,7 +480,22 @@ export function clockCheckInByEmployeeId(
   }
 
   const entry = getTimeEntry(db, id)!
-  return { ok: true as const, result: 'success' as const, message: 'Eingestempelt', employee: emp, timeEntry: entry }
+  let bakingNotice:
+    | { timeEntryId: string; planType: 'weekday' | 'weekend_holiday'; items: string[] }
+    | undefined
+  if (planned && isEarlyShiftForBakingNotice(planned)) {
+    const workYmd = String(planned.date ?? '').trim() || ymdBerlinFromUtcMs(nowMs)
+    const plan = resolveBakingPlanForBerlinYmd(workYmd)
+    bakingNotice = { timeEntryId: id, planType: plan.planType, items: plan.items }
+  }
+  return {
+    ok: true as const,
+    result: 'success' as const,
+    message: 'Eingestempelt',
+    employee: emp,
+    timeEntry: entry,
+    ...(bakingNotice ? { bakingNotice } : {}),
+  }
 }
 
 export function clockCheckOutStartByEmployeeId(
@@ -536,7 +559,15 @@ export function clockCheckOutStartByEmployeeId(
     timeEntryStartAt: running.startAt,
     now: new Date(),
   })
-  const checklistPayload = buildShiftCloseChecklistStartPayload(db, stationId, kind)
+  const workDate = running.startAt.slice(0, 10)
+  const plannedForMidday = plannedShiftForTimeEntry(db, stationId, employeeId, workDate, running.shiftId)
+  const middayCollective = middayCollectiveHandoverApplies({
+    now: new Date(),
+    plannedEndTimeHm: plannedForMidday?.end_time ?? null,
+  })
+  const checklistPayload = middayCollective
+    ? { checklistType: 'handover' as const, items: [] as const, wizardGroups: undefined as undefined }
+    : buildShiftCloseChecklistStartPayload(db, stationId, kind)
 
   const blockingTasks = mapCheckoutBlockingTasksToApi(db, {
     stationId,
@@ -554,6 +585,8 @@ export function clockCheckOutStartByEmployeeId(
     checklistItems: checklistPayload.items,
     wizardGroups: checklistPayload.wizardGroups,
     blockingTasks,
+    handoverUiMode: middayCollective ? ('midday_standard_collective' as const) : undefined,
+    middayHandoverBullets: middayCollective ? [...MIDDAY_STANDARD_HANDOVER_LABELS] : undefined,
   }
 }
 
@@ -630,7 +663,30 @@ export function clockCheckOutComplete(
     }
   }
 
-  if (isStructuredShiftClosePayload(checklist as Record<string, unknown>)) {
+  const plannedForCheckout = plannedShiftForTimeEntry(db, row.station_id, row.employee_id, workDate, row.shift_id)
+  const wantsMiddayCollective = middayCollectiveHandoverApplies({
+    now: endNow,
+    plannedEndTimeHm: plannedForCheckout?.end_time ?? null,
+  })
+
+  if (wantsMiddayCollective) {
+    if (!isCollectiveMiddayHandoverSubmission(checklist as Record<string, unknown>)) {
+      return { ok: false as const, error: 'Bitte die Schichtübergabe bestätigen (Liste lesen und unten bestätigen).' }
+    }
+    const mv = validateCollectiveMiddayHandover(checklist as Record<string, unknown>)
+    if (!mv.ok) return { ok: false as const, error: mv.error }
+    const remark = String((checklist as Record<string, unknown>).remark ?? '').trim()
+    insertShiftCloseMiddayCollectiveHandover(db, {
+      timeEntryId,
+      employeeId: row.employee_id,
+      stationId: row.station_id,
+      shiftId: row.shift_id,
+      remark,
+      checkoutSource: body.checkoutSource ?? 'tablet',
+    })
+  } else if (isCollectiveMiddayHandoverSubmission(checklist as Record<string, unknown>)) {
+    return { ok: false as const, error: 'Die Schichtübergabe-Liste gilt nur bei Schichtende zwischen ca. 13:00 und 15:00 Uhr.' }
+  } else if (isStructuredShiftClosePayload(checklist as Record<string, unknown>)) {
     const v = validateStructuredShiftCloseChecklistForStation(db, row.station_id, checklist as Record<string, unknown>)
     if (!v.ok) return { ok: false as const, error: v.error }
     insertShiftCloseChecklistParsed(db, timeEntryId, row.employee_id, row.station_id, v.data)

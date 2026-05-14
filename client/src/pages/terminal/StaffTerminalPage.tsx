@@ -15,6 +15,7 @@ import { ShiftCloseChecklistModal, type ShiftCloseCatalogItem, type ShiftCloseWi
 import { normalizeShiftCloseCatalogItems, parseShiftCloseWizardGroups } from '../../utils/shiftCloseChecklistClient'
 import { ShiftCloseSuccessCard } from '../../components/terminal/ShiftCloseSuccessCard'
 import { Button } from '../../components/ui/Button'
+import { BakingNoticeModal, type BakingNoticePayload } from '../../components/baking/BakingNoticeModal'
 import { addDays, startOfWeekMonday } from '../../components/schedule/scheduleWeekUtils'
 import { toISODate } from '../../data/mockSchedule'
 import type { ScheduleShift } from '../../data/mockSchedule'
@@ -143,6 +144,8 @@ export function StaffTerminalPage() {
     wizardGroups?: ShiftCloseWizardGroup[]
   } | null>(null)
   const [checkoutBlockingTasks, setCheckoutBlockingTasks] = useState<Task[]>([])
+  const [checkoutHandoverUiMode, setCheckoutHandoverUiMode] = useState<'midday_standard_collective' | undefined>(undefined)
+  const [checkoutMiddayBullets, setCheckoutMiddayBullets] = useState<string[]>([])
   const [inSuccess, setInSuccess] = useState<{ name: string; time: string } | null>(null)
   const [outSuccess, setOutSuccess] = useState<{ name: string; end: string; dur: string } | null>(null)
   const [checkoutEndConfirm, setCheckoutEndConfirm] = useState<CheckoutEndConfirm | null>(null)
@@ -160,6 +163,9 @@ export function StaffTerminalPage() {
   const [checkInSugErr, setCheckInSugErr] = useState<string | null>(null)
   const [checkInSubmitting, setCheckInSubmitting] = useState(false)
   const [checkInSubmitError, setCheckInSubmitError] = useState<string | null>(null)
+  const [terminalBakingNotice, setTerminalBakingNotice] = useState<BakingNoticePayload | null>(null)
+  const [terminalBakingOpen, setTerminalBakingOpen] = useState(false)
+  const [terminalBakingBusy, setTerminalBakingBusy] = useState(false)
 
   const tabletStationQuery = useMemo((): Record<string, string> => {
     const t = tabletToken?.trim()
@@ -293,12 +299,13 @@ export function StaffTerminalPage() {
         throw new Error(String(json.error ?? 'Fehler beim Starten der Schicht.'))
       }
       if (json.ok === true && json.data && typeof json.data === 'object') {
-        const entry = (json.data as { timeEntry?: TimeEntry }).timeEntry
+        const data = json.data as { timeEntry?: TimeEntry; bakingNotice?: BakingNoticePayload }
+        const entry = data.timeEntry
         if (!entry) throw new Error('Keine Zeiterfassung in der Antwort')
         await refetch()
         void refetchRunning()
         notifyRunningEntriesRefresh()
-        return { ok: true as const, entry }
+        return { ok: true as const, entry, bakingNotice: data.bakingNotice }
       }
       throw new Error(String(json.error ?? 'Ungültige Server-Antwort'))
     },
@@ -345,6 +352,8 @@ export function StaffTerminalPage() {
     setCheckOutEntry(null)
     setCheckoutCatalog(null)
     setCheckoutBlockingTasks([])
+    setCheckoutHandoverUiMode(undefined)
+    setCheckoutMiddayBullets([])
     setPendingShiftWarnings(null)
     setCheckoutEndConfirm(null)
     setCheckInSuggestionsPayload(null)
@@ -425,6 +434,13 @@ export function StaffTerminalPage() {
       setCheckInApiConfirm(null)
       setModal(null)
       setInSuccess({ name: emp?.displayName ?? 'Mitarbeiter', time: t })
+      if (out.bakingNotice?.timeEntryId && Array.isArray(out.bakingNotice.items)) {
+        setTerminalBakingNotice(out.bakingNotice)
+        setTerminalBakingOpen(true)
+      } else {
+        setTerminalBakingNotice(null)
+        setTerminalBakingOpen(false)
+      }
       void refetchTasks(empTrim)
       void refetchRunning()
       setTab('tasks')
@@ -483,6 +499,8 @@ export function StaffTerminalPage() {
           items?: unknown[]
           wizardGroups?: unknown
           blockingTasks?: Task[]
+          handoverUiMode?: string
+          middayHandoverBullets?: string[]
         }
         error?: string
       }
@@ -490,16 +508,21 @@ export function StaffTerminalPage() {
         setCheckOutErr(json.error ?? 'Auscheck konnte nicht gestartet werden.')
         return
       }
-      const { checklistType, items, wizardGroups, blockingTasks: blockingRaw } = json.data
+      const { checklistType, items, wizardGroups, blockingTasks: blockingRaw, handoverUiMode, middayHandoverBullets } =
+        json.data
       const blockingTasks = Array.isArray(blockingRaw) ? blockingRaw : []
       const normalizedItems = Array.isArray(items) ? normalizeShiftCloseCatalogItems(items) : []
-      if (!checklistType || (normalizedItems.length === 0 && blockingTasks.length === 0)) {
+      const middayMode = handoverUiMode === 'midday_standard_collective'
+      const bullets = Array.isArray(middayHandoverBullets) ? middayHandoverBullets.map(String) : []
+      if (!checklistType || (normalizedItems.length === 0 && blockingTasks.length === 0 && !middayMode)) {
         setCheckOutErr('Ungültige Server-Antwort für die Schichtende-Checkliste.')
         return
       }
       const ct = checklistType === 'closing' ? 'closing' : 'handover'
       setCheckOutEntry(json.data.timeEntry)
       setCheckoutBlockingTasks(blockingTasks)
+      setCheckoutHandoverUiMode(middayMode ? 'midday_standard_collective' : undefined)
+      setCheckoutMiddayBullets(middayMode ? bullets : [])
       setCheckoutCatalog({
         checklistType: ct,
         items: normalizedItems,
@@ -575,7 +598,11 @@ export function StaffTerminalPage() {
     setCheckOutEntry(null)
     setCheckoutCatalog(null)
     setCheckoutBlockingTasks([])
+    setCheckoutHandoverUiMode(undefined)
+    setCheckoutMiddayBullets([])
     setCheckoutEndConfirm(null)
+    setTerminalBakingNotice(null)
+    setTerminalBakingOpen(false)
     setOutSuccess({ name, end: endLabel, dur: formatWorkedDuration(mins) })
     log({
       cardNumber: String(employees.find((e) => e.id === p.employeeId)?.cashRegisterCardNumber ?? '').trim(),
@@ -673,6 +700,20 @@ export function StaffTerminalPage() {
           </div>
 
           <RunningStaffPanel rows={runningPresence} />
+
+          {terminalBakingNotice &&
+          runningPresence.some((r) => r.id === terminalBakingNotice.timeEntryId) &&
+          !terminalBakingOpen ? (
+            <div className="mt-4 flex justify-center">
+              <button
+                type="button"
+                className="text-sm font-medium text-cyan-200 underline decoration-cyan-400/50 hover:text-cyan-100"
+                onClick={() => setTerminalBakingOpen(true)}
+              >
+                Backwaren-Hinweis erneut anzeigen
+              </button>
+            </div>
+          ) : null}
 
           <div className="mt-10 w-full max-w-3xl space-y-4">
             {inSuccess ? (
@@ -860,6 +901,41 @@ export function StaffTerminalPage() {
         </div>
       ) : null}
 
+      <BakingNoticeModal
+        open={terminalBakingOpen && Boolean(terminalBakingNotice)}
+        payload={terminalBakingNotice}
+        submitting={terminalBakingBusy}
+        onDismiss={() => setTerminalBakingOpen(false)}
+        onConfirm={async (remark) => {
+          if (!terminalBakingNotice) return
+          const sid = stationId ?? DEFAULT_TABLET_STATION_ID
+          const body: Record<string, unknown> = {
+            timeEntryId: terminalBakingNotice.timeEntryId,
+            ...(remark ? { remark } : {}),
+          }
+          if (tabletToken?.trim()) body.tabletToken = tabletToken.trim()
+          else body.stationId = sid
+          setTerminalBakingBusy(true)
+          try {
+            const res = await fetch(`${API_BASE}/terminal/baking-notice`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body),
+            })
+            const json = (await res.json()) as { ok?: boolean; data?: { saved?: boolean }; error?: string }
+            if (json.ok === true && json.data && json.data.saved === true) {
+              setTerminalBakingOpen(false)
+            } else {
+              window.alert(String(json.error ?? 'Speichern fehlgeschlagen.'))
+            }
+          } catch {
+            window.alert('Netzwerkfehler.')
+          } finally {
+            setTerminalBakingBusy(false)
+          }
+        }}
+      />
+
       {renderCheckInApiConfirm()}
 
       {checkoutEndConfirm ? (
@@ -953,7 +1029,11 @@ export function StaffTerminalPage() {
             setCheckOutEntry(null)
             setCheckoutCatalog(null)
             setCheckoutBlockingTasks([])
+            setCheckoutHandoverUiMode(undefined)
+            setCheckoutMiddayBullets([])
           }}
+          handoverUiMode={checkoutHandoverUiMode}
+          middayHandoverBullets={checkoutMiddayBullets.length > 0 ? checkoutMiddayBullets : undefined}
           onComplete={async (payload) => {
             const { checklist, taskCloseDeclarations, taskCloseAccuracyConfirmed } = payload
             const entry = checkOutEntry

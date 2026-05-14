@@ -286,7 +286,33 @@ employeeAccessRouter.post('/:token/check-in', (req, res) => {
       message: out.message,
       employee: out.employee,
       timeEntry: out.timeEntry,
+      ...('bakingNotice' in out && (out as { bakingNotice?: unknown }).bakingNotice
+        ? { bakingNotice: (out as { bakingNotice: unknown }).bakingNotice }
+        : {}),
     })
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
+  }
+})
+
+employeeAccessRouter.post('/:token/baking-notice', (req, res) => {
+  try {
+    const meta = access.parseEmployeeAccessRequestMeta(req)
+    const timeEntryId = String((req.body as { timeEntryId?: string })?.timeEntryId ?? '').trim()
+    const remark = (req.body as { remark?: string })?.remark
+    const out = access.employeeAccessAcknowledgeBakingNotice(
+      getDb(),
+      req.params.token,
+      { timeEntryId, remark: remark != null ? String(remark) : undefined },
+      meta,
+    )
+    if (!out.ok) {
+      if (out.error === denied()) {
+        return jsonErr(res, out.error, 403)
+      }
+      return res.status(200).json({ ok: false, error: out.error })
+    }
+    jsonOk(res, { saved: true })
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
   }
@@ -317,6 +343,8 @@ employeeAccessRouter.post('/:token/check-out-start', (req, res) => {
       items: out.checklistItems,
       wizardGroups: out.wizardGroups,
       blockingTasks: out.blockingTasks,
+      handoverUiMode: out.handoverUiMode,
+      middayHandoverBullets: out.middayHandoverBullets,
     })
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)

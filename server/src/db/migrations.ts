@@ -161,6 +161,7 @@ export function runMigrations(db: Database.Database) {
   mergePayrollExportPermission(db)
   ensureShiftCloseChecklistCashDifferenceColumn(db)
   ensureShiftCloseStructuredChecklistTables(db)
+  ensureShiftCloseChecklistRunExtendedColumns(db)
   ensureStationShiftCloseChecklistDefsTable(db)
   seedAllStationsShiftCloseChecklistDefsIfMissing(db)
   ensurePayrollAdjustmentsUpdatedAtColumn(db)
@@ -177,6 +178,7 @@ export function runMigrations(db: Database.Database) {
   ensureStationCanonicalNamesOnce(db)
   syncAralBodelshausenStationDisplayName(db)
   syncAralBodelshausenEmployeeCashRegisterCards(db)
+  ensureWeekendTasksAndBakingTables(db)
 }
 
 /** Idempotent: Kassenkartennummern für Aral Bodelshausen (nur nicht gelöschte Zeilen, Abgleich per display_name). */
@@ -425,6 +427,10 @@ function ensureShiftCloseStructuredChecklistTables(db: Database.Database) {
     cash_difference REAL,
     truth_confirmed INTEGER NOT NULL DEFAULT 0,
     created_at TEXT,
+    handover_variant TEXT,
+    handover_remark TEXT,
+    shift_id TEXT,
+    checkout_source TEXT,
     FOREIGN KEY (time_entry_id) REFERENCES time_entries(id),
     FOREIGN KEY (employee_id) REFERENCES employees(id),
     FOREIGN KEY (station_id) REFERENCES stations(id)
@@ -449,6 +455,22 @@ function ensureShiftCloseStructuredChecklistTables(db: Database.Database) {
   )`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_shift_close_cl_items_checklist ON shift_close_checklist_items(checklist_id)`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_shift_close_cl_items_te ON shift_close_checklist_items(time_entry_id)`)
+}
+
+function ensureShiftCloseChecklistRunExtendedColumns(db: Database.Database) {
+  const cols = new Set(
+    (db.prepare(`PRAGMA table_info(shift_close_checklist_runs)`).all() as { name: string }[]).map((c) => c.name),
+  )
+  const add = (name: string, ddl: string) => {
+    if (!cols.has(name)) {
+      db.exec(`ALTER TABLE shift_close_checklist_runs ADD COLUMN ${ddl}`)
+      cols.add(name)
+    }
+  }
+  add('handover_variant', 'handover_variant TEXT')
+  add('handover_remark', 'handover_remark TEXT')
+  add('shift_id', 'shift_id TEXT')
+  add('checkout_source', 'checkout_source TEXT')
 }
 
 function ensureStationShiftCloseChecklistDefsTable(db: Database.Database) {
@@ -597,10 +619,56 @@ function ensureTaskScopeAndLifecycleColumns(db: Database.Database) {
   add('tablet_station_board', 'tablet_station_board INTEGER DEFAULT 0')
   add('assigned_shift_type', 'assigned_shift_type TEXT')
   add('required_for_shift_close', 'required_for_shift_close INTEGER DEFAULT 0')
+  add('source_shift_id', 'source_shift_id TEXT')
+  add('weekend_task_template_slug', 'weekend_task_template_slug TEXT')
+  add('task_category', 'task_category TEXT')
 
   db.prepare(
     `UPDATE tasks SET active = 0 WHERE (id LIKE 'task-seed-%' OR trim(COALESCE(created_by,'')) = 'seed') AND active = 1`,
   ).run()
+}
+
+/** Wochenend-Zusatzaufgaben (Generator) + Backwaren-Bestätigung nach Frühschicht-Check-in. */
+function ensureWeekendTasksAndBakingTables(db: Database.Database) {
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_station_shift_weekend_slug
+    ON tasks(station_id, source_shift_id, weekend_task_template_slug)
+    WHERE weekend_task_template_slug IS NOT NULL AND trim(weekend_task_template_slug) != ''
+      AND source_shift_id IS NOT NULL AND trim(source_shift_id) != ''`)
+
+  db.exec(`CREATE TABLE IF NOT EXISTS station_weekend_task_settings (
+    station_id TEXT PRIMARY KEY,
+    enabled INTEGER DEFAULT 1,
+    dynamic_tasks_per_weekend_shift INTEGER DEFAULT 2,
+    max_fenster_auto_per_year INTEGER DEFAULT 3,
+    mandatory_outside_label TEXT,
+    mandatory_trash_label TEXT,
+    updated_at TEXT,
+    FOREIGN KEY (station_id) REFERENCES stations(id)
+  )`)
+
+  const ts = nowIso()
+  db.prepare(
+    `INSERT OR IGNORE INTO station_weekend_task_settings (station_id, enabled, dynamic_tasks_per_weekend_shift, max_fenster_auto_per_year, mandatory_outside_label, mandatory_trash_label, updated_at)
+     SELECT id, 1, 2, 3, 'Außenbereich kontrollieren', 'Mülleimer kontrollieren', ? FROM stations`,
+  ).run(ts)
+
+  db.exec(`CREATE TABLE IF NOT EXISTS shift_baking_notices (
+    id TEXT PRIMARY KEY,
+    station_id TEXT NOT NULL,
+    employee_id TEXT NOT NULL,
+    shift_id TEXT,
+    time_entry_id TEXT NOT NULL UNIQUE,
+    date TEXT NOT NULL,
+    baking_plan_type TEXT NOT NULL,
+    items_json TEXT NOT NULL,
+    remark TEXT,
+    acknowledged_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (station_id) REFERENCES stations(id),
+    FOREIGN KEY (time_entry_id) REFERENCES time_entries(id)
+  )`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_shift_baking_notices_station ON shift_baking_notices(station_id)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_shift_baking_notices_employee ON shift_baking_notices(employee_id)`)
 }
 
 function ensureShiftCloseTaskResponsesTable(db: Database.Database) {

@@ -50,6 +50,10 @@ type Props = {
   blockingTasks?: Task[]
   /** Stations-Tablet: eine Seite, schnelle Bestätigung, optional „nicht erledigt“ */
   layout?: 'wizard' | 'tablet'
+  /** Stations-Tablet / Mitarbeiter-App: feste Mittags-Übergabe (ca. 14:00), nur Schichtende — nicht aus der Aufgabenliste */
+  handoverUiMode?: 'midday_standard_collective'
+  /** Vom Server, gleiche Reihenfolge wie Snapshot in der DB */
+  middayHandoverBullets?: string[]
   /** Button-Text für den finalen Schichtabschluss */
   submitButtonLabel?: string
   onClose: () => void
@@ -105,6 +109,8 @@ export function ShiftCloseChecklistModal({
   wizardGroups,
   blockingTasks,
   layout = 'wizard',
+  handoverUiMode,
+  middayHandoverBullets,
   submitButtonLabel = 'Schicht beenden',
   onClose,
   onComplete,
@@ -120,6 +126,7 @@ export function ShiftCloseChecklistModal({
   const [tabletReasonByKey, setTabletReasonByKey] = useState<Record<string, string>>({})
   const [blockingOutcome, setBlockingOutcome] = useState<Record<string, 'done' | 'not_done' | ''>>({})
   const [blockingReason, setBlockingReason] = useState<Record<string, string>>({})
+  const [middayCollectiveRemark, setMiddayCollectiveRemark] = useState('')
 
   const isClosing = checklistType === 'closing'
 
@@ -148,6 +155,7 @@ export function ShiftCloseChecklistModal({
       }
       setBlockingOutcome(bo)
       setBlockingReason({})
+      setMiddayCollectiveRemark('')
     }
   }, [open, _timeEntryId, catalogItems, blockingTasks])
 
@@ -278,15 +286,21 @@ export function ShiftCloseChecklistModal({
   if (!open) return null
 
   if (layout === 'tablet') {
-    const titleT = checklistType === 'handover' ? 'Schichtübergabe' : 'Ladenschluss'
-    const descT =
-      checklistType === 'handover'
+    const isMiddayCollective =
+      handoverUiMode === 'midday_standard_collective' && (middayHandoverBullets?.length ?? 0) > 0
+    const titleT = isMiddayCollective ? 'Schichtübergabe' : checklistType === 'handover' ? 'Schichtübergabe' : 'Ladenschluss'
+    const descT = isMiddayCollective
+      ? 'Bitte prüfe vor dem Beenden deiner Schicht, ob alle Punkte für die Übergabe an die nächste Schicht erledigt sind.'
+      : checklistType === 'handover'
         ? 'Bitte prüfe, ob die Übergabe für die nächste Schicht vorbereitet ist. Unten bestätigst du den Abschluss.'
         : 'Bitte bestätige, dass die Tankstelle ordnungsgemäß abgeschlossen wurde. Unten bestätigst du den Abschluss.'
 
     const submitTablet = () => {
       setError('')
-      const cash = parseCashEuro(cashInput)
+      const cash =
+        isMiddayCollective && catalogItems.length === 0
+          ? ({ ok: true as const, value: 0 })
+          : parseCashEuro(cashInput)
       if (!cash.ok) {
         setError(cash.error)
         return
@@ -302,14 +316,6 @@ export function ShiftCloseChecklistModal({
           return
         }
       }
-      const buildChecklistItems = (
-        itemsMap: { itemKey: string; itemLabel: string; answer: string; reason?: string }[],
-      ): Record<string, unknown> => ({
-        checklistType,
-        confirmTruth: true,
-        cashDifference: cash.value,
-        items: itemsMap,
-      })
       const decl =
         blockingTasks && blockingTasks.length > 0
           ? blockingTasks.map((t) => ({
@@ -318,6 +324,39 @@ export function ShiftCloseChecklistModal({
               notDoneReason: blockingOutcome[t.id] === 'not_done' ? blockingReason[t.id]?.trim() : undefined,
             }))
           : undefined
+
+      if (isMiddayCollective) {
+        if (!tabletMasterDone) {
+          setError(
+            blockingTasks?.length
+              ? 'Bitte bestätigen, dass die Angaben zu den Aufgaben und die Schichtübergabe korrekt sind.'
+              : 'Bitte bestätigen, dass alle aufgeführten Aufgaben zur Schichtübergabe erledigt sind.',
+          )
+          return
+        }
+        onComplete({
+          checklist: {
+            checklistType: 'handover',
+            submissionKind: 'midday_collective',
+            confirmTruth: true,
+            collectiveConfirmed: true,
+            remark: middayCollectiveRemark.trim() || undefined,
+            snapshotVersion: 1,
+          },
+          taskCloseDeclarations: decl,
+          taskCloseAccuracyConfirmed: blockingTasks?.length ? tabletMasterDone : undefined,
+        })
+        return
+      }
+
+      const buildChecklistItems = (
+        itemsMap: { itemKey: string; itemLabel: string; answer: string; reason?: string }[],
+      ): Record<string, unknown> => ({
+        checklistType,
+        confirmTruth: true,
+        cashDifference: cash.value,
+        items: itemsMap,
+      })
       const pushComplete = (itemsMap: { itemKey: string; itemLabel: string; answer: string; reason?: string }[]) => {
         onComplete({
           checklist: buildChecklistItems(itemsMap),
@@ -472,47 +511,72 @@ export function ShiftCloseChecklistModal({
             </div>
           ) : null}
 
-          <div className="mt-4 max-h-[min(52vh,480px)] overflow-y-auto pr-1">
-            {tabletSectionList.map((sec) => (
-              <div key={sec.id} className="mb-6 last:mb-2">
-                <p className="mb-2 text-sm font-semibold uppercase tracking-wide text-cyan-200/90">{sec.label}</p>
-                <ul className="space-y-2 rounded-xl border border-white/10 bg-black/20 p-3">
-                  {sec.items.map((it) => (
-                    <li
-                      key={it.key}
-                      className="flex flex-col gap-2 rounded-lg border border-white/5 bg-black/25 px-3 py-3 sm:flex-row sm:items-start sm:justify-between"
-                    >
-                      <span className="text-base font-medium leading-snug text-[var(--text-main)]">{it.label}</span>
-                      {tabletException ? (
-                        <label className="flex shrink-0 cursor-pointer items-center gap-2 text-sm text-amber-100">
-                          <input
-                            type="checkbox"
-                            className="h-5 w-5 rounded border-white/25"
-                            checked={tabletNotDoneKeys.has(it.key)}
-                            onChange={() => toggleNotDone(it.key)}
-                          />
-                          <span>Nicht erledigt</span>
-                        </label>
-                      ) : null}
-                      {tabletException && tabletNotDoneKeys.has(it.key) ? (
-                        <label className="mt-1 block w-full text-sm text-[var(--text-muted)] sm:col-span-2">
-                          Grund <span className="text-rose-300">*</span>
-                          <textarea
-                            value={tabletReasonByKey[it.key] ?? ''}
-                            onChange={(e) =>
-                              setTabletReasonByKey((prev) => ({ ...prev, [it.key]: e.target.value }))
-                            }
-                            rows={2}
-                            className="mt-1 w-full rounded-lg border border-amber-400/30 bg-black/40 px-3 py-2 text-base text-[var(--text-main)]"
-                          />
-                        </label>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
+          {isMiddayCollective && middayHandoverBullets && middayHandoverBullets.length > 0 ? (
+            <div className="mt-5 rounded-xl border border-cyan-500/25 bg-cyan-500/5 p-4">
+              <p className="text-sm font-semibold text-cyan-100">Schichtübergabe — Prüfliste</p>
+              <ul className="mt-3 list-inside list-disc space-y-2 text-sm leading-relaxed text-[var(--text-main)]">
+                {middayHandoverBullets.map((line) => (
+                  <li key={line} className="pl-1 marker:text-cyan-400">
+                    {line}
+                  </li>
+                ))}
+              </ul>
+              <label className="mt-4 block text-sm text-[var(--text-muted)]">
+                Bemerkung / Mitteilung <span className="text-[var(--text-faint)]">optional</span>
+                <textarea
+                  value={middayCollectiveRemark}
+                  onChange={(e) => setMiddayCollectiveRemark(e.target.value)}
+                  rows={3}
+                  placeholder="Falls du der nächsten Schicht oder der Leitung etwas mitteilen möchtest…"
+                  className="mt-1 w-full rounded-lg border border-white/15 bg-black/35 px-3 py-2 text-[var(--text-main)] placeholder:text-[var(--text-faint)]"
+                />
+              </label>
+            </div>
+          ) : null}
+
+          {!isMiddayCollective ? (
+            <div className="mt-4 max-h-[min(52vh,480px)] overflow-y-auto pr-1">
+              {tabletSectionList.map((sec) => (
+                <div key={sec.id} className="mb-6 last:mb-2">
+                  <p className="mb-2 text-sm font-semibold uppercase tracking-wide text-cyan-200/90">{sec.label}</p>
+                  <ul className="space-y-2 rounded-xl border border-white/10 bg-black/20 p-3">
+                    {sec.items.map((it) => (
+                      <li
+                        key={it.key}
+                        className="flex flex-col gap-2 rounded-lg border border-white/5 bg-black/25 px-3 py-3 sm:flex-row sm:items-start sm:justify-between"
+                      >
+                        <span className="text-base font-medium leading-snug text-[var(--text-main)]">{it.label}</span>
+                        {tabletException ? (
+                          <label className="flex shrink-0 cursor-pointer items-center gap-2 text-sm text-amber-100">
+                            <input
+                              type="checkbox"
+                              className="h-5 w-5 rounded border-white/25"
+                              checked={tabletNotDoneKeys.has(it.key)}
+                              onChange={() => toggleNotDone(it.key)}
+                            />
+                            <span>Nicht erledigt</span>
+                          </label>
+                        ) : null}
+                        {tabletException && tabletNotDoneKeys.has(it.key) ? (
+                          <label className="mt-1 block w-full text-sm text-[var(--text-muted)] sm:col-span-2">
+                            Grund <span className="text-rose-300">*</span>
+                            <textarea
+                              value={tabletReasonByKey[it.key] ?? ''}
+                              onChange={(e) =>
+                                setTabletReasonByKey((prev) => ({ ...prev, [it.key]: e.target.value }))
+                              }
+                              rows={2}
+                              className="mt-1 w-full rounded-lg border border-amber-400/30 bg-black/40 px-3 py-2 text-base text-[var(--text-main)]"
+                            />
+                          </label>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          ) : null}
 
           <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
             {!tabletException ? (
@@ -524,9 +588,13 @@ export function ShiftCloseChecklistModal({
                   onChange={(e) => setTabletMasterDone(e.target.checked)}
                 />
                 <span>
-                  {blockingTasks?.length
-                    ? 'Ich bestätige, dass die Angaben zu den Aufgaben und der Checkliste korrekt sind.'
-                    : 'Ich bestätige, dass alle oben genannten Punkte erledigt wurden.'}
+                  {isMiddayCollective
+                    ? blockingTasks?.length
+                      ? 'Ich bestätige, dass die Angaben zu den Aufgaben korrekt sind und alle aufgeführten Aufgaben zur Schichtübergabe erledigt sind.'
+                      : 'Ich bestätige, alle aufgeführten Aufgaben zur Schichtübergabe erledigt zu haben.'
+                    : blockingTasks?.length
+                      ? 'Ich bestätige, dass die Angaben zu den Aufgaben und der Checkliste korrekt sind.'
+                      : 'Ich bestätige, dass alle oben genannten Punkte erledigt wurden.'}
                 </span>
               </label>
             ) : (
@@ -542,7 +610,7 @@ export function ShiftCloseChecklistModal({
                 Zurück zur Schnellbestätigung
               </button>
             )}
-            {!tabletException ? (
+            {!isMiddayCollective && !tabletException ? (
               <button
                 type="button"
                 className="text-sm font-medium text-amber-200/95 underline-offset-2 hover:underline"
@@ -554,19 +622,21 @@ export function ShiftCloseChecklistModal({
                 Etwas wurde nicht erledigt
               </button>
             ) : null}
-            <label className="block text-sm text-[var(--text-muted)]">
-              Kassendifferenz (€){' '}
-              <span className="font-normal text-[var(--text-faint)]">— optional</span>
-              <input
-                type="text"
-                inputMode="decimal"
-                autoComplete="off"
-                placeholder="0,00"
-                value={cashInput}
-                onChange={(e) => setCashInput(e.target.value)}
-                className="mt-1 w-full max-w-xs rounded-xl border border-[var(--border-subtle)] bg-black/30 px-3 py-2 font-mono text-base text-[var(--text-main)] tabular-nums"
-              />
-            </label>
+            {!isMiddayCollective ? (
+              <label className="block text-sm text-[var(--text-muted)]">
+                Kassendifferenz (€){' '}
+                <span className="font-normal text-[var(--text-faint)]">— optional</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  placeholder="0,00"
+                  value={cashInput}
+                  onChange={(e) => setCashInput(e.target.value)}
+                  className="mt-1 w-full max-w-xs rounded-xl border border-[var(--border-subtle)] bg-black/30 px-3 py-2 font-mono text-base text-[var(--text-main)] tabular-nums"
+                />
+              </label>
+            ) : null}
           </div>
 
           {error ? <p className="mt-3 text-sm text-amber-300">{error}</p> : null}
@@ -579,6 +649,7 @@ export function ShiftCloseChecklistModal({
               variant="primary"
               type="button"
               className="min-h-[52px] min-w-[200px] text-lg font-semibold"
+              disabled={isMiddayCollective ? !tabletMasterDone : false}
               onClick={submitTablet}
             >
               {submitButtonLabel}

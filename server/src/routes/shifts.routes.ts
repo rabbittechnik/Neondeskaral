@@ -3,6 +3,8 @@ import { getDb } from '../db/database.js'
 import { jsonErr, jsonOk } from '../utils/http.js'
 import { requirePermission } from '../middleware/stationAuth.js'
 import * as shiftService from '../services/shiftService.js'
+import { generateDynamicWeekendTasks } from '../services/weekendDynamicTasksService.js'
+import { mondayOfCalendarWeekBerlin } from '../services/bwHolidayCalendar.js'
 
 export const shiftsRouter = Router()
 
@@ -37,7 +39,14 @@ shiftsRouter.post('/publish-week', (req, res) => {
         ? (req.body as { stationId: string }).stationId
         : undefined
     if (!requirePermission(req, res, stationId, 'schedule.publish')) return
-    jsonOk(res, shiftService.publishWeek(getDb(), weekMonday, stationId!))
+    const db = getDb()
+    const published = shiftService.publishWeek(db, weekMonday, stationId!)
+    try {
+      generateDynamicWeekendTasks(db, stationId!, weekMonday)
+    } catch (e) {
+      console.warn('[weekend-tasks] publish-week', e)
+    }
+    jsonOk(res, published)
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
   }
@@ -111,7 +120,15 @@ shiftsRouter.post('/:id/publish', (req, res) => {
     const row = shiftService.getShiftRow(getDb(), req.params.id)
     if (!row) return jsonErr(res, 'Schicht nicht gefunden', 404)
     if (!requirePermission(req, res, row.station_id, 'schedule.publish')) return
-    jsonOk(res, shiftService.publishShift(getDb(), req.params.id))
+    const db = getDb()
+    const out = shiftService.publishShift(db, req.params.id)
+    try {
+      const mon = mondayOfCalendarWeekBerlin(String(row.date))
+      generateDynamicWeekendTasks(db, row.station_id, mon)
+    } catch (e) {
+      console.warn('[weekend-tasks] publish-shift', e)
+    }
+    jsonOk(res, out)
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
   }

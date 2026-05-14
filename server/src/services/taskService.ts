@@ -64,6 +64,9 @@ export type TaskRow = {
   tablet_station_board?: number | null
   assigned_shift_type?: string | null
   required_for_shift_close?: number | null
+  source_shift_id?: string | null
+  weekend_task_template_slug?: string | null
+  task_category?: string | null
 }
 
 function normalizeAssignedTypeDb(raw: string | null | undefined): string {
@@ -182,13 +185,22 @@ export function createTask(db: Database, body: Record<string, unknown>, stationI
   const ast = body.assignedShiftType != null ? String(body.assignedShiftType).trim() || null : null
   const startT = body.startTime != null && String(body.startTime).trim() ? String(body.startTime).trim() : null
   const endT = body.endTime != null && String(body.endTime).trim() ? String(body.endTime).trim() : null
+  const sourceShiftId =
+    body.sourceShiftId != null && String(body.sourceShiftId).trim() ? String(body.sourceShiftId).trim() : null
+  const weekendTaskTemplateSlug =
+    body.weekendTaskTemplateSlug != null && String(body.weekendTaskTemplateSlug).trim()
+      ? String(body.weekendTaskTemplateSlug).trim()
+      : null
+  const taskCategory =
+    body.taskCategory != null && String(body.taskCategory).trim() ? String(body.taskCategory).trim() : null
   db.prepare(
     `INSERT INTO tasks (
       id, station_id, title, description, work_area_id, assigned_type, assigned_employee_id, assigned_role,
       recurrence_type, start_date, end_date, weekdays_json, month_day, start_time, end_time,
       confirm_required, control_required, mandatory, priority, active, icon, created_by, created_at, updated_at,
-      task_kind, employee_self_service, tablet_station_board, assigned_shift_type, required_for_shift_close
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      task_kind, employee_self_service, tablet_station_board, assigned_shift_type, required_for_shift_close,
+      source_shift_id, weekend_task_template_slug, task_category
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     stationId,
@@ -219,6 +231,9 @@ export function createTask(db: Database, body: Record<string, unknown>, stationI
     tsb,
     ast,
     rfc,
+    sourceShiftId,
+    weekendTaskTemplateSlug,
+    taskCategory,
   )
   return getTask(db, id)
 }

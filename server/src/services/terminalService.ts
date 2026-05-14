@@ -9,6 +9,9 @@ import {
 } from './clockService.js'
 import { getRunningForEmployee, getTimeEntry, logCardEvent } from './timeTrackingService.js'
 import { acknowledgeShiftWarning } from './employeeShiftWarningService.js'
+import { ymdBerlinFromUtcMs } from '../utils/europeBerlinWallTime.js'
+import { resolveBakingPlanForBerlinYmd } from './bakingPlanService.js'
+import { insertShiftBakingNotice } from './shiftBakingNoticeService.js'
 
 function resolveEmployeeForTerminal(
   db: Database,
@@ -154,6 +157,37 @@ export function terminalCheckOutComplete(
     })
   }
   return out
+}
+
+export function terminalAckBakingNotice(
+  db: Database,
+  body: {
+    stationId: string
+    timeEntryId: string
+    remark?: string | null
+  },
+): { ok: true } | { ok: false; error: string } {
+  const stationId = String(body.stationId ?? '').trim() || 'aral-bodelshausen'
+  const timeEntryId = String(body.timeEntryId ?? '').trim()
+  if (!timeEntryId) return { ok: false, error: 'Angaben unvollständig.' }
+  const te = getTimeEntry(db, timeEntryId)
+  if (!te || te.stationId !== stationId || te.status !== 'running') {
+    return { ok: false, error: 'Kein passender laufender Eintrag.' }
+  }
+  const employeeId = te.employeeId
+  const workYmd = ymdBerlinFromUtcMs(new Date(te.startAt).getTime())
+  const plan = resolveBakingPlanForBerlinYmd(workYmd)
+  insertShiftBakingNotice(db, {
+    stationId,
+    employeeId,
+    shiftId: te.shiftId ?? null,
+    timeEntryId,
+    dateYmd: workYmd,
+    bakingPlanType: plan.planType,
+    items: plan.items,
+    remark: body.remark ?? null,
+  })
+  return { ok: true }
 }
 
 export function terminalCheckOutFull(

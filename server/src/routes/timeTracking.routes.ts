@@ -264,7 +264,34 @@ terminalRouter.post('/check-in', (req, res) => {
       stationId: stationFromToken,
       employeeId: (out as { employee?: { id?: string } }).employee?.id,
     })
-    jsonOk(res, { result: out.result, message: out.message, employee: out.employee, timeEntry: out.timeEntry })
+    jsonOk(res, {
+      result: out.result,
+      message: out.message,
+      employee: out.employee,
+      timeEntry: out.timeEntry,
+      ...('bakingNotice' in out && out.bakingNotice ? { bakingNotice: out.bakingNotice } : {}),
+    })
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
+  }
+})
+
+terminalRouter.post('/baking-notice', (req, res) => {
+  try {
+    const raw = { ...(req.body ?? {}) } as Record<string, unknown>
+    const stationFromToken = resolveTerminalStationIdFromBody(getDb(), raw, req)
+    if (!stationFromToken) {
+      return jsonErr(res, 'stationId oder gültiger tabletToken erforderlich', 400)
+    }
+    const timeEntryId = String((raw as { timeEntryId?: string }).timeEntryId ?? '').trim()
+    const remark = (raw as { remark?: string }).remark
+    const out = terminal.terminalAckBakingNotice(getDb(), {
+      stationId: stationFromToken,
+      timeEntryId,
+      remark: remark != null ? String(remark) : undefined,
+    })
+    if (!out.ok) return res.status(200).json({ ok: false, error: out.error })
+    jsonOk(res, { saved: true })
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
   }
@@ -298,6 +325,8 @@ terminalRouter.post('/check-out-start', (req, res) => {
       items: out.checklistItems,
       wizardGroups: out.wizardGroups,
       blockingTasks: out.blockingTasks,
+      handoverUiMode: out.handoverUiMode,
+      middayHandoverBullets: out.middayHandoverBullets,
     })
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)

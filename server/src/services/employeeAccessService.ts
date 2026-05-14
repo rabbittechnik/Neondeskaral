@@ -16,8 +16,11 @@ import { saveAbsenceAttachment } from './absenceAttachmentService.js'
 import { normalizeAbsenceDbType } from '../utils/vacationImpactCalculator.js'
 import { confirmTaskFromEmployeeApp, listTaskLogsByTaskIds, listTaskRows, rowToTaskApi } from './taskService.js'
 import type { TaskRow } from './taskService.js'
-import { listTimeEntries, rowToTimeEntryApi } from './timeTrackingService.js'
+import { listTimeEntries, rowToTimeEntryApi, getTimeEntry } from './timeTrackingService.js'
 import { getStation } from './stationService.js'
+import { ymdBerlinFromUtcMs } from '../utils/europeBerlinWallTime.js'
+import { resolveBakingPlanForBerlinYmd } from './bakingPlanService.js'
+import { insertShiftBakingNotice } from './shiftBakingNoticeService.js'
 import { listWorkAreas } from './workAreaService.js'
 import { listActiveShiftWarningsForEmployee, acknowledgeShiftWarning } from './employeeShiftWarningService.js'
 import {
@@ -510,6 +513,36 @@ export function employeeAccessCheckIn(db: Database, token: string, force: boolea
     source: 'employee_mobile_app',
     startedBy: 'Mitarbeiter-App',
   })
+}
+
+export function employeeAccessAcknowledgeBakingNotice(
+  db: Database,
+  token: string,
+  body: { timeEntryId: string; remark?: string | null },
+  meta?: EmployeeAccessRequestMeta,
+): { ok: true } | { ok: false; error: string } {
+  const ctx = resolveEmployeeAccessContext(db, token, meta)
+  if (!ctx.ok) return { ok: false, error: EMPLOYEE_APP_ACCESS_DENIED_MESSAGE }
+  const row = ctx.row
+  const timeEntryId = String(body.timeEntryId ?? '').trim()
+  if (!timeEntryId) return { ok: false, error: 'Zeiteintrag fehlt.' }
+  const te = getTimeEntry(db, timeEntryId)
+  if (!te || te.stationId !== row.station_id || te.employeeId !== row.id || te.status !== 'running') {
+    return { ok: false, error: 'Kein passender laufender Eintrag.' }
+  }
+  const workYmd = ymdBerlinFromUtcMs(new Date(te.startAt).getTime())
+  const plan = resolveBakingPlanForBerlinYmd(workYmd)
+  insertShiftBakingNotice(db, {
+    stationId: row.station_id,
+    employeeId: row.id,
+    shiftId: te.shiftId ?? null,
+    timeEntryId,
+    dateYmd: workYmd,
+    bakingPlanType: plan.planType,
+    items: plan.items,
+    remark: body.remark ?? null,
+  })
+  return { ok: true }
 }
 
 export function employeeAccessListShiftWarnings(db: Database, token: string, meta?: EmployeeAccessRequestMeta) {

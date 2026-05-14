@@ -48,14 +48,31 @@ type ShiftCloseTaskResponseRow = {
   source: string
 }
 
+type MiddayCollectiveHandoverDetail = {
+  confirmed: true
+  remark?: string
+  completedAt: string
+  bulletTitles: string[]
+  source?: string
+}
+
 type DetailPayload = {
   timeEntry: TimeEntry
   employeeName: string
   checklist: Record<string, unknown> | null
   shiftCloseStructured?: ShiftCloseStructuredDetail | null
+  middayCollectiveHandover?: MiddayCollectiveHandoverDetail | null
   checklistReviewItems?: ChecklistReviewItem[]
   shiftCloseTaskResponses?: ShiftCloseTaskResponseRow[]
   plannedShift: { id: string; date: string; startTime: string; endTime: string } | null
+  bakingNotice?: {
+    acknowledged: true
+    acknowledgedAt: string
+    planType: string
+    planTypeLabel: string
+    items: string[]
+    remark?: string
+  } | null
 }
 
 function sourceLabel(source: string): string {
@@ -356,6 +373,43 @@ export function TimeApprovalsPage() {
               </div>
             </dl>
 
+            {detail.middayCollectiveHandover ? (
+              <div className="mt-4 rounded-md border border-emerald-400/30 bg-emerald-500/8 p-3 text-sm text-[var(--text-muted)]">
+                <p className="font-semibold text-[var(--text-main)]">Schichtübergabe (ca. 13–15 Uhr)</p>
+                <p className="mt-2 text-[var(--text-main)]">
+                  <span className="text-emerald-200/95">Bestätigt:</span> Ja
+                </p>
+                <p className="mt-1 text-xs text-[var(--text-faint)]">
+                  Schichtübergabe wurde bestätigt.
+                  {detail.middayCollectiveHandover.source ? (
+                    <span> Quelle: {sourceLabel(detail.middayCollectiveHandover.source)}.</span>
+                  ) : null}
+                  {detail.middayCollectiveHandover.completedAt
+                    ? ` (${new Date(detail.middayCollectiveHandover.completedAt).toLocaleString('de-DE', {
+                        day: '2-digit',
+                        month: '2-digit',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })})`
+                    : null}
+                </p>
+                {detail.middayCollectiveHandover.remark ? (
+                  <p className="mt-2 rounded border border-white/10 bg-black/20 px-2 py-2 text-[var(--text-main)]">
+                    <span className="font-medium text-cyan-200/90">Bemerkung:</span> {detail.middayCollectiveHandover.remark}
+                  </p>
+                ) : null}
+                <details className="mt-2 text-xs">
+                  <summary className="cursor-pointer text-[var(--text-faint)]">Angezeigte Prüfpunkte (Snapshot)</summary>
+                  <ul className="mt-2 list-inside list-disc space-y-0.5 text-[var(--text-faint)]">
+                    {detail.middayCollectiveHandover.bulletTitles.map((t) => (
+                      <li key={t}>{t}</li>
+                    ))}
+                  </ul>
+                </details>
+              </div>
+            ) : null}
+
             {detail.shiftCloseStructured ? (
               <div className="mt-4 rounded-md border border-orange-400/25 bg-orange-500/5 p-3 text-xs text-[var(--text-muted)]">
                 <div className="flex flex-wrap items-center gap-2">
@@ -469,6 +523,37 @@ export function TimeApprovalsPage() {
                     )
                   })}
                 </ul>
+              </div>
+            ) : null}
+
+            {detail.bakingNotice ? (
+              <div className="mt-4 rounded-md border border-amber-400/25 bg-amber-500/8 p-3 text-sm text-[var(--text-muted)]">
+                <p className="font-semibold text-[var(--text-main)]">Backwaren-Hinweis (Frühschicht)</p>
+                <p className="mt-1">
+                  Bestätigt: <span className="font-medium text-emerald-200">Ja</span>
+                </p>
+                <p className="mt-1">
+                  Typ: <span className="text-[var(--text-main)]">{detail.bakingNotice.planTypeLabel}</span>
+                </p>
+                <p className="mt-1 text-[11px] text-[var(--text-faint)]">
+                  Backwaren-Popup bestätigt um{' '}
+                  {new Date(detail.bakingNotice.acknowledgedAt).toLocaleTimeString('de-DE', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}{' '}
+                  Uhr (
+                  {new Date(detail.bakingNotice.acknowledgedAt).toLocaleDateString('de-DE', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric',
+                  })}
+                  ).
+                </p>
+                {detail.bakingNotice.remark ? (
+                  <p className="mt-2 rounded border border-white/10 bg-black/20 px-2 py-1.5 text-[var(--text-main)]">
+                    <span className="text-[var(--text-faint)]">Bemerkung:</span> {detail.bakingNotice.remark}
+                  </p>
+                ) : null}
               </div>
             ) : null}
 

@@ -337,6 +337,9 @@ const statements = [
     tablet_station_board INTEGER DEFAULT 0,
     assigned_shift_type TEXT,
     required_for_shift_close INTEGER DEFAULT 0,
+    source_shift_id TEXT,
+    weekend_task_template_slug TEXT,
+    task_category TEXT,
     FOREIGN KEY (station_id) REFERENCES stations(id)
   )`,
   `CREATE TABLE IF NOT EXISTS task_logs (
@@ -435,6 +438,10 @@ const statements = [
     cash_difference REAL,
     truth_confirmed INTEGER NOT NULL DEFAULT 0,
     created_at TEXT,
+    handover_variant TEXT,
+    handover_remark TEXT,
+    shift_id TEXT,
+    checkout_source TEXT,
     FOREIGN KEY (time_entry_id) REFERENCES time_entries(id),
     FOREIGN KEY (employee_id) REFERENCES employees(id),
     FOREIGN KEY (station_id) REFERENCES stations(id)

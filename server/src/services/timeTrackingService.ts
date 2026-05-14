@@ -7,6 +7,10 @@ import { listReviewItemsForTimeEntry, syncReviewItemsFromCloseChecklist, syncRev
 import { createShiftWarningsFromShiftCloseCheckout } from './employeeShiftWarningService.js'
 import type { ParsedStructuredChecklist } from '../utils/shiftCloseChecklistValidate.js'
 import { listShiftCloseTaskResponsesJoined } from './shiftCheckoutBlockingTasksService.js'
+import {
+  MIDDAY_COLLECTIVE_HANDOVER_VARIANT,
+  MIDDAY_STANDARD_HANDOVER_LABELS,
+} from '../constants/middayStandardHandover.js'
 
 export type TimeEntryRow = {
   id: string
@@ -368,7 +372,31 @@ export function getTimeEntryDetail(db: Database, id: string) {
   const chkRaw = db.prepare(`SELECT * FROM shift_close_checklists WHERE time_entry_id = ?`).get(id) as
     | Record<string, unknown>
     | undefined
-  const shiftCloseStructured = loadStructuredShiftCloseChecklist(db, id)
+  const runRow = db
+    .prepare(
+      `SELECT handover_variant, handover_remark, created_at, checkout_source FROM shift_close_checklist_runs WHERE time_entry_id = ?`,
+    )
+    .get(id) as
+    | {
+        handover_variant?: string | null
+        handover_remark?: string | null
+        created_at?: string | null
+        checkout_source?: string | null
+      }
+    | undefined
+  const isMiddayCollective = String(runRow?.handover_variant ?? '').trim() === MIDDAY_COLLECTIVE_HANDOVER_VARIANT
+
+  const shiftCloseStructured = isMiddayCollective ? null : loadStructuredShiftCloseChecklist(db, id)
+  const middayCollectiveHandover = isMiddayCollective
+    ? {
+        confirmed: true as const,
+        remark: runRow?.handover_remark ? String(runRow.handover_remark).trim() || undefined : undefined,
+        completedAt: String(runRow?.created_at ?? ''),
+        bulletTitles: [...MIDDAY_STANDARD_HANDOVER_LABELS],
+        source: runRow?.checkout_source ? String(runRow.checkout_source) : undefined,
+      }
+    : null
+
   let reviewItems = listReviewItemsForTimeEntry(db, id)
   if (shiftCloseStructured && reviewItems.length === 0) {
     syncReviewItemsFromShiftCloseItems(db, {
@@ -420,11 +448,45 @@ export function getTimeEntryDetail(db: Database, id: string) {
     recordedAt: r.recorded_at,
     source: r.source,
   }))
+  const bakingRow = db.prepare(`SELECT * FROM shift_baking_notices WHERE time_entry_id = ?`).get(id) as
+    | {
+        baking_plan_type: string
+        items_json: string
+        remark: string | null
+        acknowledged_at: string
+      }
+    | undefined
+  let bakingNotice: {
+    acknowledged: true
+    acknowledgedAt: string
+    planType: string
+    planTypeLabel: string
+    items: string[]
+    remark?: string
+  } | null = null
+  if (bakingRow) {
+    let items: string[] = []
+    try {
+      items = JSON.parse(bakingRow.items_json) as string[]
+    } catch {
+      items = []
+    }
+    bakingNotice = {
+      acknowledged: true,
+      acknowledgedAt: bakingRow.acknowledged_at,
+      planType: bakingRow.baking_plan_type,
+      planTypeLabel:
+        bakingRow.baking_plan_type === 'weekday' ? 'Montag–Freitag (werktags)' : 'Wochenende / Feiertag',
+      items,
+      remark: bakingRow.remark ? String(bakingRow.remark).trim() || undefined : undefined,
+    }
+  }
   return {
     timeEntry: entry,
     employeeName: emp?.display_name ?? '',
-    checklist: chkRaw ? checklistRowToApi(chkRaw) : null,
+    checklist: chkRaw && !isMiddayCollective ? checklistRowToApi(chkRaw) : null,
     shiftCloseStructured,
+    middayCollectiveHandover,
     checklistReviewItems: reviewItems,
     shiftCloseTaskResponses,
     plannedShift: planned
@@ -435,6 +497,7 @@ export function getTimeEntryDetail(db: Database, id: string) {
           endTime: planned.end_time,
         }
       : null,
+    bakingNotice,
   }
 }
 
@@ -640,6 +703,79 @@ export function insertShiftCloseChecklistParsed(
     sourceTimeEntryId: timeEntryId,
     items: parsed.items,
   })
+  return runId
+}
+
+/** Feste Mittags-Schichtübergabe (ca. 14:00): Snapshot in shift_close_checklist_* + Legacy-Zeile. */
+export function insertShiftCloseMiddayCollectiveHandover(
+  db: Database,
+  p: {
+    timeEntryId: string
+    employeeId: string
+    stationId: string
+    shiftId: string | null | undefined
+    remark: string
+    checkoutSource: 'tablet' | 'employee_app'
+  },
+) {
+  const ts = nowIso()
+  const labels = [...MIDDAY_STANDARD_HANDOVER_LABELS]
+  db.prepare(`DELETE FROM shift_close_checklist_runs WHERE time_entry_id = ?`).run(p.timeEntryId)
+  db.prepare(`DELETE FROM shift_close_checklists WHERE time_entry_id = ?`).run(p.timeEntryId)
+
+  const runId = `sccr-${randomUUID()}`
+  db.prepare(
+    `INSERT INTO shift_close_checklist_runs (
+      id, time_entry_id, employee_id, station_id, checklist_type, cash_difference, truth_confirmed, created_at,
+      handover_variant, handover_remark, shift_id, checkout_source
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+  ).run(
+    runId,
+    p.timeEntryId,
+    p.employeeId,
+    p.stationId,
+    'handover',
+    0,
+    1,
+    ts,
+    MIDDAY_COLLECTIVE_HANDOVER_VARIANT,
+    p.remark.trim() || null,
+    p.shiftId ?? null,
+    p.checkoutSource,
+  )
+
+  const insItem = db.prepare(
+    `INSERT INTO shift_close_checklist_items (id, checklist_id, time_entry_id, employee_id, station_id, checklist_type, item_key, item_label, answer, reason, created_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+  )
+  labels.forEach((label, i) => {
+    const key = `mid_ho_${String(i + 1).padStart(2, '0')}`
+    insItem.run(
+      `scci-${randomUUID()}`,
+      runId,
+      p.timeEntryId,
+      p.employeeId,
+      p.stationId,
+      'handover',
+      key,
+      label,
+      'yes',
+      null,
+      ts,
+    )
+  })
+
+  const legacyId = `chk-${randomUUID()}`
+  const note = p.remark.trim()
+  db.prepare(
+    `INSERT INTO shift_close_checklists (
+      id, time_entry_id, employee_id,
+      fridge_fronted, drinks_filled, cigarettes_filled, shelves_filled, trash_emptied,
+      counter_clean, coffee_area_clean, outside_checked, incidents_noted, handover_possible,
+      closing_ready, everything_ok, incident_note, cash_difference, completed_at, created_at
+    ) VALUES (?, ?, ?, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, ?, 0, ?, ?)`,
+  ).run(legacyId, p.timeEntryId, p.employeeId, note || '', ts, ts)
+
   return runId
 }
 
