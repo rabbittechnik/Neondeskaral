@@ -78,7 +78,7 @@ export function VacationBlockModal({ open, mode, block, onClose, onSave }: Props
       }}
     >
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" aria-hidden />
-      <div className="relative z-10 max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-card)] p-6 shadow-[var(--shadow-card)]">
+      <div className="relative z-10 max-h-[90vh] w-[min(95vw,1100px)] max-w-[1100px] overflow-y-auto rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-card)] p-6 shadow-[var(--shadow-card)]">
         <div className="flex items-start justify-between gap-3">
           <h2 className="text-lg font-semibold text-[var(--text-main)]">
             {mode === 'create' ? 'Neue Urlaubssperre' : 'Urlaubssperre bearbeiten'}

@@ -6,6 +6,7 @@ import { apiGet, apiSend } from '../../services/api'
 import { useStation } from '../../context/station-context'
 import { canAccessTimeApprovalsPage, canApproveTimeEntries, canCorrectStampTimes } from '../../utils/timeApproval'
 import { Button } from '../../components/ui/Button'
+import { LargeReviewModal, LargeReviewSection } from '../../components/ui/LargeReviewModal'
 import type { TimeEntry } from '../../types/timeTracking'
 import { calculateWorkedMinutes, formatWorkedDuration } from '../../utils/timeTrackingUtils'
 import { earlyLeaveReasonLabelDeClient } from '../../constants/earlyLeaveCheckout'
@@ -460,11 +461,58 @@ export function TimeApprovalsPage() {
       </section>
 
       {detail ? (
-        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-[var(--radius-lg)] border border-cyan-500/25 bg-[var(--bg-elevated)] p-5 shadow-xl">
-            <h2 className="text-lg font-semibold text-[var(--text-main)]">Zeitbuchung prüfen</h2>
-            <p className="mt-1 text-sm text-[var(--text-muted)]">{detail.employeeName}</p>
-            <dl className="mt-4 space-y-2 text-sm">
+        <LargeReviewModal
+          open
+          titleId="time-entry-review-dialog"
+          title="Zeitbuchung prüfen"
+          subtitle={<p className="text-sm text-[var(--text-muted)]">{detail.employeeName}</p>}
+          zIndexClass="z-[90]"
+          backdropDisabled={busy}
+          onBackdropClose={() => {
+            if (!busy) setDetail(null)
+          }}
+          footer={
+            <>
+              <Button type="button" variant="ghost" onClick={() => setDetail(null)} disabled={busy}>
+                Schließen
+              </Button>
+              {canCorrect && detail.timeEntry.status === 'completed' && detail.timeEntry.endAt ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="border-violet-400/40 text-violet-100"
+                  disabled={busy}
+                  onClick={() => openTimeCorrectForm()}
+                >
+                  Zeit korrigieren
+                </Button>
+              ) : null}
+              {canApprove ? (
+                <>
+                  <Button type="button" variant="outline" onClick={() => setCorrOpen(true)} disabled={busy}>
+                    Korrektur nötig
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="border-rose-400/40 text-rose-200"
+                    onClick={() => setRejectOpen(true)}
+                    disabled={busy}
+                  >
+                    Ablehnen
+                  </Button>
+                  <Button type="button" variant="primary" onClick={() => setConfirmApprove(true)} disabled={busy}>
+                    Bestätigen
+                  </Button>
+                </>
+              ) : null}
+            </>
+          }
+        >
+          <div className="review-modal-content grid grid-cols-1 gap-4 min-[1000px]:grid-cols-2 min-[1400px]:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)_minmax(0,1fr)]">
+            <div className="min-w-0 space-y-4">
+              <LargeReviewSection title="Basisdaten & Zeiten">
+            <dl className="space-y-2 text-sm">
               <div className="flex justify-between gap-2">
                 <dt className="text-[var(--text-faint)]">Datum</dt>
                 <dd className="text-[var(--text-main)]">{detail.timeEntry.startAt.slice(0, 10)}</dd>
@@ -637,7 +685,12 @@ export function TimeApprovalsPage() {
                 <dd className="text-[var(--text-main)]">{sourceLabel(detail.timeEntry.source)}</dd>
               </div>
             </dl>
+              </LargeReviewSection>
+            </div>
 
+            <div className="min-w-0 space-y-4">
+              <LargeReviewSection title="Übergabe, Checklisten & Hinweise">
+              <div className="space-y-4">
             {detail.middayCollectiveHandover ? (
               <div className="mt-4 rounded-md border border-emerald-400/30 bg-emerald-500/8 p-3 text-sm text-[var(--text-muted)]">
                 <p className="font-semibold text-[var(--text-main)]">Schichtübergabe (ca. 13–15 Uhr)</p>
@@ -695,7 +748,7 @@ export function TimeApprovalsPage() {
                     Checkliste bestätigt (alle Punkte erledigt, wahrheitsgemäß bestätigt).
                   </p>
                 )}
-                <ul className="mt-2 max-h-[40vh] space-y-1.5 overflow-y-auto">
+                <ul className="mt-2 max-h-[min(340px,40vh)] space-y-1.5 overflow-y-auto">
                   {detail.shiftCloseStructured.items.map((it) => {
                     const ans =
                       it.answer === 'yes' ? 'Ja' : it.answer === 'no' ? 'Nein' : it.answer === 'not_relevant' ? 'Nicht relevant' : it.answer
@@ -747,7 +800,7 @@ export function TimeApprovalsPage() {
                 <p className="mt-1.5 text-[11px] text-[var(--text-faint)]">
                   Angaben des Mitarbeiters beim Ausstempeln — inkl. Quelle und Zeitpunkt.
                 </p>
-                <ul className="mt-2 max-h-[32vh] space-y-2 overflow-y-auto">
+                <ul className="mt-2 max-h-[min(300px,36vh)] space-y-2 overflow-y-auto">
                   {detail.shiftCloseTaskResponses.map((r) => {
                     const notDone = String(r.outcome).toLowerCase() === 'not_done'
                     const done = String(r.outcome).toLowerCase() === 'done'
@@ -873,11 +926,15 @@ export function TimeApprovalsPage() {
                 ) : null}
               </div>
             ) : null}
+              </div>
+              </LargeReviewSection>
+            </div>
 
+            <div className="min-w-0 space-y-4">
             {canApprove && reviewDraft.length > 0 ? (
-              <div className="mt-4 rounded-md border border-cyan-500/20 bg-cyan-500/5 p-3 text-xs text-[var(--text-muted)]">
-                <p className="font-semibold text-[var(--text-main)]">Nachprüfung durch Leitung</p>
-                <p className="mt-1 text-[var(--text-faint)]">
+              <LargeReviewSection title="Nachprüfung durch Leitung">
+              <div className="text-xs text-[var(--text-muted)]">
+                <p className="text-[var(--text-faint)]">
                   Wenn die Leitung einen Punkt nicht bestätigt, obwohl der Mitarbeiter ihn als erledigt markiert hat, wird
                   eine dokumentierte Beanstandung erzeugt.
                 </p>
@@ -925,45 +982,11 @@ export function TimeApprovalsPage() {
                   </Button>
                 </div>
               </div>
+              </LargeReviewSection>
             ) : null}
-
-            <div className="mt-5 flex flex-wrap gap-2">
-              <Button type="button" variant="ghost" onClick={() => setDetail(null)} disabled={busy}>
-                Schließen
-              </Button>
-              {canCorrect && detail.timeEntry.status === 'completed' && detail.timeEntry.endAt ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="border-violet-400/40 text-violet-100"
-                  disabled={busy}
-                  onClick={() => openTimeCorrectForm()}
-                >
-                  Zeit korrigieren
-                </Button>
-              ) : null}
-              {canApprove ? (
-                <>
-                  <Button type="button" variant="outline" onClick={() => setCorrOpen(true)} disabled={busy}>
-                    Korrektur nötig
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="border-rose-400/40 text-rose-200"
-                    onClick={() => setRejectOpen(true)}
-                    disabled={busy}
-                  >
-                    Ablehnen
-                  </Button>
-                  <Button type="button" variant="primary" onClick={() => setConfirmApprove(true)} disabled={busy}>
-                    Bestätigen
-                  </Button>
-                </>
-              ) : null}
             </div>
           </div>
-        </div>
+        </LargeReviewModal>
       ) : null}
 
       {confirmApprove && detail ? (
@@ -1009,79 +1032,105 @@ export function TimeApprovalsPage() {
       ) : null}
 
       {tcOpen && detail ? (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 p-4">
-          <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl border border-violet-400/35 bg-[var(--bg-card)] p-5">
-            <p className="font-semibold text-[var(--text-main)]">Stempelzeit korrigieren</p>
-            <p className="mt-2 text-xs text-[var(--text-muted)]">
-              {detail.employeeName} ·               {detail.workDateYmdBerlin ?? detail.timeEntry.startAt.slice(0, 10)}
+        <LargeReviewModal
+          open
+          titleId="time-correction-dialog"
+          title="Stempelzeit korrigieren"
+          subtitle={
+            <p className="text-xs text-[var(--text-muted)]">
+              {detail.employeeName} · {detail.workDateYmdBerlin ?? detail.timeEntry.startAt.slice(0, 10)}
               {detail.plannedShift ? ` · Geplant: ${detail.plannedShift.startTime}–${detail.plannedShift.endTime}` : ''}
             </p>
-            <p className="mt-1 text-xs text-[var(--text-faint)]">
+          }
+          width="form"
+          zIndexClass="z-[100]"
+          shellClassName="border-violet-400/35"
+          backdropDisabled={busy}
+          onBackdropClose={() => {
+            if (!busy) setTcOpen(false)
+          }}
+          footer={
+            <>
+              <Button type="button" variant="ghost" className="flex-1 sm:flex-none" onClick={() => setTcOpen(false)}>
+                Abbrechen
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                className="flex-1 sm:flex-none"
+                disabled={busy}
+                onClick={() => void submitTimeCorrection()}
+              >
+                Korrektur speichern
+              </Button>
+            </>
+          }
+        >
+          <LargeReviewSection title="Ist-Zustand (gestempelt)">
+            <p className="text-xs text-[var(--text-faint)]">
               Aktuell gestempelt:{' '}
               {new Date(detail.timeEntry.startAt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })} –{' '}
               {detail.timeEntry.endAt
                 ? new Date(detail.timeEntry.endAt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
                 : '—'}
             </p>
-            <label className="mt-4 block text-xs text-[var(--text-muted)]">Korrigierter Beginn (HH:mm)</label>
-            <input
-              className="mt-1 w-full rounded-md border border-[var(--border-strong)] bg-[var(--bg-elevated)] px-2 py-2 text-sm tabular-nums"
-              value={tcStartHm}
-              onChange={(e) => setTcStartHm(e.target.value)}
-              placeholder="07:29"
-              autoComplete="off"
-            />
-            <label className="mt-3 block text-xs text-[var(--text-muted)]">Korrigiertes Ende (HH:mm)</label>
-            <input
-              className="mt-1 w-full rounded-md border border-[var(--border-strong)] bg-[var(--bg-elevated)] px-2 py-2 text-sm tabular-nums"
-              value={tcEndHm}
-              onChange={(e) => setTcEndHm(e.target.value)}
-              placeholder="14:00"
-              autoComplete="off"
-            />
-            <label className="mt-3 block text-xs text-[var(--text-muted)]">Pause (Minuten)</label>
-            <input
-              type="number"
-              min={0}
-              className="mt-1 w-full rounded-md border border-[var(--border-strong)] bg-[var(--bg-elevated)] px-2 py-2 text-sm"
-              value={tcBreak}
-              onChange={(e) => setTcBreak(e.target.value)}
-            />
-            <label className="mt-3 block text-xs text-[var(--text-muted)]">Grund</label>
-            <select
-              className="mt-1 w-full rounded-md border border-[var(--border-strong)] bg-[var(--bg-elevated)] px-2 py-2 text-sm"
-              value={tcReason}
-              onChange={(e) => setTcReason(e.target.value)}
-            >
-              {TIME_CORRECTION_REASON_OPTIONS.map((o) => (
-                <option key={o.key} value={o.key}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-            <label className="mt-3 block text-xs text-[var(--text-muted)]">
-              Bemerkung {tcReason === 'other' ? '(Pflicht)' : '(empfohlen)'}
-            </label>
-            <textarea
-              className="mt-1 w-full rounded-md border border-[var(--border-strong)] bg-[var(--bg-elevated)] px-2 py-2 text-sm"
-              rows={3}
-              value={tcNote}
-              onChange={(e) => setTcNote(e.target.value)}
-            />
-            <p className="mt-3 text-[10px] text-[var(--text-faint)]">
-              Kalendertag (Europe/Berlin): {detail.workDateYmdBerlin ?? detail.timeEntry.startAt.slice(0, 10)} · Korrigiert von:{' '}
-              {user?.displayName?.trim() || user?.username || '—'}
-            </p>
-            <div className="mt-4 flex gap-2">
-              <Button type="button" variant="ghost" className="flex-1" onClick={() => setTcOpen(false)}>
-                Abbrechen
-              </Button>
-              <Button type="button" variant="primary" className="flex-1" disabled={busy} onClick={() => void submitTimeCorrection()}>
-                Korrektur speichern
-              </Button>
-            </div>
+          </LargeReviewSection>
+          <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <LargeReviewSection title="Korrigierte Zeiten">
+              <label className="block text-xs text-[var(--text-muted)]">Korrigierter Beginn (HH:mm)</label>
+              <input
+                className="mt-1 w-full rounded-md border border-[var(--border-strong)] bg-[var(--bg-elevated)] px-2 py-2 text-sm tabular-nums"
+                value={tcStartHm}
+                onChange={(e) => setTcStartHm(e.target.value)}
+                placeholder="07:29"
+                autoComplete="off"
+              />
+              <label className="mt-3 block text-xs text-[var(--text-muted)]">Korrigiertes Ende (HH:mm)</label>
+              <input
+                className="mt-1 w-full rounded-md border border-[var(--border-strong)] bg-[var(--bg-elevated)] px-2 py-2 text-sm tabular-nums"
+                value={tcEndHm}
+                onChange={(e) => setTcEndHm(e.target.value)}
+                placeholder="14:00"
+                autoComplete="off"
+              />
+              <label className="mt-3 block text-xs text-[var(--text-muted)]">Pause (Minuten)</label>
+              <input
+                type="number"
+                min={0}
+                className="mt-1 w-full rounded-md border border-[var(--border-strong)] bg-[var(--bg-elevated)] px-2 py-2 text-sm"
+                value={tcBreak}
+                onChange={(e) => setTcBreak(e.target.value)}
+              />
+            </LargeReviewSection>
+            <LargeReviewSection title="Grund & Bemerkung">
+              <label className="block text-xs text-[var(--text-muted)]">Grund</label>
+              <select
+                className="mt-1 w-full rounded-md border border-[var(--border-strong)] bg-[var(--bg-elevated)] px-2 py-2 text-sm"
+                value={tcReason}
+                onChange={(e) => setTcReason(e.target.value)}
+              >
+                {TIME_CORRECTION_REASON_OPTIONS.map((o) => (
+                  <option key={o.key} value={o.key}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+              <label className="mt-3 block text-xs text-[var(--text-muted)]">
+                Bemerkung {tcReason === 'other' ? '(Pflicht)' : '(empfohlen)'}
+              </label>
+              <textarea
+                className="mt-1 w-full rounded-md border border-[var(--border-strong)] bg-[var(--bg-elevated)] px-2 py-2 text-sm"
+                rows={4}
+                value={tcNote}
+                onChange={(e) => setTcNote(e.target.value)}
+              />
+              <p className="mt-3 text-[10px] text-[var(--text-faint)]">
+                Kalendertag (Europe/Berlin): {detail.workDateYmdBerlin ?? detail.timeEntry.startAt.slice(0, 10)} ·
+                Korrigiert von: {user?.displayName?.trim() || user?.username || '—'}
+              </p>
+            </LargeReviewSection>
           </div>
-        </div>
+        </LargeReviewModal>
       ) : null}
 
       {corrOpen && detail ? (

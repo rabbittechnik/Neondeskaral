@@ -3,16 +3,26 @@ import { Html5Qrcode } from 'html5-qrcode'
 import { Button } from '../ui/Button'
 import { X } from 'lucide-react'
 
-const REGION_ID = 'tablet-qr-scanner-region'
+const DEFAULT_REGION_ID = 'tablet-qr-scanner-region'
 
 type Props = {
   open: boolean
   onClose: () => void
   /** Nach erfolgreichem Decode (Rohstring aus QR); Kamera ist bereits gestoppt. */
   onDecoded: (rawText: string) => void
+  /** Eigene DOM-ID für die Kamera-Region (z. B. wenn mehrere Scanner im Projekt). */
+  scannerRegionId?: string
+  /** Tablet = Stations-QR; Employee = persönlicher Mitarbeiter-QR */
+  variant?: 'tablet' | 'employee'
 }
 
-export function TabletQrScannerModal({ open, onClose, onDecoded }: Props) {
+export function TabletQrScannerModal({
+  open,
+  onClose,
+  onDecoded,
+  scannerRegionId = DEFAULT_REGION_ID,
+  variant = 'tablet',
+}: Props) {
   const scannerRef = useRef<Html5Qrcode | null>(null)
   const [cameraError, setCameraError] = useState<string | null>(null)
   const decodingRef = useRef(false)
@@ -45,7 +55,7 @@ export function TabletQrScannerModal({ open, onClose, onDecoded }: Props) {
       await new Promise((r) => requestAnimationFrame(() => r(null)))
       if (cancelled) return
 
-      const html5 = new Html5Qrcode(REGION_ID, { verbose: false })
+      const html5 = new Html5Qrcode(scannerRegionId, { verbose: false })
       scannerRef.current = html5
 
       const config = {
@@ -106,7 +116,9 @@ export function TabletQrScannerModal({ open, onClose, onDecoded }: Props) {
             failCleanup()
             if (!cancelled) {
               setCameraError(
-                'Kamera konnte nicht geöffnet werden. Bitte erlaube den Kamerazugriff oder gib den Tablet-Link manuell ein.',
+                variant === 'employee'
+                  ? 'Kamera konnte nicht geöffnet werden. Bitte erlaube den Kamerazugriff oder füge den Mitarbeiter-Link manuell ein.'
+                  : 'Kamera konnte nicht geöffnet werden. Bitte erlaube den Kamerazugriff oder gib den Tablet-Link manuell ein.',
               )
             }
           }
@@ -133,7 +145,7 @@ export function TabletQrScannerModal({ open, onClose, onDecoded }: Props) {
           })
       }
     }
-  }, [open, onDecoded])
+  }, [open, onDecoded, scannerRegionId, variant])
 
   if (!open) return null
 
@@ -154,10 +166,17 @@ export function TabletQrScannerModal({ open, onClose, onDecoded }: Props) {
           <X className="h-5 w-5" />
         </button>
         <h2 id="tablet-qr-title" className="pr-10 text-lg font-semibold text-[var(--text-main)]">
-          Stations-QR-Code scannen
+          {variant === 'employee' ? 'Mitarbeiter-QR-Code scannen' : 'Stations-QR-Code scannen'}
         </h2>
         <p className="mt-2 text-sm text-[var(--text-muted)]">
-          Scanne den QR-Code aus „Mein Konto → Geräte & Apps → Stations-Tablets“.
+          {variant === 'employee' ? (
+            <>
+              Scanne den persönlichen QR-Code aus deiner Einladung (z. B. vom Stations-Tablet oder aus dem
+              Mitarbeiterprofil).
+            </>
+          ) : (
+            <>Scanne den QR-Code aus „Mein Konto → Geräte & Apps → Stations-Tablets“.</>
+          )}
         </p>
 
         {cameraError ? (
@@ -166,7 +185,7 @@ export function TabletQrScannerModal({ open, onClose, onDecoded }: Props) {
           </p>
         ) : null}
         <div
-          id={REGION_ID}
+          id={scannerRegionId}
           className="mt-4 w-full min-h-[200px] overflow-hidden rounded-lg bg-black/40 [&_video]:mx-auto [&_video]:max-h-[min(50vh,320px)]"
         />
 

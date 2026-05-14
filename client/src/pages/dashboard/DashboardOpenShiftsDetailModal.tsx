@@ -43,29 +43,32 @@ export function DashboardOpenShiftsDetailModal({ open, onClose, summary }: Props
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-3 sm:p-6">
       <button type="button" className="absolute inset-0 bg-black/70 backdrop-blur-sm" aria-label="Schließen" onClick={onClose} />
       <div
-        className="relative z-[1] max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-card)] p-5 shadow-xl"
+        className="relative z-[1] flex max-h-[min(92vh,900px)] w-[min(95vw,1200px)] max-w-[1200px] flex-col overflow-hidden rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-card)] shadow-xl"
         role="dialog"
         aria-labelledby="open-shifts-modal-title"
       >
-        <button
-          type="button"
-          onClick={onClose}
-          className="absolute right-3 top-3 rounded-full border border-white/15 p-2 text-[var(--text-muted)] hover:text-[var(--text-main)]"
-          aria-label="Schließen"
-        >
-          <X className="h-4 w-4" />
-        </button>
-        <h2 id="open-shifts-modal-title" className="pr-10 text-lg font-semibold text-[var(--text-main)]">
-          Offene Schichten diese Woche
-        </h2>
-        <p className="mt-1 text-sm text-[var(--text-muted)]">
-          Zählt unbesetzte Schichten in der Datenbank sowie fehlende Soll-Besetzung (Früh/Spät, ±15&nbsp;Min Toleranz).
-        </p>
+        <div className="shrink-0 border-b border-[var(--border-subtle)] p-5 pb-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="absolute right-3 top-3 rounded-full border border-white/15 p-2 text-[var(--text-muted)] hover:text-[var(--text-main)]"
+            aria-label="Schließen"
+          >
+            <X className="h-4 w-4" />
+          </button>
+          <h2 id="open-shifts-modal-title" className="pr-10 text-lg font-semibold text-[var(--text-main)]">
+            Offene Schichten diese Woche
+          </h2>
+          <p className="mt-1 text-sm text-[var(--text-muted)]">
+            Zählt unbesetzte Schichten in der Datenbank sowie fehlende Soll-Besetzung (Früh/Spät, ±15&nbsp;Min Toleranz).
+          </p>
+        </div>
 
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
         {!hasAnything ? (
-          <p className="mt-6 text-sm text-[var(--text-faint)]">Keine offenen Schichten in dieser Woche.</p>
+          <p className="text-sm text-[var(--text-faint)]">Keine offenen Schichten in dieser Woche.</p>
         ) : (
-          <div className="mt-6 space-y-6">
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             {summary.missingByDay.length > 0 ? (
               <section>
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">
@@ -118,18 +121,21 @@ export function DashboardOpenShiftsDetailModal({ open, onClose, summary }: Props
             ) : null}
           </div>
         )}
+        </div>
 
-        <div className="mt-8 flex flex-col gap-3 border-t border-white/[0.06] pt-5 sm:flex-row sm:items-center sm:justify-between">
-          <Button type="button" variant="outline" disabled title="Funktion folgt">
-            Fehlende Schichten als offene Schichten anlegen
-          </Button>
-          <Link
-            to="/schedule"
-            className="inline-flex items-center justify-center rounded-md border border-cyan-400/40 bg-cyan-500/10 px-4 py-2 text-sm font-medium text-cyan-100 hover:bg-cyan-500/20"
-            onClick={onClose}
-          >
-            Zum Schichtplan
-          </Link>
+        <div className="shrink-0 border-t border-[var(--border-subtle)] bg-[var(--bg-card)] px-5 py-3 shadow-[0_-8px_24px_rgba(0,0,0,0.25)]">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <Button type="button" variant="outline" disabled title="Funktion folgt">
+              Fehlende Schichten als offene Schichten anlegen
+            </Button>
+            <Link
+              to="/schedule"
+              className="inline-flex items-center justify-center rounded-md border border-cyan-400/40 bg-cyan-500/10 px-4 py-2 text-sm font-medium text-cyan-100 hover:bg-cyan-500/20"
+              onClick={onClose}
+            >
+              Zum Schichtplan
+            </Link>
+          </div>
         </div>
       </div>
     </div>

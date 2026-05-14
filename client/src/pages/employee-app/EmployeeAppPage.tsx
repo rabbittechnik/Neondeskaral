@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Button } from '../../components/ui/Button'
+import { TabletQrScannerModal } from '../../components/terminal/TabletQrScannerModal'
 import {
   clearStoredEmployeeAccessSession,
   getStoredEmployeeAccessToken,
@@ -18,6 +19,7 @@ export function EmployeeAppPage() {
   const [err, setErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [wrongTablet, setWrongTablet] = useState<{ token: string } | null>(null)
+  const [scannerOpen, setScannerOpen] = useState(false)
 
   const clearAll = () => {
     clearStoredEmployeeAccessSession()
@@ -27,10 +29,10 @@ export function EmployeeAppPage() {
     setWrongTablet(null)
   }
 
-  const saveManual = async () => {
+  const applyAccessRaw = useCallback(async (raw: string) => {
     setErr(null)
     setWrongTablet(null)
-    const p = parseAccessPasteInput(manual)
+    const p = parseAccessPasteInput(raw.trim())
     if (p.kind === 'invalid') {
       setErr(p.message)
       return
@@ -68,11 +70,28 @@ export function EmployeeAppPage() {
     } finally {
       setBusy(false)
     }
-  }
+  }, [])
+
+  const saveManual = () => void applyAccessRaw(manual)
+
+  const onQrDecoded = useCallback(
+    (text: string) => {
+      setScannerOpen(false)
+      void applyAccessRaw(text)
+    },
+    [applyAccessRaw],
+  )
 
   if (!token) {
     return (
       <div className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-6 px-5 py-10 text-slate-200">
+        <TabletQrScannerModal
+          open={scannerOpen}
+          onClose={() => setScannerOpen(false)}
+          onDecoded={onQrDecoded}
+          scannerRegionId="employee-access-qr-scanner-region"
+          variant="employee"
+        />
         <div className="rounded-2xl border border-cyan-500/25 bg-slate-900/80 p-6 shadow-[0_0_40px_rgba(34,211,238,0.1)]">
           <p className="text-center text-[11px] font-semibold uppercase tracking-[0.2em] text-cyan-300/80">Rabbit-Technik Station</p>
           <h1 className="mt-2 text-xl font-bold text-white">Mitarbeiter-App einrichten</h1>
@@ -80,6 +99,16 @@ export function EmployeeAppPage() {
             Kein Mitarbeiter-Zugang gespeichert. Bitte Mitarbeiter-QR-Code scannen oder den Link aus der Einladung
             einfügen.
           </p>
+
+          <Button
+            type="button"
+            variant="outline"
+            className="mt-4 w-full border-cyan-500/40 text-cyan-100"
+            disabled={busy}
+            onClick={() => setScannerOpen(true)}
+          >
+            Mitarbeiter-QR scannen
+          </Button>
 
           {wrongTablet ? (
             <div className="mt-4 rounded-lg border border-amber-500/35 bg-amber-500/10 p-4 text-sm text-amber-100">

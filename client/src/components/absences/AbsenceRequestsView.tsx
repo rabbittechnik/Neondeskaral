@@ -208,12 +208,15 @@ export function AbsenceRequestsView({ employees, onDetails, federalState }: Prop
       {approving ? (
         <div className="fixed inset-0 z-[86] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" aria-hidden onClick={() => !approveBusy && setApproving(null)} />
-          <div className="relative z-10 max-h-[90vh] w-full max-w-md overflow-y-auto rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-card)] p-5 shadow-[var(--shadow-card)]">
-            <h3 className="text-lg font-semibold text-[var(--text-main)]">Antrag genehmigen?</h3>
-            <p className="mt-2 text-sm text-[var(--text-muted)]">
-              Der Antrag wird als genehmigte Abwesenheit in den Schichtplan übernommen.
-            </p>
-            <div className="mt-3 space-y-2 rounded-md border border-white/10 bg-black/20 px-3 py-2 text-xs text-[var(--text-muted)]">
+          <div className="relative z-10 flex max-h-[min(92vh,900px)] w-[min(95vw,960px)] max-w-[960px] flex-col overflow-hidden rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-card)] shadow-[var(--shadow-card)]">
+            <div className="shrink-0 border-b border-[var(--border-subtle)] px-5 py-4">
+              <h3 className="text-lg font-semibold text-[var(--text-main)]">Antrag genehmigen?</h3>
+              <p className="mt-2 text-sm text-[var(--text-muted)]">
+                Der Antrag wird als genehmigte Abwesenheit in den Schichtplan übernommen.
+              </p>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
+            <div className="space-y-2 rounded-md border border-white/10 bg-black/20 px-3 py-2 text-xs text-[var(--text-muted)]">
               <p>
                 <span className="text-[var(--text-faint)]">Typ:</span> {ABSENCE_TYPE_LABELS[approving.type] ?? approving.type}
               </p>
@@ -278,7 +281,9 @@ export function AbsenceRequestsView({ employees, onDetails, federalState }: Prop
               </div>
             ) : null}
 
-            <div className="mt-4 flex flex-wrap justify-end gap-2">
+            </div>
+            <div className="shrink-0 border-t border-[var(--border-subtle)] bg-[var(--bg-card)] px-5 py-3">
+            <div className="flex flex-wrap justify-end gap-2">
               <Button variant="ghost" type="button" disabled={approveBusy} onClick={() => { setApproving(null); setApproveVacationDebt(null) }}>
                 Abbrechen
               </Button>
@@ -326,6 +331,7 @@ export function AbsenceRequestsView({ employees, onDetails, federalState }: Prop
                   Trotzdem genehmigen
                 </Button>
               )}
+            </div>
             </div>
           </div>
         </div>

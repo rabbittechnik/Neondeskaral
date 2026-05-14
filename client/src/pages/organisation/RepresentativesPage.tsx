@@ -501,7 +501,7 @@ export function RepresentativesPage() {
 
       {modalOpen ? (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-1)] p-6 shadow-2xl">
+          <div className="max-h-[90vh] w-[min(95vw,1100px)] max-w-[1100px] overflow-y-auto rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-1)] p-6 shadow-2xl">
             <h2 className="text-lg font-semibold text-[var(--text-main)]">
               {editingId ? 'Vertreter bearbeiten' : 'Vertreter hinzufügen'}
             </h2>

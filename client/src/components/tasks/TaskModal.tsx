@@ -91,7 +91,7 @@ export function TaskModal({ open, mode, task, onClose, onSave }: Props) {
       }}
     >
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" aria-hidden />
-      <div className="relative z-10 flex max-h-[92vh] w-full max-w-2xl flex-col rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-card)] shadow-[var(--shadow-card)]">
+      <div className="relative z-10 flex max-h-[92vh] w-[min(95vw,72rem)] max-w-[min(95vw,72rem)] flex-col rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-card)] shadow-[var(--shadow-card)]">
         <div className="flex items-start justify-between gap-3 border-b border-[var(--border-subtle)] px-5 py-4">
           <h2 className="text-lg font-semibold text-[var(--text-main)]">
             {mode === 'create' ? 'Aufgabe erstellen' : 'Aufgabe bearbeiten'}

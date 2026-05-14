@@ -160,7 +160,7 @@ export function TaskTemplatesPanel() {
 
       {edit ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" role="dialog">
-          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-white/10 bg-[var(--bg-elevated)] p-4 shadow-xl">
+          <div className="max-h-[90vh] w-[min(95vw,1000px)] max-w-[1000px] overflow-y-auto rounded-xl border border-white/10 bg-[var(--bg-elevated)] p-4 shadow-xl">
             <h3 className="text-lg font-semibold text-[var(--text-main)]">Vorlage bearbeiten</h3>
             <p className="mt-1 text-xs text-[var(--text-muted)]">Schlüssel: {edit.templateKey}</p>
             <div className="mt-4 space-y-3">

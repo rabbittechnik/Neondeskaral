@@ -596,7 +596,7 @@ function DocumentUploadModal({
 
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/75 p-4" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <Card padding="lg" className="max-h-[90vh] w-full max-w-lg overflow-y-auto border border-cyan-500/25">
+      <Card padding="lg" className="max-h-[90vh] w-[min(95vw,960px)] max-w-[min(95vw,960px)] overflow-y-auto border border-cyan-500/25">
         <h3 className="text-lg font-semibold text-[var(--text-main)]">Dokument hochladen</h3>
         <div className="mt-4 space-y-3">
           <label className="block text-xs text-[var(--text-faint)]">Titel</label>
@@ -685,7 +685,7 @@ function DocumentEditModal({
 
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/75 p-4" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <Card padding="lg" className="max-h-[90vh] w-full max-w-lg overflow-y-auto border border-cyan-500/25">
+      <Card padding="lg" className="max-h-[90vh] w-[min(95vw,960px)] max-w-[min(95vw,960px)] overflow-y-auto border border-cyan-500/25">
         <h3 className="text-lg font-semibold text-[var(--text-main)]">Dokument bearbeiten</h3>
         <div className="mt-4 space-y-3">
           <label className="block text-xs text-[var(--text-faint)]">Titel</label>
