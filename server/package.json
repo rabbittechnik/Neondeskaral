@@ -7,7 +7,8 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "import:may2026-shifts": "tsx scripts/importMay2026BodelshausenShifts.ts"
+    "import:may2026-shifts": "tsx scripts/importMay2026BodelshausenShifts.ts",
+    "verify:min-wage": "tsx scripts/verifyMinimumWage.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

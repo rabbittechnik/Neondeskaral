@@ -60,6 +60,12 @@ export type Employee = {
   startDate: string
   endDate?: string
   notes: string
+  /** Hinweis z. B. gesetzlicher Mindestlohn (vom Server gesetzt). */
+  wageAdjustmentNote?: string
+  statutoryMinimumHourlyToday?: number
+  minimumWageMinijobHint?: string
+  minimumWageProfilePayrollNote?: string
+  minimumWageFestangestelltHint?: string
   planHint?: EmployeePlanHint
   cashRegisterCardNumber?: string
   terminalEnabled: boolean

@@ -181,6 +181,7 @@ const statements = [
     start_date TEXT,
     end_date TEXT,
     notes TEXT,
+    wage_adjustment_note TEXT,
     active INTEGER DEFAULT 1,
     employee_access_token TEXT,
     employee_access_enabled INTEGER DEFAULT 1,
@@ -640,6 +641,15 @@ const statements = [
     FOREIGN KEY (station_id) REFERENCES stations(id)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_representatives_station_active ON representatives(station_id, active, company)`,
+  `CREATE TABLE IF NOT EXISTS minimum_wage_rates (
+    id TEXT PRIMARY KEY,
+    valid_from TEXT NOT NULL,
+    hourly_rate REAL NOT NULL,
+    note TEXT,
+    created_at TEXT,
+    updated_at TEXT
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_minimum_wage_rates_valid_from ON minimum_wage_rates(valid_from)`,
 ]
 
 export function runSchema(db: Database.Database) {

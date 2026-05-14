@@ -39,6 +39,7 @@ import { AccessSettingsPage } from '../pages/settings/AccessSettingsPage'
 import { EmailSettingsPage } from '../pages/settings/EmailSettingsPage'
 import { GeneralSettingsPage } from '../pages/settings/GeneralSettingsPage'
 import { AppearanceSettingsPage } from '../pages/settings/AppearanceSettingsPage'
+import { MinimumWageSettingsPage } from '../pages/settings/MinimumWageSettingsPage'
 import { StationsPage } from '../pages/stations/StationsPage'
 import { TasksPage } from '../pages/tasks/TasksPage'
 import { VacationBlocksPage } from '../pages/vacationBlocks/VacationBlocksPage'
@@ -339,6 +340,11 @@ export const router = createBrowserRouter([
         path: 'settings/appearance',
         element: <AppearanceSettingsPage />,
         handle: { title: 'Ansicht / Darstellung' },
+      },
+      {
+        path: 'settings/minimum-wage',
+        element: <MinimumWageSettingsPage />,
+        handle: { title: 'Einstellungen · Mindestlohn' },
       },
       {
         path: 'settings/access',

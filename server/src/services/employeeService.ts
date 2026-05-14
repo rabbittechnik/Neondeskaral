@@ -10,6 +10,7 @@ import {
   reactivateDevicesAfterAccessReEnabled,
   revokeAllDevicesForEmployee,
 } from './employeeAppDeviceService.js'
+import { buildEmployeeMinimumWageHints } from './employeeMinimumWageHints.js'
 
 function jsonStringArrayFromBody(body: Record<string, unknown>, key: string): string {
   const v = body[key]
@@ -169,6 +170,7 @@ function rowToEmployeeApiFull(row: EmployeeRow, workAreaIds: string[], includeAc
     startDate: row.start_date ?? '',
     endDate: row.end_date ?? undefined,
     notes: row.notes ?? '',
+    wageAdjustmentNote: rStr(R, 'wage_adjustment_note').trim() || undefined,
     cashRegisterCardNumber: rStr(R, 'cash_register_card_number'),
     terminalEnabled: rBool(R, 'terminal_enabled', true),
     timeTrackingEnabled: rBool(R, 'time_tracking_enabled', true),
@@ -273,6 +275,12 @@ export type EmployeeApi = {
   startDate: string
   endDate?: string
   notes: string
+  /** Hinweis z. B. Mindestlohn-Anpassung (nur Anzeige). */
+  wageAdjustmentNote?: string
+  statutoryMinimumHourlyToday?: number
+  minimumWageMinijobHint?: string
+  minimumWageProfilePayrollNote?: string
+  minimumWageFestangestelltHint?: string
   cashRegisterCardNumber?: string
   terminalEnabled: boolean
   timeTrackingEnabled: boolean
@@ -400,12 +408,15 @@ export function listEmployees(
   const waStmt = db.prepare(`SELECT work_area_id FROM employee_work_areas WHERE employee_id = ?`)
   const sens = Boolean(opts?.includeSensitive)
   const withAccess = Boolean(opts?.includeAccessTokens)
-  return rows.map((r) =>
-    rowToEmployeeApi(r, (waStmt.all(r.id) as { work_area_id: string }[]).map((x) => x.work_area_id), {
+  return rows.map((r) => {
+    const api = rowToEmployeeApi(r, (waStmt.all(r.id) as { work_area_id: string }[]).map((x) => x.work_area_id), {
       includeAccessToken: withAccess,
       includeSensitive: sens,
-    }),
-  )
+    })
+    if (!sens) return api
+    const hints = buildEmployeeMinimumWageHints(db, r as EmployeeRow & Record<string, unknown>)
+    return { ...api, ...hints }
+  })
 }
 
 /** Nur Stations-Terminal: Kassennummer + Stempel-Flags, ohne Lohn/Bank im JSON. */
@@ -443,10 +454,15 @@ export function getEmployee(db: Database, id: string, opts?: { includeAccessToke
     .prepare(`SELECT work_area_id FROM employee_work_areas WHERE employee_id = ?`)
     .all(id)
     .map((x) => (x as { work_area_id: string }).work_area_id)
-  return rowToEmployeeApi(row, wa, {
+  const api = rowToEmployeeApi(row, wa, {
     includeAccessToken: opts?.includeAccessToken !== false,
     includeSensitive: Boolean(opts?.includeSensitive),
   })
+  if (opts?.includeSensitive) {
+    const hints = buildEmployeeMinimumWageHints(db, row as EmployeeRow & Record<string, unknown>)
+    return { ...api, ...hints } as EmployeeApi
+  }
+  return api
 }
 
 export function assertCashRegisterCardUnique(
@@ -563,7 +579,7 @@ export function createEmployee(
       surcharge_calculation_mode,
       hide_contact_in_address_book, show_only_first_name_in_employee_app, visible_in_team_schedule,
       phone_visible_to_team, email_visible_to_team,
-      start_date, end_date, notes, active,
+      start_date, end_date, notes, wage_adjustment_note, active,
       employee_access_token, employee_access_enabled, employee_access_created_at,
       preferred_shift_types_json, preferred_work_days_json, not_preferred_work_days_json,
       can_work_weekends, can_work_holidays, max_preferred_days_per_week, max_weekly_hours, planning_notes,
@@ -654,6 +670,7 @@ export function createEmployee(
     String(body.startDate ?? ts.slice(0, 10)),
     body.endDate != null ? String(body.endDate) : null,
     String(body.notes ?? '') || null,
+    null,
     1,
     accessTok,
     1,
@@ -743,7 +760,7 @@ export function updateEmployee(
       surcharge_calculation_mode = ?,
       hide_contact_in_address_book = ?, show_only_first_name_in_employee_app = ?, visible_in_team_schedule = ?,
       phone_visible_to_team = ?, email_visible_to_team = ?,
-      start_date = ?, end_date = ?, notes = ?,
+      start_date = ?, end_date = ?, notes = ?, wage_adjustment_note = ?,
       updated_at = ?
     WHERE id = ?`,
   ).run(
@@ -912,6 +929,11 @@ export function updateEmployee(
     body.startDate != null ? String(body.startDate) : existing.start_date,
     body.endDate !== undefined ? (body.endDate == null ? null : String(body.endDate)) : existing.end_date,
     body.notes != null ? String(body.notes) : existing.notes,
+    body.wageAdjustmentNote !== undefined
+      ? (String(body.wageAdjustmentNote ?? '').trim() || null)
+      : ((existing as Record<string, unknown>).wage_adjustment_note != null
+          ? String((existing as Record<string, unknown>).wage_adjustment_note)
+          : null),
     ts,
     id,
   )

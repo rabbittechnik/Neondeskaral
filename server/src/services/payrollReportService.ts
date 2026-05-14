@@ -10,7 +10,13 @@ import {
   normalizeAbsenceDbType,
 } from '../utils/vacationImpactCalculator.js'
 import { computeSupplementEurosForTimeEntry, type EmployeeSurchargeFields } from './payrollSurchargeService.js'
+import {
+  employmentTypeSubjectToStatutoryMinimum,
+  getEffectiveHourlyRate,
+  getMinimumWageForDate,
+} from './statutoryMinWageService.js'
 import { listShifts } from './shiftService.js'
+import { eachYmdInRangeInclusive, netHoursByBerlinYmdInRange, utcRangeBoundsMs } from '../utils/berlinCalendarWorkHours.js'
 
 export type PayrollReportSource = 'time_tracking' | 'schedule_plan'
 
@@ -28,7 +34,12 @@ export type PayrollTimeTrackingRow = {
   employeeId: string
   employeeName: string
   employmentType: string
+  /** Für Lohnberechnung verwendeter Stundenlohn (Durchschnitt bei tagesgenauer Mindestlohn-Anwendung). */
   hourlyWage: number
+  /** Eingetragener Profil-Stundenlohn (bei Monatslohn oft 0 / irrelevant). */
+  registeredHourlyWage?: number
+  /** Kurztext z. B. Mindestlohn-Anpassung */
+  minimumWageNote?: string
   totalHours: number
   overtimeHours: number
   vacationDays: number
@@ -244,14 +255,6 @@ function hideInPayroll(row: Record<string, unknown>): boolean {
   return rNum(row, 'hide_in_payroll', 0) === 1
 }
 
-function utcRangeBoundsMs(fromYmd: string, toYmd: string): { start: number; end: number } {
-  const [fy, fm, fd] = fromYmd.split('-').map(Number)
-  const [ty, tm, td] = toYmd.split('-').map(Number)
-  const start = Date.UTC(fy!, fm! - 1, fd!, 0, 0, 0, 0)
-  const end = Date.UTC(ty!, tm! - 1, td!, 23, 59, 59, 999)
-  return { start, end }
-}
-
 /** Netto-Stunden im Zeitraum; Pause anteilig nach Überlappung. */
 function entryNetHoursInRange(
   startIso: string,
@@ -297,6 +300,70 @@ function paidHoursPerDayForAbsence(a: AbsenceRow, empVacHoursPerDay: number | nu
   const fromRow = Number(a.paid_hours_per_day ?? 0)
   if (Number.isFinite(fromRow) && fromRow > 0) return fromRow
   return defaultPaidHoursPerDayFromEmployee(empVacHoursPerDay)
+}
+
+/** Anteil 0 / 0.5 / 1 bezogen auf bezahlten Urlaubstag (Kalenderdatum). */
+function vacationDayWeight(ab: AbsenceRow, ymd: string): number {
+  if (ymd < ab.start_date || ymd > ab.end_date) return 0
+  const half = (ab.half_day ?? 0) === 1
+  if (ab.start_date === ab.end_date) {
+    return ymd === ab.start_date ? (half ? 0.5 : 1) : 0
+  }
+  if (half && ymd === ab.start_date) return 0.5
+  return 1
+}
+
+function mergePaidVacationHoursByBerlinYmd(
+  absences: AbsenceRow[],
+  employeeId: string,
+  rangeFrom: string,
+  rangeTo: string,
+  vacHpdDefault: number | null,
+): Map<string, number> {
+  const map = new Map<string, number>()
+  for (const ab of absences) {
+    if (ab.employee_id !== employeeId) continue
+    if (normalizeAbsenceDbType(ab.type) !== 'paid_vacation') continue
+    if (ab.status !== 'approved') continue
+    if ((ab.counts_against_vacation ?? 0) !== 1) continue
+    const s = ab.start_date > rangeFrom ? ab.start_date : rangeFrom
+    const e = ab.end_date < rangeTo ? ab.end_date : rangeTo
+    if (e < s) continue
+    for (const ymd of eachYmdInRangeInclusive(s, e)) {
+      const w = vacationDayWeight(ab, ymd)
+      if (w <= 0) continue
+      const hpd = paidHoursPerDayForAbsence(ab, vacHpdDefault)
+      map.set(ymd, (map.get(ymd) ?? 0) + w * hpd)
+    }
+  }
+  return map
+}
+
+function maxMinimumWageInRange(db: Database, fromYmd: string, toYmd: string): number {
+  let m = 0
+  for (const d of eachYmdInRangeInclusive(fromYmd, toYmd)) {
+    const v = getMinimumWageForDate(db, d)
+    if (v > m) m = v
+  }
+  return m
+}
+
+function festangestelltMinWageWarning(
+  db: Database,
+  employmentType: string,
+  rawHourly: number,
+  monthlyRecipient: boolean,
+  fromYmd: string,
+  toYmd: string,
+): string | undefined {
+  if (monthlyRecipient) return undefined
+  if (employmentTypeSubjectToStatutoryMinimum(employmentType)) return undefined
+  if (!Number.isFinite(rawHourly) || rawHourly <= 0) return undefined
+  const mx = maxMinimumWageInRange(db, fromYmd, toYmd)
+  if (rawHourly + 0.003 < mx) {
+    return 'Hinweis: Der eingetragene Stundenlohn liegt unter dem gesetzlichen Mindestlohn. Bitte prüfen.'
+  }
+  return undefined
 }
 
 function optPositivePct(row: Record<string, unknown>, k: string): number | null {
@@ -446,10 +513,15 @@ export function calculatePayrollTimeTrackingReport(
   for (const emp of filteredEmployees) {
     const R = emp as Record<string, unknown>
     const employeeId = emp.id
-    const hourlyWage = rNum(R, 'hourly_wage', 0)
+    const rawHourly = rNum(R, 'hourly_wage', 0)
     const monthlySalary = rNum(R, 'monthly_salary', 0)
     const monthlyRecipient = isMonthlyWageRecipient(R)
     const employmentType = String(emp.employment_type ?? '')
+    const subject = employmentTypeSubjectToStatutoryMinimum(employmentType)
+    const vacHpdDefault = rNum(R, 'vacation_hours_per_day', NaN) || null
+
+    const wageForSupplements =
+      monthlyRecipient ? rawHourly : subject ? getEffectiveHourlyRate(db, employmentType, rawHourly, fromDate) : rawHourly
 
     let totalHours = 0
     let supplementsTotal = 0
@@ -461,7 +533,7 @@ export function calculatePayrollTimeTrackingReport(
       supplementsTotal += computeSupplementEurosForTimeEntry({
         employmentType,
         emp: surchargeFieldsFromEmployee(R),
-        hourlyWage,
+        hourlyWage: Math.max(0, wageForSupplements),
         startIso: te.start_at,
         endIso: te.end_at,
         breakMinutes: te.break_minutes ?? 0,
@@ -473,7 +545,6 @@ export function calculatePayrollTimeTrackingReport(
 
     let vacationDays = 0
     let paidVacationHours = 0
-    const vacHpdDefault = rNum(R, 'vacation_hours_per_day', NaN) || null
 
     for (const ab of absences) {
       if (ab.employee_id !== employeeId) continue
@@ -496,10 +567,58 @@ export function calculatePayrollTimeTrackingReport(
       } else {
         messages.push('Monatsgehalt fehlt im Mitarbeiterprofil.')
       }
-    } else if (hourlyWage > 0) {
-      basePay = Math.round((totalHours + paidVacationHours) * hourlyWage * 100) / 100
-    } else if (totalHours > 0 || paidVacationHours > 0) {
-      messages.push('Stundenlohn fehlt im Mitarbeiterprofil.')
+    } else if (subject) {
+      const workByYmd = new Map<string, number>()
+      for (const te of myEntries) {
+        if (!te.start_at || !te.end_at) continue
+        const m = netHoursByBerlinYmdInRange(te.start_at, te.end_at, te.break_minutes ?? 0, fromDate, toDate)
+        for (const [ymd, hx] of m) {
+          workByYmd.set(ymd, (workByYmd.get(ymd) ?? 0) + hx)
+        }
+      }
+      const vacByYmd = mergePaidVacationHoursByBerlinYmd(
+        absences,
+        employeeId,
+        fromDate,
+        toDate,
+        vacHpdDefault,
+      )
+      const ymdKeys = new Set([...workByYmd.keys(), ...vacByYmd.keys()])
+      for (const ymd of ymdKeys) {
+        const wh = workByYmd.get(ymd) ?? 0
+        const vh = vacByYmd.get(ymd) ?? 0
+        const rate = getEffectiveHourlyRate(db, employmentType, rawHourly, ymd)
+        basePay += (wh + vh) * rate
+      }
+      basePay = Math.round(basePay * 100) / 100
+    } else {
+      const fw = festangestelltMinWageWarning(db, employmentType, rawHourly, monthlyRecipient, fromDate, toDate)
+      if (fw) messages.push(fw)
+      if (rawHourly > 0) {
+        basePay = Math.round((totalHours + paidVacationHours) * rawHourly * 100) / 100
+      } else if (totalHours > 0 || paidVacationHours > 0) {
+        messages.push('Stundenlohn fehlt im Mitarbeiterprofil.')
+      }
+    }
+
+    const denom = Math.round((totalHours + paidVacationHours) * 100) / 100
+    let effDisplay = 0
+    if (!monthlyRecipient) {
+      if (denom > 0 && basePay > 0) effDisplay = basePay / denom
+      else if (subject) effDisplay = getEffectiveHourlyRate(db, employmentType, rawHourly, fromDate)
+      else effDisplay = rawHourly
+    }
+
+    let minimumWageNote: string | undefined
+    if (!monthlyRecipient && subject && rawHourly > 0) {
+      const mx = maxMinimumWageInRange(db, fromDate, toDate)
+      if (rawHourly + 0.003 < mx) {
+        minimumWageNote =
+          'Für die Lohnabrechnung wird der gültige gesetzliche Mindestlohn je Kalendertag angewendet (eingetragener Stundenlohn bleibt im Profil).'
+        messages.push(
+          'Hinweis: Der eingetragene Stundenlohn liegt unter dem gesetzlichen Mindestlohn. Für die Lohnabrechnung wird automatisch der gültige Mindestlohn verwendet.',
+        )
+      }
     }
 
     const mankoProfile = prorateFixedMonthlyAmountOverRange(rNum(R, 'manko_money', 0), fromDate, toDate)
@@ -533,7 +652,9 @@ export function calculatePayrollTimeTrackingReport(
       employeeId,
       employeeName: emp.display_name,
       employmentType,
-      hourlyWage: Math.round(hourlyWage * 100) / 100,
+      hourlyWage: Math.round(effDisplay * 100) / 100,
+      ...(!monthlyRecipient ? { registeredHourlyWage: Math.round(rawHourly * 100) / 100 } : {}),
+      ...(minimumWageNote ? { minimumWageNote } : {}),
       totalHours,
       overtimeHours,
       vacationDays,
@@ -672,10 +793,15 @@ export function calculatePayrollScheduleReport(
   for (const emp of filteredEmployees) {
     const R = emp as Record<string, unknown>
     const employeeId = emp.id
-    const hourlyWage = rNum(R, 'hourly_wage', 0)
+    const rawHourly = rNum(R, 'hourly_wage', 0)
     const monthlySalary = rNum(R, 'monthly_salary', 0)
     const monthlyRecipient = isMonthlyWageRecipient(R)
     const employmentType = String(emp.employment_type ?? '')
+    const subject = employmentTypeSubjectToStatutoryMinimum(employmentType)
+    const vacHpdDefault = rNum(R, 'vacation_hours_per_day', NaN) || null
+
+    const wageForSupplements =
+      monthlyRecipient ? rawHourly : subject ? getEffectiveHourlyRate(db, employmentType, rawHourly, fromDate) : rawHourly
 
     let totalHours = 0
     let supplementsTotal = 0
@@ -689,7 +815,7 @@ export function calculatePayrollScheduleReport(
       supplementsTotal += computeSupplementEurosForTimeEntry({
         employmentType,
         emp: surchargeFieldsFromEmployee(R),
-        hourlyWage,
+        hourlyWage: Math.max(0, wageForSupplements),
         startIso,
         endIso,
         breakMinutes: s.breakMinutes ?? 0,
@@ -701,7 +827,6 @@ export function calculatePayrollScheduleReport(
 
     let vacationDays = 0
     let paidVacationHours = 0
-    const vacHpdDefault = rNum(R, 'vacation_hours_per_day', NaN) || null
 
     for (const ab of absences) {
       if (ab.employee_id !== employeeId) continue
@@ -724,10 +849,60 @@ export function calculatePayrollScheduleReport(
       } else {
         messages.push('Monatsgehalt fehlt im Mitarbeiterprofil.')
       }
-    } else if (hourlyWage > 0) {
-      basePay = Math.round((totalHours + paidVacationHours) * hourlyWage * 100) / 100
-    } else if (totalHours > 0 || paidVacationHours > 0) {
-      messages.push('Stundenlohn fehlt im Mitarbeiterprofil.')
+    } else if (subject) {
+      const workByYmd = new Map<string, number>()
+      for (const s of myShifts) {
+        if (!s.date || !s.startTime || !s.endTime) continue
+        if (s.date < fromDate || s.date > toDate) continue
+        const { startIso, endIso } = shiftToIsoEndpoints(s.date, s.startTime, s.endTime)
+        const m = netHoursByBerlinYmdInRange(startIso, endIso, s.breakMinutes ?? 0, fromDate, toDate)
+        for (const [ymd, hx] of m) {
+          workByYmd.set(ymd, (workByYmd.get(ymd) ?? 0) + hx)
+        }
+      }
+      const vacByYmd = mergePaidVacationHoursByBerlinYmd(
+        absences,
+        employeeId,
+        fromDate,
+        toDate,
+        vacHpdDefault,
+      )
+      const ymdKeys = new Set([...workByYmd.keys(), ...vacByYmd.keys()])
+      for (const ymd of ymdKeys) {
+        const wh = workByYmd.get(ymd) ?? 0
+        const vh = vacByYmd.get(ymd) ?? 0
+        const rate = getEffectiveHourlyRate(db, employmentType, rawHourly, ymd)
+        basePay += (wh + vh) * rate
+      }
+      basePay = Math.round(basePay * 100) / 100
+    } else {
+      const fw = festangestelltMinWageWarning(db, employmentType, rawHourly, monthlyRecipient, fromDate, toDate)
+      if (fw) messages.push(fw)
+      if (rawHourly > 0) {
+        basePay = Math.round((totalHours + paidVacationHours) * rawHourly * 100) / 100
+      } else if (totalHours > 0 || paidVacationHours > 0) {
+        messages.push('Stundenlohn fehlt im Mitarbeiterprofil.')
+      }
+    }
+
+    const denom = Math.round((totalHours + paidVacationHours) * 100) / 100
+    let effDisplay = 0
+    if (!monthlyRecipient) {
+      if (denom > 0 && basePay > 0) effDisplay = basePay / denom
+      else if (subject) effDisplay = getEffectiveHourlyRate(db, employmentType, rawHourly, fromDate)
+      else effDisplay = rawHourly
+    }
+
+    let minimumWageNote: string | undefined
+    if (!monthlyRecipient && subject && rawHourly > 0) {
+      const mx = maxMinimumWageInRange(db, fromDate, toDate)
+      if (rawHourly + 0.003 < mx) {
+        minimumWageNote =
+          'Für die Lohnabrechnung wird der gültige gesetzliche Mindestlohn je Kalendertag angewendet (eingetragener Stundenlohn bleibt im Profil).'
+        messages.push(
+          'Hinweis: Der eingetragene Stundenlohn liegt unter dem gesetzlichen Mindestlohn. Für die Lohnabrechnung wird automatisch der gültige Mindestlohn verwendet.',
+        )
+      }
     }
 
     const mankoProfile = prorateFixedMonthlyAmountOverRange(rNum(R, 'manko_money', 0), fromDate, toDate)
@@ -761,7 +936,9 @@ export function calculatePayrollScheduleReport(
       employeeId,
       employeeName: emp.display_name,
       employmentType,
-      hourlyWage: Math.round(hourlyWage * 100) / 100,
+      hourlyWage: Math.round(effDisplay * 100) / 100,
+      ...(!monthlyRecipient ? { registeredHourlyWage: Math.round(rawHourly * 100) / 100 } : {}),
+      ...(minimumWageNote ? { minimumWageNote } : {}),
       totalHours,
       overtimeHours,
       vacationDays,

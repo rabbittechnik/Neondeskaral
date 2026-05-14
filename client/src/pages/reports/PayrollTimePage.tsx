@@ -23,6 +23,9 @@ type ReportRow = {
   employeeName: string
   employmentType: string
   hourlyWage: number
+  /** Profil-Stundenlohn (Stundenkraft); fehlt z. B. bei Monatsgehalt. */
+  registeredHourlyWage?: number
+  minimumWageNote?: string
   totalHours: number
   overtimeHours: number
   vacationDays: number
@@ -97,6 +100,11 @@ function formatDaysDe(n: number): string {
   return `${n.toFixed(1).replace('.', ',')} Tage`
 }
 
+function formatRegisteredHourly(r: ReportRow): string {
+  if (r.registeredHourlyWage == null) return '—'
+  return formatEuroDe(r.registeredHourlyWage)
+}
+
 const FILTER_OPTIONS: { value: EmploymentFilter; label: string }[] = [
   { value: 'all', label: 'Alle Beschäftigungsarten' },
   { value: 'vollzeit', label: 'Vollzeit' },
@@ -110,7 +118,9 @@ const FILTER_OPTIONS: { value: EmploymentFilter; label: string }[] = [
 
 const COL_HEADERS = [
   'Mitarbeiter',
-  'Stundenlohn',
+  'Eingetr. Stundenlohn',
+  'Verwend. Stundenlohn',
+  'Mindestlohn / Hinweis',
   'Stunden Gesamt',
   'Überstd.',
   'U-Tage',
@@ -252,7 +262,9 @@ export function PayrollTimePage() {
     const body = rowsForExport.map((r) => [
       '',
       r.employeeName,
+      r.registeredHourlyWage ?? '',
       r.hourlyWage,
+      r.minimumWageNote ?? '',
       r.totalHours,
       r.overtimeHours,
       r.vacationDays,
@@ -270,6 +282,8 @@ export function PayrollTimePage() {
       ? [
           '',
           'Summe',
+          '',
+          '',
           '',
           sum.totalHours,
           sum.overtimeHours,
@@ -438,7 +452,7 @@ export function PayrollTimePage() {
       ) : null}
 
       <Card className="overflow-x-auto print:shadow-none print:ring-0">
-        <div id="payroll-report-print" className="min-w-[1100px] p-4 print:min-w-0 print:p-2">
+        <div id="payroll-report-print" className="min-w-[1280px] p-4 print:min-w-0 print:p-2">
           <p className="mb-3 text-xs text-[var(--text-muted)] print:hidden">{metaLine}</p>
           <div className="mb-4 hidden print:block">
             <h2 className="text-lg font-semibold text-black">Lohnabrechnung (Zeiterfassung)</h2>
@@ -492,7 +506,11 @@ export function PayrollTimePage() {
                         </div>
                       ) : null}
                     </td>
+                    <td className="py-1.5 pr-3 tabular-nums text-[var(--text-muted)]">{formatRegisteredHourly(r)}</td>
                     <td className="py-1.5 pr-3 tabular-nums">{formatEuroDe(r.hourlyWage)}</td>
+                    <td className="max-w-[12rem] py-1.5 pr-3 text-xs text-[var(--text-muted)] print:max-w-none print:text-[10px]">
+                      {r.minimumWageNote?.trim() ? r.minimumWageNote.trim() : '—'}
+                    </td>
                     <td className="py-1.5 pr-3 tabular-nums">{formatHoursDe(r.totalHours)}</td>
                     <td className="py-1.5 pr-3 tabular-nums text-[var(--text-faint)]">
                       {r.overtimeHours > 0 ? formatHoursDe(r.overtimeHours) : '—'}
@@ -520,6 +538,8 @@ export function PayrollTimePage() {
                 <tr className="border-t-2 border-white/20 font-semibold print:border-neutral-500">
                   <td className="py-2 print:hidden" />
                   <td className="py-2 pr-3 text-[var(--text-main)] print:text-black">Summe</td>
+                  <td className="py-2 pr-3 print:text-black" />
+                  <td className="py-2 pr-3 print:text-black" />
                   <td className="py-2 pr-3 print:text-black" />
                   <td className="py-2 pr-3 tabular-nums print:text-black">{formatHoursDe(data.totals.totalHours)}</td>
                   <td className="py-2 pr-3 tabular-nums print:text-black">

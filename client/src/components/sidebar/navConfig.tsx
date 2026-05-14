@@ -123,6 +123,11 @@ export const navEntries: NavEntry[] = [
     children: [
       { to: '/settings/general', label: 'Allgemein' },
       { to: '/settings/email', label: 'E-Mail-Benachrichtigungen' },
+      {
+        to: '/settings/minimum-wage',
+        label: 'Mindestlohn',
+        anyPermission: ['payroll.view', 'settings.view'],
+      },
       { to: '/settings/access', label: 'Zugriffsberechtigungen', globalAdminOnly: true },
     ],
   },

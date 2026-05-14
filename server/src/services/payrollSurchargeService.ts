@@ -123,7 +123,7 @@ function maxPercentForInstant(emp: EmployeeSurchargeFields, isoMs: number, state
 
 /**
  * Zuschläge in EUR für einen freigegebenen Zeiteintrag (Stundenlohn × Prozentsatz je Zeitscheibe).
- * Aushilfen: immer 0. Modus „Keine Zuschläge“ (none): 0. Sonst Profil-Prozente (individual / tax_free …).
+ * Aushilfen, Minijobber und geringfügig Beschäftigte: immer 0. Modus „Keine Zuschläge“ (none): 0. Sonst Profil-Prozente (individual / tax_free …).
  */
 export function computeSupplementEurosForTimeEntry(opts: {
   employmentType: string
@@ -135,7 +135,7 @@ export function computeSupplementEurosForTimeEntry(opts: {
   federalState: GermanState
 }): number {
   const et = String(opts.employmentType ?? '').toLowerCase().trim()
-  if (et === 'aushilfe') return 0
+  if (et === 'aushilfe' || et === 'minijob' || et.includes('gering')) return 0
   const mode = String(opts.emp.surcharge_mode ?? 'none').toLowerCase()
   if (mode === 'none') return 0
 

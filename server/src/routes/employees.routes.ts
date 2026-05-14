@@ -4,6 +4,8 @@ import { jsonErr, jsonOk } from '../utils/http.js'
 import { requirePermission, getAccess, requireAnyPermission } from '../middleware/stationAuth.js'
 import { canAccessStation, hasPermission } from '../services/stationAccessService.js'
 import * as employeeService from '../services/employeeService.js'
+import { getMinimumWageForDate } from '../services/statutoryMinWageService.js'
+import { todayIso } from '../utils/timestamps.js'
 import {
   revokeAllDevicesForEmployee,
   RB_ADMIN_ALL,
@@ -132,6 +134,37 @@ employeesRouter.post('/:id/restore', (req, res) => {
     if (!requirePermission(req, res, row.station_id, 'employees.edit')) return
     employeeService.restoreEmployeeFromDeletion(getDb(), req.params.id)
     const ctx = getAccess(req)
+    const sens = canViewEmployeeSensitive(req, row.station_id)
+    const includeAccessToken = Boolean(ctx && hasPermission(ctx, row.station_id, 'employees.qr'))
+    jsonOk(
+      res,
+      employeeService.getEmployee(getDb(), req.params.id, { includeSensitive: sens, includeAccessToken }),
+    )
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
+  }
+})
+
+employeesRouter.post('/:id/apply-statutory-hourly-wage', (req, res) => {
+  try {
+    const row = employeeService.getEmployeeRowInternal(getDb(), req.params.id)
+    if (!row) return jsonErr(res, 'Mitarbeiter nicht gefunden', 404)
+    const ctx = getAccess(req)
+    if (!ctx) return jsonErr(res, 'Intern', 500)
+    if (!canAccessStation(ctx, row.station_id)) return jsonErr(res, 'Kein Zugriff auf diese Station', 403)
+    const can =
+      ctx.globalAdmin ||
+      hasPermission(ctx, row.station_id, 'employees.manageSensitive') ||
+      hasPermission(ctx, row.station_id, 'employees.edit')
+    if (!can) return jsonErr(res, 'Keine Berechtigung', 403)
+    const ymd = todayIso().slice(0, 10)
+    const min = getMinimumWageForDate(getDb(), ymd)
+    employeeService.updateEmployee(
+      getDb(),
+      req.params.id,
+      { hourlyWage: min, wageAdjustmentNote: `Profil-Stundenlohn auf gesetzlichen Mindestlohn (${min.toFixed(2).replace('.', ',')} €/h) zum Stichtag ${ymd} gesetzt.` },
+      { allowSensitive: true, allowCashRegisterCard: false },
+    )
     const sens = canViewEmployeeSensitive(req, row.station_id)
     const includeAccessToken = Boolean(ctx && hasPermission(ctx, row.station_id, 'employees.qr'))
     jsonOk(

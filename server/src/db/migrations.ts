@@ -9,6 +9,7 @@ import { ensureDefaultUserStationAccess, ensureKnownStationsAndWorkAreas } from 
 import { seedAllStationsShiftCloseChecklistDefsIfMissing } from '../services/stationShiftChecklistDefService.js'
 import { calculateVacationImpact, normalizeAbsenceDbType } from '../utils/vacationImpactCalculator.js'
 import { applyMay2026BodelshausenOfficeShifts } from '../services/may2026BodelshausenShiftImport.js'
+import { applyPersonalstammBodelshausen2026 } from '../services/personalstammBodelshausenImport.js'
 
 function employeesColumnNames(db: Database.Database): Set<string> {
   const rows = db.prepare(`PRAGMA table_info(employees)`).all() as { name: string }[]
@@ -46,6 +47,8 @@ export function runMigrations(db: Database.Database) {
   addEmployeeColumn(db, empCols, 'planning_notes', 'planning_notes TEXT')
 
   migrateEmployeeExtendedColumns(db)
+  ensureMinimumWageRatesSeeded(db)
+  ensurePersonalstammBodelshausenFromForms(db)
 
   const ewaInfo = db.prepare(`PRAGMA table_info(employee_work_areas)`).all() as { name: string }[]
   const ewaNames = new Set(ewaInfo.map((c) => c.name))
@@ -776,12 +779,46 @@ function migrateEmployeeExtendedColumns(db: Database.Database) {
   add('email_visible_to_team', 'email_visible_to_team INTEGER DEFAULT 1')
   add('deleted_at', 'deleted_at TEXT')
   add('deleted_by', 'deleted_by TEXT')
+  add('wage_adjustment_note', 'wage_adjustment_note TEXT')
   db.prepare(
     `UPDATE employees SET mobile_phone = COALESCE(NULLIF(trim(mobile_phone), ''), phone) WHERE mobile_phone IS NULL OR trim(mobile_phone) = ''`,
   ).run()
   db.prepare(
     `UPDATE employees SET employment_role = COALESCE(NULLIF(trim(employment_role), ''), role) WHERE employment_role IS NULL OR trim(employment_role) = ''`,
   ).run()
+}
+
+export function ensureMinimumWageRatesSeeded(db: Database.Database) {
+  const tbl = db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='minimum_wage_rates'`).get() as
+    | { name: string }
+    | undefined
+  if (!tbl) return
+  const c = (db.prepare(`SELECT COUNT(*) as n FROM minimum_wage_rates`).get() as { n: number }).n
+  if ((c ?? 0) > 0) return
+  const ts = nowIso()
+  const ins = db.prepare(
+    `INSERT INTO minimum_wage_rates (id, valid_from, hourly_rate, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
+  )
+  ins.run('mwr-2025-01-01', '2025-01-01', 12.82, 'Standard Startwert', ts, ts)
+  ins.run('mwr-2026-01-01', '2026-01-01', 13.9, 'Standard Startwert', ts, ts)
+  ins.run('mwr-2027-01-01', '2027-01-01', 14.6, 'Standard Startwert', ts, ts)
+}
+
+/** Einmalige Stammdaten-Übernahme Personalbögen → bestehende Profile Aral Bodelshausen (idempotent). */
+function ensurePersonalstammBodelshausenFromForms(db: Database.Database) {
+  const c = db
+    .prepare(
+      `SELECT COUNT(*) as n FROM employees WHERE station_id = 'aral-bodelshausen' AND (deleted_at IS NULL OR trim(deleted_at) = '')`,
+    )
+    .get() as { n: number }
+  if ((c?.n ?? 0) < 5) return
+  const r = applyPersonalstammBodelshausen2026(db)
+  if (r.updated > 0) {
+    console.log(`[migrations] Personalstamm Bodelshausen: ${r.updated} Profile aktualisiert`)
+  }
+  if (r.skipped.length) {
+    console.log(`[migrations] Personalstamm Bodelshausen: übersprungen (kein Match): ${r.skipped.join(', ')}`)
+  }
 }
 
 function mergeEmployeeSensitivePermissionsIntoAccess(db: Database.Database) {

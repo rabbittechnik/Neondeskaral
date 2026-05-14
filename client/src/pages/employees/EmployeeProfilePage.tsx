@@ -8,7 +8,7 @@ import { Avatar } from '../../components/ui/Avatar'
 import { useEmployees } from '../../context/employees-context'
 import { useStation } from '../../context/station-context'
 import { mergeEmployeeFromApi } from '../../components/employees/employeeDefaults'
-import { apiGet } from '../../services/api'
+import { apiGet, apiSend } from '../../services/api'
 import { WORK_AREA_DEFINITIONS } from '../../data/mockEmployees'
 import { EmployeeStatusBadge } from '../../components/employees/EmployeeStatusBadge'
 import { EmploymentTypeBadge } from '../../components/employees/EmploymentTypeBadge'
@@ -18,6 +18,34 @@ import { EmployeePlanningPreferencesSection } from '../../components/employees/p
 import { inputClass } from '../../components/schedule/shift/fieldStyles'
 
 import { EmployeeAppQrSection } from '../../components/employees/EmployeeAppQrSection'
+
+function EmployeeApplyMinWageButton({ employeeId, onDone }: { employeeId: string; onDone: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  const apply = async () => {
+    if (!window.confirm('Profil-Stundenlohn auf den heute gültigen gesetzlichen Mindestlohn setzen?')) return
+    setBusy(true)
+    setMsg(null)
+    const res = await apiSend<Employee>(
+      'POST',
+      `/employees/${encodeURIComponent(employeeId)}/apply-statutory-hourly-wage`,
+    )
+    if (!res.ok) setMsg(res.error)
+    else {
+      setMsg('Profil aktualisiert.')
+      onDone()
+    }
+    setBusy(false)
+  }
+  return (
+    <div className="mt-2 space-y-1">
+      <Button type="button" variant="outline" disabled={busy} onClick={() => void apply()}>
+        {busy ? 'Bitte warten…' : 'Profil-Stundenlohn auf Mindestlohn aktualisieren'}
+      </Button>
+      {msg ? <p className="text-xs text-[var(--text-muted)]">{msg}</p> : null}
+    </div>
+  )
+}
 
 function EmployeeProfileCashCardSection({ employee, readOnly }: { employee: Employee; readOnly: boolean }) {
   const { hasPermission } = useStation()
@@ -136,7 +164,7 @@ type TabId = (typeof TABS)[number]['id']
 export function EmployeeProfilePage() {
   const { employeeId } = useParams()
   const location = useLocation()
-  const { employees, restoreEmployee } = useEmployees()
+  const { employees, restoreEmployee, refetch } = useEmployees()
   const { hasPermission } = useStation()
   const canEdit = hasPermission('employees.edit')
   const canSensitive =
@@ -356,11 +384,31 @@ export function EmployeeProfilePage() {
                 </dd>
               </div>
               <div className="flex justify-between gap-2">
-                <dt className="text-[var(--text-faint)]">Stundenlohn</dt>
+                <dt className="text-[var(--text-faint)]">Stundenlohn (Profil)</dt>
                 <dd className="tabular-nums">
                   {canSensitive && employee.hourlyWage != null ? formatEuroDe(employee.hourlyWage) : '—'}
                 </dd>
               </div>
+              {canSensitive && employee.statutoryMinimumHourlyToday != null ? (
+                <p className="text-xs text-[var(--text-faint)]">
+                  Gesetzlicher Mindestlohn (heute): {formatEuroDe(employee.statutoryMinimumHourlyToday)}
+                </p>
+              ) : null}
+              {canSensitive && employee.minimumWageProfilePayrollNote?.trim() ? (
+                <p className="text-xs text-amber-100/90">{employee.minimumWageProfilePayrollNote.trim()}</p>
+              ) : null}
+              {canSensitive && employee.minimumWageMinijobHint?.trim() ? (
+                <p className="text-xs text-amber-100/90">{employee.minimumWageMinijobHint.trim()}</p>
+              ) : null}
+              {canSensitive && employee.minimumWageFestangestelltHint?.trim() ? (
+                <p className="text-xs text-amber-100/90">{employee.minimumWageFestangestelltHint.trim()}</p>
+              ) : null}
+              {canSensitive && employee.wageAdjustmentNote?.trim() ? (
+                <p className="text-xs text-[var(--text-muted)]">{employee.wageAdjustmentNote.trim()}</p>
+              ) : null}
+              {canSensitive && employee.minimumWageMinijobHint && canEdit ? (
+                <EmployeeApplyMinWageButton employeeId={employee.id} onDone={() => void refetch()} />
+              ) : null}
               {canSensitive && employee.monthlySalary != null ? (
                 <div className="flex justify-between gap-2">
                   <dt className="text-[var(--text-faint)]">Monatsgehalt</dt>
