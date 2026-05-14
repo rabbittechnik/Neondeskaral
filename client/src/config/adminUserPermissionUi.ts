@@ -45,6 +45,9 @@ export const ADMIN_PERMISSION_UI: { key: string; label: string }[] = [
   { key: 'tuvReports.sign', label: 'TÜV-Bericht unterschreiben/bestätigen' },
   { key: 'tuvReports.print', label: 'TÜV-Bericht drucken' },
   { key: 'tuvReports.manage', label: 'TÜV-Berichte verwalten' },
+  { key: 'representatives.view', label: 'Vertreter / Telefonnummern ansehen' },
+  { key: 'representatives.edit', label: 'Vertreter / Telefonnummern bearbeiten' },
+  { key: 'representatives.delete', label: 'Vertreter archivieren (Soft-Delete)' },
 ]
 
 export const ADMIN_FORM_ROLES = [

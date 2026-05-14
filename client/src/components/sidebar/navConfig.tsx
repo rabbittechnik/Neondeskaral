@@ -65,6 +65,11 @@ export const navEntries: NavEntry[] = [
       { to: '/documents', label: 'Dokumente' },
       { to: '/calendar', label: 'Terminkalender' },
       { to: '/contacts', label: 'Kontakte' },
+      {
+        to: '/organisation/representatives',
+        label: 'Telefonnummern / Vertreter',
+        anyPermission: ['representatives.view', 'representatives.edit'],
+      },
       { to: '/counters', label: 'Zählerstände' },
     ],
   },

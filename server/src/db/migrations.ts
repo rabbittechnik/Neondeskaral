@@ -167,6 +167,8 @@ export function runMigrations(db: Database.Database) {
   ensurePayrollAdjustmentsUpdatedAtColumn(db)
   ensureStationTabletDevicesTable(db)
   mergeStationTabletPermissionsIntoAccess(db)
+  ensureRepresentativesTable(db)
+  mergeRepresentativesPermissionsIntoAccess(db)
   ensureUsersLastLoginAtColumn(db)
   ensureUserAuditLogTable(db)
   syncMathiasRaselowskiAccount(db)
@@ -1063,6 +1065,74 @@ function ensureStationTabletDevicesTable(db: Database.Database) {
   )`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_station_tablet_devices_station ON station_tablet_devices(station_id)`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_station_tablet_devices_token ON station_tablet_devices(tablet_token)`)
+}
+
+/** Vertreter / Lieferantenkontakte (SQLite-Tabelle). */
+function ensureRepresentativesTable(db: Database.Database) {
+  db.exec(`CREATE TABLE IF NOT EXISTS representatives (
+    id TEXT PRIMARY KEY,
+    station_id TEXT NOT NULL,
+    company TEXT NOT NULL,
+    name TEXT NOT NULL,
+    email TEXT,
+    street TEXT,
+    house_number TEXT,
+    post_code TEXT,
+    city TEXT,
+    phone TEXT,
+    mobile_1 TEXT,
+    mobile_2 TEXT,
+    fax TEXT,
+    category TEXT,
+    notes TEXT,
+    active INTEGER DEFAULT 1,
+    created_by TEXT,
+    created_at TEXT,
+    updated_at TEXT,
+    archived_at TEXT,
+    FOREIGN KEY (station_id) REFERENCES stations(id)
+  )`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_representatives_station_active ON representatives(station_id, active, company)`)
+}
+
+/** Vertreter-Berechtigungen für bestehende Schichtplan-/Stammdaten-Rollen ergänzen. */
+function mergeRepresentativesPermissionsIntoAccess(db: Database.Database) {
+  const rows = db.prepare(`SELECT id, permissions_json FROM user_station_access`).all() as {
+    id: string
+    permissions_json: string
+  }[]
+  const ts = nowIso()
+  for (const r of rows) {
+    let p: Record<string, boolean> = {}
+    try {
+      p = JSON.parse(r.permissions_json || '{}') as Record<string, boolean>
+    } catch {
+      p = {}
+    }
+    const canEdit =
+      p['schedule.edit'] === true || p['station.profile.edit'] === true || p['employees.edit'] === true
+    if (!canEdit) continue
+    let changed = false
+    if (p['representatives.view'] === undefined) {
+      p['representatives.view'] = true
+      changed = true
+    }
+    if (p['representatives.edit'] === undefined) {
+      p['representatives.edit'] = true
+      changed = true
+    }
+    if (p['representatives.delete'] === undefined) {
+      p['representatives.delete'] = p['employees.delete'] === true
+      changed = true
+    }
+    if (changed) {
+      db.prepare(`UPDATE user_station_access SET permissions_json = ?, updated_at = ? WHERE id = ?`).run(
+        JSON.stringify(p),
+        ts,
+        r.id,
+      )
+    }
+  }
 }
 
 /** Stations-Tablets: an Mitarbeiter-App-/Schichtrechten ausrichten (nur fehlende Keys, keine Überschreibung). */

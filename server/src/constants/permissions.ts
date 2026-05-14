@@ -53,6 +53,11 @@ export const PERMISSION_KEYS = [
   'stations.manage',
   /** Stammdaten der zugewiesenen Station(en) bearbeiten (ohne neue Station anzulegen). */
   'station.profile.edit',
+  /** Vertreter / Lieferantenkontakte der Station. */
+  'representatives.view',
+  'representatives.edit',
+  /** Archivieren dauerhaft entfernen (Soft-Delete); Bearbeiten reicht meist für Archiv. */
+  'representatives.delete',
 ] as const
 
 export type PermissionKey = (typeof PERMISSION_KEYS)[number]
@@ -77,4 +82,5 @@ export const TEAMLEAD_PERMISSIONS: Record<string, boolean> = {
   'stationTablets.manage': true,
   'stations.manage': false,
   'station.profile.edit': false,
+  'representatives.delete': false,
 }

@@ -27,6 +27,9 @@ function pathMatches(pathname: string, to: string) {
   if (to === '/tuv-berichte') {
     return pathname === '/tuv-berichte' || pathname.startsWith('/tuv-berichte/')
   }
+  if (to === '/organisation/representatives') {
+    return pathname === '/organisation/representatives' || pathname === '/contacts/representatives'
+  }
   if (to === '/reports/payroll-time') {
     return pathname === '/reports/payroll-time' || pathname === '/reports/payroll-time-tracking'
   }

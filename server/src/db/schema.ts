@@ -616,6 +616,30 @@ const statements = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_station_tablet_devices_station ON station_tablet_devices(station_id)`,
   `CREATE INDEX IF NOT EXISTS idx_station_tablet_devices_token ON station_tablet_devices(tablet_token)`,
+  `CREATE TABLE IF NOT EXISTS representatives (
+    id TEXT PRIMARY KEY,
+    station_id TEXT NOT NULL,
+    company TEXT NOT NULL,
+    name TEXT NOT NULL,
+    email TEXT,
+    street TEXT,
+    house_number TEXT,
+    post_code TEXT,
+    city TEXT,
+    phone TEXT,
+    mobile_1 TEXT,
+    mobile_2 TEXT,
+    fax TEXT,
+    category TEXT,
+    notes TEXT,
+    active INTEGER DEFAULT 1,
+    created_by TEXT,
+    created_at TEXT,
+    updated_at TEXT,
+    archived_at TEXT,
+    FOREIGN KEY (station_id) REFERENCES stations(id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_representatives_station_active ON representatives(station_id, active, company)`,
 ]
 
 export function runSchema(db: Database.Database) {

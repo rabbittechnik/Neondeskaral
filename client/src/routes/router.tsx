@@ -13,6 +13,7 @@ import { CalendarPage } from '../pages/calendar/CalendarPage'
 import { AnnouncementsPage } from '../pages/communication/AnnouncementsPage'
 import { ChatGroupsPage } from '../pages/communication/ChatGroupsPage'
 import { ContactsPage } from '../pages/contacts/ContactsPage'
+import { RepresentativesPage } from '../pages/organisation/RepresentativesPage'
 import { CountersPage } from '../pages/counters/CountersPage'
 import { DashboardPage } from '../pages/dashboard/DashboardPage'
 import { DocumentsPage } from '../pages/documents/DocumentsPage'
@@ -231,6 +232,11 @@ export const router = createBrowserRouter([
         path: 'contacts',
         element: <ContactsPage />,
         handle: { title: 'Kontakte' },
+      },
+      {
+        path: 'organisation/representatives',
+        element: <RepresentativesPage />,
+        handle: { title: 'Vertreter & Telefonnummern' },
       },
       {
         path: 'counters',
