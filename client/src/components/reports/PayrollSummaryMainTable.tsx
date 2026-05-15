@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { Button } from '../ui/Button'
 import {
   PayrollTableScroll,
@@ -56,6 +57,9 @@ type Props = {
   onToggleRow: (id: string) => void
   onToggleAll: () => void
   onOpenDetails: (employeeId: string) => void
+  /** Zeitraum für Link zur Detailseite */
+  periodFrom: string
+  periodTo: string
 }
 
 const mw = (n: number) => ({ minWidth: n })
@@ -67,6 +71,8 @@ export function PayrollSummaryMainTable({
   onToggleRow,
   onToggleAll,
   onOpenDetails,
+  periodFrom,
+  periodTo,
 }: Props) {
   return (
     <PayrollTableScroll>
@@ -137,7 +143,12 @@ export function PayrollSummaryMainTable({
                 />
               </td>
               <td className={PAYROLL_TD_EMPLOYEE}>
-                <span className="text-cyan-300">{r.employeeName}</span>
+                <Link
+                  to={`/reports/payroll-summary/employee/${encodeURIComponent(r.employeeId)}?from=${periodFrom}&to=${periodTo}`}
+                  className="text-cyan-300 hover:text-cyan-200 hover:underline"
+                >
+                  {r.employeeName}
+                </Link>
                 {r.messages?.length ? (
                   <div className="mt-1 max-w-[14rem] text-xs font-normal leading-snug text-amber-200/90">
                     {r.messages.join(' · ')}

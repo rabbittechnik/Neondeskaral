@@ -6,6 +6,7 @@ import { buildAbsenceYearSummary, type AbsenceSummaryCohort } from '../services/
 import type { AbsenceCountMode } from '../utils/absenceYearCalculator.js'
 import {
   calculatePayrollCombinedReport,
+  calculatePayrollForEmployeeRange,
   calculatePayrollScheduleReport,
   calculatePayrollTimeTrackingReport,
   listPayrollTimeEntryDetails,
@@ -84,6 +85,33 @@ reportsRouter.get('/payroll-schedule', (req, res) => {
       toDate: to,
       employmentFilter: employmentType,
     })
+    jsonOk(res, data)
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
+  }
+})
+
+reportsRouter.get('/payroll-combined/employee/:employeeId', (req, res) => {
+  try {
+    const stationId = typeof req.query.stationId === 'string' ? req.query.stationId : undefined
+    if (!requireAnyPermission(req, res, stationId, PAYROLL_TIME_KEYS)) return
+    const employeeId = typeof req.params.employeeId === 'string' ? req.params.employeeId.trim() : ''
+    const from = typeof req.query.from === 'string' ? req.query.from.trim() : ''
+    const to = typeof req.query.to === 'string' ? req.query.to.trim() : ''
+    if (!employeeId || !from || !to) {
+      jsonErr(res, 'employeeId, from und to (YYYY-MM-DD) erforderlich', 400)
+      return
+    }
+    const data = calculatePayrollForEmployeeRange(getDb(), {
+      stationId: stationId!,
+      employeeId,
+      fromDate: from,
+      toDate: to,
+    })
+    if (!data) {
+      jsonErr(res, 'Keine Daten für diesen Mitarbeiter im Zeitraum', 404)
+      return
+    }
     jsonOk(res, data)
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)

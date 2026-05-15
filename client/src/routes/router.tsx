@@ -33,6 +33,7 @@ import { ModulesPage } from '../pages/modules/ModulesPage'
 import { AbsenceReportsPage } from '../pages/reports/AbsenceReportsPage'
 import { PayrollSchedulePage } from '../pages/reports/PayrollSchedulePage'
 import { PayrollSummaryPage } from '../pages/reports/PayrollSummaryPage'
+import { PayrollSummaryEmployeeDetailPage } from '../pages/reports/PayrollSummaryEmployeeDetailPage'
 import { PayrollTimePage } from '../pages/reports/PayrollTimePage'
 import { TaskReportsPage } from '../pages/reports/TaskReportsPage'
 import { SchedulePage } from '../pages/schedule/SchedulePage'
@@ -316,6 +317,11 @@ export const router = createBrowserRouter([
         path: 'reports/payroll-summary',
         element: <PayrollSummaryPage />,
         handle: { title: 'Lohnabrechnung Zusammenfassung' },
+      },
+      {
+        path: 'reports/payroll-summary/employee/:employeeId',
+        element: <PayrollSummaryEmployeeDetailPage />,
+        handle: { title: 'Lohnabrechnung · Mitarbeiter-Detail' },
       },
       {
         path: 'reports/tasks',

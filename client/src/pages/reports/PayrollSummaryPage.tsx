@@ -1,4 +1,5 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { ChevronDown, ChevronRight, FileSpreadsheet, Printer } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { PageHeader } from '../../components/ui/PageHeader'
@@ -225,8 +226,9 @@ export function PayrollSummaryPage() {
   const canExport = hasPermission('reports.export') || hasPermission('payroll.export')
 
   const defaults = useMemo(() => monthStartToToday(), [])
-  const [from, setFrom] = useState(defaults.from)
-  const [to, setTo] = useState(defaults.to)
+  const [searchParams] = useSearchParams()
+  const [from, setFrom] = useState(() => searchParams.get('from') || defaults.from)
+  const [to, setTo] = useState(() => searchParams.get('to') || defaults.to)
   const [employmentFilter, setEmploymentFilter] = useState<EmploymentFilter>('all')
   const [employeeIdFilter, setEmployeeIdFilter] = useState<string>('')
   const [data, setData] = useState<ReportPayload | null>(null)
@@ -673,6 +675,8 @@ export function PayrollSummaryPage() {
               onToggleRow={toggleRow}
               onToggleAll={toggleAll}
               onOpenDetails={setDetailEmployeeId}
+              periodFrom={from}
+              periodTo={to}
             />
           )}
         </div>

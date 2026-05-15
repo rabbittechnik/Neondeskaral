@@ -22,7 +22,12 @@ import {
   getEffectiveHourlyRate,
   getMinimumWageForDate,
 } from './statutoryMinWageService.js'
-import { eachYmdInRangeInclusive, utcRangeBoundsMs } from '../utils/berlinCalendarWorkHours.js'
+import {
+  eachYmdInRangeInclusive,
+  minutesToHours2,
+  shiftNetMinutesFromPlan,
+  utcRangeBoundsMs,
+} from '../utils/berlinCalendarWorkHours.js'
 import { isAbsenceStatusApprovedForPayrollDb } from '../utils/absencePayrollStatus.js'
 import { todayIso } from '../utils/timestamps.js'
 import { listShifts } from './shiftService.js'
@@ -139,14 +144,7 @@ export function shiftToIsoEndpoints(
 }
 
 export function shiftNetHoursFromPlan(dateStr: string, startTime: string, endTime: string, breakMin: number): number {
-  const [sh, sm] = startTime.split(':').map((x) => Number(x))
-  const [eh, em] = endTime.split(':').map((x) => Number(x))
-  const sMin = (sh ?? 0) * 60 + (sm ?? 0)
-  let eMin = (eh ?? 0) * 60 + (em ?? 0)
-  if (eMin <= sMin) eMin += 24 * 60
-  const grossH = (eMin - sMin) / 60
-  const brH = Math.max(0, Number(breakMin) || 0) / 60
-  return Math.max(0, Math.round((grossH - brH) * 100) / 100)
+  return minutesToHours2(shiftNetMinutesFromPlan(dateStr, startTime, endTime, breakMin))
 }
 
 export function rNum(row: Record<string, unknown>, k: string, fb = 0): number {

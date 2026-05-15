@@ -16,7 +16,15 @@ import { buildStationHolidayOverlay } from './stationExtraHolidayService.js'
 import type { StationHolidayOverlay } from '../types/stationHolidayOverlay.js'
 import { employmentTypeSubjectToStatutoryMinimum, getEffectiveHourlyRate } from './statutoryMinWageService.js'
 import { listShifts } from './shiftService.js'
-import { eachYmdInRangeInclusive, netHoursByBerlinYmdInRange, berlinYmdFromMs } from '../utils/berlinCalendarWorkHours.js'
+import {
+  eachYmdInRangeInclusive,
+  hoursToMinutes,
+  minutesToHours2,
+  netHoursByBerlinYmdInRange,
+  netMinutesByBerlinYmdFromUtc,
+  shiftMinutesByBerlinYmd,
+  berlinYmdFromMs,
+} from '../utils/berlinCalendarWorkHours.js'
 import { berlinWallClockToUtcMs, formatTimeHmBerlin } from '../utils/europeBerlinWallTime.js'
 import {
   accumulatePayrollAdjustments,
@@ -181,6 +189,50 @@ export type PayrollCombinedDayDetail = {
   highlight: PayrollCombinedDetailHighlight
   daySupplementsEuro: number
   hasConflict: boolean
+  scheduledMinutes: number
+  trackedMinutes: number
+  usedMinutes: number
+  plannedPaidVacationMinutes: number
+  plannedOtherPaidAbsenceMinutes: number
+  isPublicHoliday?: boolean
+  holidayNameDe?: string
+  supplementBreakdown?: PayrollDaySupplementBreakdown
+}
+
+export type PayrollDaySupplementBreakdown = {
+  holidayHours: number
+  holidayEuro: number
+  sundayHours: number
+  sundayEuro: number
+  saturdayHours: number
+  saturdayEuro: number
+  nightHours: number
+  nightEuro: number
+  night04Hours: number
+  night04Euro: number
+  totalEuro: number
+}
+
+export type PayrollEmployeeRangeAudit = {
+  detailUsedMinutes: number
+  summaryUsedMinutes: number
+  detailScheduleMinutes: number
+  summaryScheduleMinutes: number
+  deviationUsedMinutes: number
+  deviationScheduleMinutes: number
+  hints: string[]
+}
+
+export type PayrollEmployeeRangeDetail = {
+  stationId: string
+  stationName: string
+  federalState: GermanState
+  fromDate: string
+  toDate: string
+  hasPendingApprovedTime: boolean
+  hasOpenRunningTimeEntries: boolean
+  employee: PayrollCombinedRow
+  audit: PayrollEmployeeRangeAudit
 }
 
 export type PayrollCombinedRow = {
@@ -1317,8 +1369,8 @@ export function calculatePayrollCombinedReport(
   }
 
   type YmdPack = {
-    sh: number
-    tr: number
+    shMinutes: number
+    trMinutes: number
     shifts: PayrollCombinedShiftDetail[]
     entries: PayrollCombinedTimeDetail[]
     openConflict: boolean
@@ -1344,7 +1396,7 @@ export function calculatePayrollCombinedReport(
 
     const byYmd = new Map<string, YmdPack>()
     const ensurePack = (ymd: string): YmdPack => {
-      const p = byYmd.get(ymd) ?? { sh: 0, tr: 0, shifts: [], entries: [], openConflict: false }
+      const p = byYmd.get(ymd) ?? { shMinutes: 0, trMinutes: 0, shifts: [], entries: [], openConflict: false }
       byYmd.set(ymd, p)
       return p
     }
@@ -1352,30 +1404,35 @@ export function calculatePayrollCombinedReport(
     for (const s of myShifts) {
       if (!s.date || !s.startTime || !s.endTime) continue
       if (s.date < fromDate || s.date > toDate) continue
-      const { startIso, endIso } = shiftToIsoEndpoints(s.date, s.startTime, s.endTime)
-      const m = netHoursByBerlinYmdInRange(startIso, endIso, s.breakMinutes ?? 0, fromDate, toDate)
+      const m = shiftMinutesByBerlinYmd(s.date, s.startTime, s.endTime, s.breakMinutes ?? 0, fromDate, toDate)
       const label = `${String(s.startTime).slice(0, 5)}–${String(s.endTime).slice(0, 5)}`
-      for (const [ymd, h] of m) {
-        if (h <= 0) continue
+      for (const [ymd, netMin] of m) {
+        if (netMin <= 0) continue
         const p = ensurePack(ymd)
-        p.sh += h
-        p.shifts.push({ id: s.id, label, hours: Math.round(h * 100) / 100 })
+        p.shMinutes += netMin
+        p.shifts.push({ id: s.id, label, hours: minutesToHours2(netMin) })
       }
     }
 
     for (const te of myEntries) {
       const t = effectiveTimeEntryForPayroll(te, entryCorrMap)
       if (!t.start_at || !t.end_at) continue
-      const m = netHoursByBerlinYmdInRange(t.start_at, t.end_at, t.break_minutes ?? 0, fromDate, toDate)
-      for (const [ymd, h] of m) {
-        if (h <= 0) continue
+      const m = netMinutesByBerlinYmdFromUtc(
+        new Date(t.start_at).getTime(),
+        new Date(t.end_at).getTime(),
+        t.break_minutes ?? 0,
+        fromDate,
+        toDate,
+      )
+      for (const [ymd, netMin] of m) {
+        if (netMin <= 0) continue
         const p = ensurePack(ymd)
-        p.tr += h
+        p.trMinutes += netMin
         p.entries.push({
           id: te.id,
           startAt: t.start_at,
           endAt: t.end_at,
-          hours: Math.round(h * 100) / 100,
+          hours: minutesToHours2(netMin),
           open: false,
           earlyLeaveDoc:
             te.end_deviation_type === 'early' &&
@@ -1440,70 +1497,75 @@ export function calculatePayrollCombinedReport(
 
     const details: PayrollCombinedDayDetail[] = []
     let supplementsTotal = 0
-    let scheduleHoursTotal = 0
-    let timeTrackingHoursTotal = 0
-    let usedHoursTotal = 0
+    let scheduleMinutesTotal = 0
+    let timeTrackingMinutesTotal = 0
+    let usedMinutesTotal = 0
     let missingTimeEntriesDayCount = 0
     let unplannedWorkDayCount = 0
-    let extraUnplannedHours = 0
+    let extraUnplannedMinutes = 0
 
     const sortedYmd = [...new Set([...byYmd.keys(), ...vacByYmdAll.keys()])].sort()
     for (const ymd of sortedYmd) {
       const pack = ensurePack(ymd)
-      const sh = Math.round(pack.sh * 100) / 100
-      const tr = Math.round(pack.tr * 100) / 100
+      const shMin = pack.shMinutes
+      const trMin = pack.trMinutes
+      const sh = minutesToHours2(shMin)
+      const tr = minutesToHours2(trMin)
       const vhVac = Math.round((vacByYmd.get(ymd) ?? 0) * 100) / 100
       const vhOther = Math.round((otherPaidByYmdCombined.get(ymd) ?? 0) * 100) / 100
       const vh = Math.round((vacByYmdAll.get(ymd) ?? 0) * 100) / 100
-      scheduleHoursTotal += sh
-      if (vh > 0 && sh <= 0 && tr <= 0) scheduleHoursTotal += vh
-      timeTrackingHoursTotal += tr
+      const vhVacMin = hoursToMinutes(vhVac)
+      const vhOtherMin = hoursToMinutes(vhOther)
+      const vhMin = hoursToMinutes(vh)
+      scheduleMinutesTotal += shMin
+      if (vhMin > 0 && shMin <= 0 && trMin <= 0) scheduleMinutesTotal += vhMin
+      timeTrackingMinutesTotal += trMin
 
-      let used = 0
+      let usedMin = 0
       let source: PayrollCombinedDaySource = 'none'
       const hasOpen = pack.openConflict
 
       if (!hasOpen) {
-        if (sh <= 0 && tr <= 0) {
-          used = 0
+        if (shMin <= 0 && trMin <= 0) {
+          usedMin = 0
           source = 'none'
-        } else if (sh <= 0 && tr > 0) {
-          used = tr
+        } else if (shMin <= 0 && trMin > 0) {
+          usedMin = trMin
           source = 'time_tracking_extra'
-        } else if (tr <= 0 && sh > 0) {
-          used = sh
+        } else if (trMin <= 0 && shMin > 0) {
+          usedMin = shMin
           source = 'schedule_fallback'
-        } else if (tr < sh) {
-          used = sh
+        } else if (trMin < shMin) {
+          usedMin = shMin
           source = 'schedule_fallback'
-        } else if (tr > sh) {
-          used = tr
+        } else if (trMin > shMin) {
+          usedMin = trMin
           source = 'time_tracking'
         } else {
-          used = tr
+          usedMin = trMin
           source = 'time_tracking'
         }
       } else {
-        used = Math.max(sh, tr)
-        if (tr > sh) source = 'time_tracking'
-        else if (sh > 0) source = 'schedule_fallback'
-        else if (tr > 0) source = 'time_tracking_extra'
+        usedMin = Math.max(shMin, trMin)
+        if (trMin > shMin) source = 'time_tracking'
+        else if (shMin > 0) source = 'schedule_fallback'
+        else if (trMin > 0) source = 'time_tracking_extra'
         else source = 'none'
       }
 
-      if (!hasOpen && vh > 0) {
-        if (sh <= 0 && tr <= 0) {
-          used = vh
-          source = vhVac > 0 ? 'paid_vacation' : 'paid_other_absence'
+      if (!hasOpen && vhMin > 0) {
+        if (shMin <= 0 && trMin <= 0) {
+          usedMin = vhMin
+          source = vhVacMin > 0 ? 'paid_vacation' : 'paid_other_absence'
         } else {
-          used = Math.max(used, vh)
+          usedMin = Math.max(usedMin, vhMin)
         }
       }
 
-      usedHoursTotal += used
-      extraUnplannedHours += Math.max(0, Math.round((tr - sh) * 100) / 100)
-      if (sh > 0 && tr <= 0 && !hasOpen) missingTimeEntriesDayCount += 1
-      if (sh <= 0 && tr > 0) unplannedWorkDayCount += 1
+      usedMinutesTotal += usedMin
+      extraUnplannedMinutes += Math.max(0, trMin - shMin)
+      if (shMin > 0 && trMin <= 0 && !hasOpen) missingTimeEntriesDayCount += 1
+      if (shMin <= 0 && trMin > 0) unplannedWorkDayCount += 1
 
       let note = ''
       let highlight: PayrollCombinedDetailHighlight = 'neutral'
@@ -1614,7 +1676,8 @@ export function calculatePayrollCombinedReport(
       daySup = Math.round(daySup * 100) / 100
       supplementsTotal += daySup
 
-      const diffDay = Math.round((used - sh) * 100) / 100
+      const diffDay = minutesToHours2(usedMin - shMin)
+      const isHol = isGermanPublicHolidayYmd(ymd, federalState, holidayOverlay)
       details.push({
         date: ymd,
         weekdayDe: weekdayDeLongEuropeBerlin(ymd),
@@ -1624,23 +1687,30 @@ export function calculatePayrollCombinedReport(
         plannedOtherPaidAbsenceHours: vhOther,
         timeEntries: pack.entries,
         trackedHours: tr,
-        usedHours: Math.round(used * 100) / 100,
+        usedHours: minutesToHours2(usedMin),
         differenceHours: diffDay,
         source,
         note,
         highlight,
         daySupplementsEuro: daySup,
         hasConflict: hasOpen,
+        scheduledMinutes: shMin,
+        trackedMinutes: trMin,
+        usedMinutes: usedMin,
+        plannedPaidVacationMinutes: vhVacMin,
+        plannedOtherPaidAbsenceMinutes: vhOtherMin,
+        isPublicHoliday: isHol,
+        holidayNameDe: isHol ? publicHolidayNameDe(ymd, federalState, holidayOverlay) : undefined,
       })
     }
 
-    scheduleHoursTotal = Math.round(scheduleHoursTotal * 100) / 100
-    timeTrackingHoursTotal = Math.round(timeTrackingHoursTotal * 100) / 100
-    usedHoursTotal = Math.round(usedHoursTotal * 100) / 100
-    extraUnplannedHours = Math.round(extraUnplannedHours * 100) / 100
+    const scheduleHoursTotal = minutesToHours2(scheduleMinutesTotal)
+    const timeTrackingHoursTotal = minutesToHours2(timeTrackingMinutesTotal)
+    const usedHoursTotal = minutesToHours2(usedMinutesTotal)
+    const extraUnplannedHours = minutesToHours2(extraUnplannedMinutes)
     supplementsTotal = Math.round(supplementsTotal * 100) / 100
 
-    const differenceHours = Math.round((usedHoursTotal - scheduleHoursTotal) * 100) / 100
+    const differenceHours = minutesToHours2(usedMinutesTotal - scheduleMinutesTotal)
 
     const workByYmd = new Map<string, number>()
     for (const d of details) {
@@ -1785,6 +1855,91 @@ export function calculatePayrollCombinedReport(
     hasOpenRunningTimeEntries,
     rows,
     totals,
+  }
+}
+
+/**
+ * Zentrale Detailauswertung für einen Mitarbeiter (gleiche Logik wie Lohnabrechnung Zusammenfassung).
+ */
+export function calculatePayrollForEmployeeRange(
+  db: Database,
+  opts: {
+    stationId: string
+    employeeId: string
+    fromDate: string
+    toDate: string
+  },
+): PayrollEmployeeRangeDetail | null {
+  const report = calculatePayrollCombinedReport(db, {
+    stationId: opts.stationId,
+    fromDate: opts.fromDate,
+    toDate: opts.toDate,
+    employmentFilter: 'all_with_exited',
+    employeeIds: opts.employeeId,
+  })
+  const employee = report.rows.find((r) => r.employeeId === opts.employeeId) ?? null
+  if (!employee) return null
+
+  const detailUsedMinutes = employee.details.reduce((s, d) => s + d.usedMinutes, 0)
+  const detailScheduleMinutes = employee.details.reduce((s, d) => {
+    let m = d.scheduledMinutes
+    const vacMin = d.plannedPaidVacationMinutes + d.plannedOtherPaidAbsenceMinutes
+    if (vacMin > 0 && m <= 0 && d.trackedMinutes <= 0) m += vacMin
+    return s + m
+  }, 0)
+  const summaryUsedMinutes = hoursToMinutes(employee.usedHoursTotal)
+  const summaryScheduleMinutes = hoursToMinutes(employee.scheduleHoursTotal)
+
+  const hints: string[] = []
+  const deviationUsedMinutes = detailUsedMinutes - summaryUsedMinutes
+  const deviationScheduleMinutes = detailScheduleMinutes - summaryScheduleMinutes
+  if (deviationUsedMinutes !== 0) {
+    hints.push(
+      `Summe Tagesdetails (verwendet): ${minutesToHours2(detailUsedMinutes)} Std. · Kopfzeile: ${employee.usedHoursTotal.toFixed(2).replace('.', ',')} Std. · Abweichung: ${deviationUsedMinutes > 0 ? '+' : ''}${minutesToHours2(deviationUsedMinutes)} Std.`,
+    )
+  } else {
+    hints.push(`Summe verwendete Stunden aus Tagesdetails: ${minutesToHours2(detailUsedMinutes)} Std. (stimmt mit Kopfzeile überein).`)
+  }
+  if (deviationScheduleMinutes !== 0) {
+    hints.push(
+      `Summe Plan/Urlaub aus Tagesdetails: ${minutesToHours2(detailScheduleMinutes)} Std. · Kopfzeile Plan: ${employee.scheduleHoursTotal.toFixed(2).replace('.', ',')} Std. · Abweichung: ${deviationScheduleMinutes > 0 ? '+' : ''}${minutesToHours2(deviationScheduleMinutes)} Std.`,
+    )
+  } else {
+    hints.push(`Summe Planstunden (inkl. reiner Urlaubstage): ${minutesToHours2(detailScheduleMinutes)} Std.`)
+  }
+  if (report.hasPendingApprovedTime) {
+    hints.push('Hinweis: Es gibt abgeschlossene, aber noch nicht freigegebene Zeiten – diese fließen nicht in „verwendet“ ein.')
+  }
+  if (report.hasOpenRunningTimeEntries) {
+    hints.push('Hinweis: Offene Zeiterfassungen ohne Ende im Zeitraum.')
+  }
+  hints.push('Berechnung: Minuten-genau aus Start/Ende minus Pause; Anzeige mit 2 Nachkommastellen.')
+
+  for (const d of employee.details) {
+    const expectedMin = d.scheduledMinutes || d.plannedPaidVacationMinutes + d.plannedOtherPaidAbsenceMinutes
+    if (expectedMin > 0 && Math.abs(d.usedMinutes - Math.max(d.scheduledMinutes, d.trackedMinutes, d.plannedPaidVacationMinutes + d.plannedOtherPaidAbsenceMinutes)) > 1) {
+      hints.push(`${d.date}: verwendete Minuten (${d.usedMinutes}) weichen von Plan/Erfasst/Urlaub ab – Regel prüfen.`)
+    }
+  }
+
+  return {
+    stationId: report.stationId,
+    stationName: report.stationName,
+    federalState: report.federalState,
+    fromDate: report.fromDate,
+    toDate: report.toDate,
+    hasPendingApprovedTime: report.hasPendingApprovedTime,
+    hasOpenRunningTimeEntries: report.hasOpenRunningTimeEntries,
+    employee,
+    audit: {
+      detailUsedMinutes,
+      summaryUsedMinutes,
+      detailScheduleMinutes,
+      summaryScheduleMinutes,
+      deviationUsedMinutes,
+      deviationScheduleMinutes,
+      hints,
+    },
   }
 }
 
