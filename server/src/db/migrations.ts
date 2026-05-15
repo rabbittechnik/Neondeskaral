@@ -202,6 +202,7 @@ export function runMigrations(db: Database.Database) {
   ensureStationBreakPolicyColumnsAndZeroBodelshausenBreaks(db)
   ensureStationPayrollSurchargeRuleColumns(db)
   ensureBodelshausenSundayHolidaySurchargePolicy(db)
+  ensurePayrollQueryIndexes(db)
   ensureTimeEntryCorrections2026(db)
   ensureWeeklySchedulePublicationsTable(db)
 }
@@ -1766,6 +1767,16 @@ function ensureBodelshausenSundayHolidaySurchargePolicy(db: Database.Database) {
       updated_at = ?
     WHERE id = 'aral-bodelshausen'`,
   ).run(ts)
+}
+
+function ensurePayrollQueryIndexes(db: Database.Database) {
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_shifts_station_date ON shifts(station_id, date)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_shifts_employee_date ON shifts(employee_id, date)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_time_entries_station_start ON time_entries(station_id, start_at)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_time_entries_employee_start ON time_entries(employee_id, start_at)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_absences_station_span ON absences(station_id, start_date, end_date)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_absences_employee_span ON absences(employee_id, start_date, end_date)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_payroll_adjustments_station_date ON payroll_adjustments(station_id, date)`)
 }
 
 function ensureStationBreakPolicyColumnsAndZeroBodelshausenBreaks(db: Database.Database) {

@@ -1067,6 +1067,71 @@ function computeDaySupplementSides(p: {
   }
 }
 
+type ShiftSupplementRef = { date?: string; startTime?: string; endTime?: string; breakMinutes?: number }
+
+function indexShiftsByBerlinYmd(
+  shifts: ShiftSupplementRef[],
+  fromDate: string,
+  toDate: string,
+): Map<string, ShiftSupplementRef[]> {
+  const map = new Map<string, ShiftSupplementRef[]>()
+  for (const s of shifts) {
+    if (!s.date || !s.startTime || !s.endTime) continue
+    const m = shiftMinutesByBerlinYmd(s.date, s.startTime, s.endTime, s.breakMinutes ?? 0, fromDate, toDate)
+    for (const ymd of m.keys()) {
+      const list = map.get(ymd) ?? []
+      list.push(s)
+      map.set(ymd, list)
+    }
+  }
+  return map
+}
+
+function indexApprovedEntriesByBerlinYmd(
+  entries: TimeEntryRow[],
+  entryCorrMap: Map<string, TimeEntryCorrectionRow>,
+  fromDate: string,
+  toDate: string,
+): Map<string, TimeEntryRow[]> {
+  const map = new Map<string, TimeEntryRow[]>()
+  for (const te of entries) {
+    const t = effectiveTimeEntryForPayroll(te, entryCorrMap)
+    if (!t.start_at || !t.end_at) continue
+    const m = netMinutesByBerlinYmdFromUtc(
+      new Date(t.start_at).getTime(),
+      new Date(t.end_at).getTime(),
+      t.break_minutes ?? 0,
+      fromDate,
+      toDate,
+    )
+    for (const ymd of m.keys()) {
+      const list = map.get(ymd) ?? []
+      list.push(te)
+      map.set(ymd, list)
+    }
+  }
+  return map
+}
+
+/** Zuschläge nur Sonntag/Feiertag — Schnellpfad: nur Tage mit Plan oder Ist prüfen. */
+function isSundayOrHolidayYmd(
+  ymd: string,
+  federalState: GermanState,
+  holidayOverlay: StationHolidayOverlay,
+): boolean {
+  if (berlinWeekday0SunFromYmd(ymd) === 0) return true
+  return isGermanPublicHolidayYmd(ymd, federalState, holidayOverlay)
+}
+
+function berlinWeekday0SunFromYmd(ymd: string): number {
+  const ms = berlinWallClockToUtcMs(ymd, '12:00')
+  const wdStr = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'Europe/Berlin' }).format(
+    new Date(ms),
+  )
+  const wdMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }
+  return wdMap[wdStr] ?? 0
+}
+
 function computeCombinedDaySupplementEuros(p: {
   ymd: string
   hasOpen: boolean
@@ -1075,8 +1140,8 @@ function computeCombinedDaySupplementEuros(p: {
   source: PayrollCombinedDaySource
   vhMin: number
   usedMin: number
-  myShifts: Array<{ date?: string; startTime?: string; endTime?: string; breakMinutes?: number }>
-  myEntries: TimeEntryRow[]
+  shiftsOnDay: ShiftSupplementRef[]
+  entriesOnDay: TimeEntryRow[]
   entryCorrMap: Map<string, TimeEntryCorrectionRow>
   empFields: EmployeeSurchargeFields
   employmentType: string
@@ -1090,17 +1155,20 @@ function computeCombinedDaySupplementEuros(p: {
   if (p.hasOpen) return 0
   if (p.shMin <= 0 && p.trMin <= 0) return 0
   if (p.usedMin > 0 && p.shMin <= 0 && p.trMin <= 0 && p.vhMin >= p.usedMin) return 0
+  if (
+    p.stationRules.onlySundayAndHolidaySupplements &&
+    !isSundayOrHolidayYmd(p.ymd, p.federalState, p.holidayOverlay)
+  ) {
+    return 0
+  }
 
   const useSchedule = shouldUseScheduleSupplementsForDay(p.shMin, p.trMin, p.stationRules)
   const wage = Math.max(0, p.wageForSupplements)
   let daySup = 0
 
   if (useSchedule) {
-    for (const s of p.myShifts) {
+    for (const s of p.shiftsOnDay) {
       if (!s.date || !s.startTime || !s.endTime) continue
-      const { startIso, endIso } = shiftToIsoEndpoints(s.date, s.startTime, s.endTime)
-      const m = netHoursByBerlinYmdInRange(startIso, endIso, s.breakMinutes ?? 0, p.fromDate, p.toDate)
-      if (!m.has(p.ymd) || (m.get(p.ymd) ?? 0) <= 0) continue
       daySup += computeScheduleShiftSupplementEuros({
         emp: p.empFields,
         hourlyWage: wage,
@@ -1119,11 +1187,9 @@ function computeCombinedDaySupplementEuros(p: {
     p.source === 'time_tracking_extra' ||
     (p.trMin > 0 && p.shMin <= 0)
   ) {
-    for (const te of p.myEntries) {
+    for (const te of p.entriesOnDay) {
       const t = effectiveTimeEntryForPayroll(te, p.entryCorrMap)
       if (!t.start_at || !t.end_at) continue
-      const m = netHoursByBerlinYmdInRange(t.start_at, t.end_at, t.break_minutes ?? 0, p.fromDate, p.toDate)
-      if (!m.has(p.ymd) || (m.get(p.ymd) ?? 0) <= 0) continue
       daySup += computeSupplementEurosForTimeEntry({
         employmentType: p.employmentType,
         emp: p.empFields,
@@ -1785,25 +1851,38 @@ export function calculatePayrollCombinedReport(
       }
     }
 
-    for (const te of myOpen) {
-      if (!te.start_at) continue
-      const startMs = new Date(te.start_at).getTime()
-      if (!Number.isFinite(startMs)) continue
-      const d0 = berlinYmdFromMs(startMs)
-      const spanStart = d0 < fromDate ? fromDate : d0
-      if (spanStart > toDate) continue
-      for (const ymd of eachYmdInRangeInclusive(spanStart, toDate)) {
-        const p = ensurePack(ymd)
-        p.openConflict = true
-        pushTimeEntryDetail(
-          te,
-          ymd,
-          0,
-          { start_at: te.start_at, end_at: null, break_minutes: te.break_minutes ?? 0 },
-          { open: true, pendingApproval: false },
-        )
+    let employeeHasOpenConflict = myOpen.length > 0
+
+    if (myOpen.length) {
+      if (includeDetails) {
+        for (const te of myOpen) {
+          if (!te.start_at) continue
+          const startMs = new Date(te.start_at).getTime()
+          if (!Number.isFinite(startMs)) continue
+          const d0 = berlinYmdFromMs(startMs)
+          const spanStart = d0 < fromDate ? fromDate : d0
+          if (spanStart > toDate) continue
+          for (const ymd of eachYmdInRangeInclusive(spanStart, toDate)) {
+            const p = ensurePack(ymd)
+            p.openConflict = true
+            pushTimeEntryDetail(
+              te,
+              ymd,
+              0,
+              { start_at: te.start_at, end_at: null, break_minutes: te.break_minutes ?? 0 },
+              { open: true, pendingApproval: false },
+            )
+          }
+        }
+      } else {
+        for (const ymd of eachYmdInRangeInclusive(fromDate, toDate)) {
+          ensurePack(ymd).openConflict = true
+        }
       }
     }
+
+    const shiftsByYmd = indexShiftsByBerlinYmd(myShifts, fromDate, toDate)
+    const entriesByYmd = indexApprovedEntriesByBerlinYmd(myEntries, entryCorrMap, fromDate, toDate)
 
     const vacHpdDefaultCombined = rNum(R, 'vacation_hours_per_day', NaN) || null
     const employmentRoleCombined = String(R.employment_role ?? '')
@@ -1834,7 +1913,6 @@ export function calculatePayrollCombinedReport(
 
     const details: PayrollCombinedDayDetail[] = []
     const workByYmd = new Map<string, number>()
-    let employeeHasOpenConflict = false
     let supplementsTotal = 0
     let scheduleMinutesTotal = 0
     let timeTrackingMinutesTotal = 0
@@ -1842,6 +1920,31 @@ export function calculatePayrollCombinedReport(
     let missingTimeEntriesDayCount = 0
     let unplannedWorkDayCount = 0
     let extraUnplannedMinutes = 0
+
+    const supplementsFromScheduleOnly =
+      !includeDetails &&
+      stationSurchargeRules.supplementsPreferSchedule &&
+      myEntries.length === 0 &&
+      myShifts.length > 0
+
+    if (supplementsFromScheduleOnly) {
+      const wage = Math.max(0, wageForSupplements)
+      for (const s of myShifts) {
+        if (!s.date || !s.startTime || !s.endTime) continue
+        if (s.date < fromDate || s.date > toDate) continue
+        supplementsTotal += computeScheduleShiftSupplementEuros({
+          emp: empFields,
+          hourlyWage: wage,
+          shiftDate: s.date,
+          startTime: s.startTime,
+          endTime: s.endTime,
+          breakMinutes: s.breakMinutes ?? 0,
+          federalState,
+          holidayOverlay,
+          stationRules: stationSurchargeRules,
+        })
+      }
+    }
 
     const sortedYmd = [...new Set([...byYmd.keys(), ...vacByYmdAll.keys()])].sort()
     for (const ymd of sortedYmd) {
@@ -1877,6 +1980,41 @@ export function calculatePayrollCombinedReport(
         }
       }
 
+      usedMinutesTotal += usedMin
+      const usedH = minutesToHours2(usedMin)
+      if (usedH > 0) workByYmd.set(ymd, usedH)
+      if (hasOpen) employeeHasOpenConflict = true
+      extraUnplannedMinutes += Math.max(0, trMin - shMin)
+      if (shMin > 0 && trMin <= 0 && !hasOpen && !hasPendingOnly) missingTimeEntriesDayCount += 1
+      if (shMin <= 0 && trMin > 0) unplannedWorkDayCount += 1
+
+      let daySup = 0
+      if (!supplementsFromScheduleOnly) {
+        daySup = computeCombinedDaySupplementEuros({
+          ymd,
+          hasOpen,
+          shMin,
+          trMin,
+          source,
+          vhMin,
+          usedMin,
+          shiftsOnDay: shiftsByYmd.get(ymd) ?? [],
+          entriesOnDay: entriesByYmd.get(ymd) ?? [],
+          entryCorrMap,
+          empFields,
+          employmentType,
+          wageForSupplements,
+          federalState,
+          holidayOverlay,
+          stationRules: stationSurchargeRules,
+          fromDate,
+          toDate,
+        })
+        supplementsTotal += daySup
+      }
+
+      if (!includeDetails) continue
+
       const plannedRange = mergeDayHmRanges(
         pack.shifts.map((s) => ({ start: s.plannedStart, end: s.plannedEnd })),
       )
@@ -1900,14 +2038,6 @@ export function calculatePayrollCombinedReport(
         deviationReason = `Früher beendet – Grund: ${lab}${extra}`
         break
       }
-
-      usedMinutesTotal += usedMin
-      const usedH = minutesToHours2(usedMin)
-      if (usedH > 0) workByYmd.set(ymd, usedH)
-      if (hasOpen) employeeHasOpenConflict = true
-      extraUnplannedMinutes += Math.max(0, trMin - shMin)
-      if (shMin > 0 && trMin <= 0 && !hasOpen && !hasPendingOnly) missingTimeEntriesDayCount += 1
-      if (shMin <= 0 && trMin > 0) unplannedWorkDayCount += 1
 
       let note = ''
       let highlight: PayrollCombinedDetailHighlight = 'neutral'
@@ -1965,28 +2095,6 @@ export function calculatePayrollCombinedReport(
         if (highlight === 'neutral' || highlight === 'green') highlight = 'orange'
       }
 
-      const daySup = computeCombinedDaySupplementEuros({
-        ymd,
-        hasOpen,
-        shMin,
-        trMin,
-        source,
-        vhMin,
-        usedMin,
-        myShifts,
-        myEntries,
-        entryCorrMap,
-        empFields,
-        employmentType,
-        wageForSupplements,
-        federalState,
-        holidayOverlay,
-        stationRules: stationSurchargeRules,
-        fromDate,
-        toDate,
-      })
-      supplementsTotal += daySup
-
       const diffDay = minutesToHours2(usedMin - shMin)
       const isHol = isGermanPublicHolidayYmd(ymd, federalState, holidayOverlay)
 
@@ -2000,8 +2108,7 @@ export function calculatePayrollCombinedReport(
             : 'none'
 
       let supplementDebug: PayrollDaySupplementAudit | undefined
-      if (includeDetails) {
-        if (includeSupplementDebug) {
+      if (includeSupplementDebug) {
           const sides = computeDaySupplementSides({
             ymd,
             myShifts,
@@ -2067,7 +2174,6 @@ export function calculatePayrollCombinedReport(
         holidayNameDe: isHol ? publicHolidayNameDe(ymd, federalState, holidayOverlay) : undefined,
         ...(supplementDebug ? { supplementDebug } : {}),
         })
-      }
     }
 
     const scheduleHoursTotal = minutesToHours2(scheduleMinutesTotal)

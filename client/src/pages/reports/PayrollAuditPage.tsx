@@ -66,18 +66,30 @@ export function PayrollAuditPage() {
     setLoading(true)
     setError(null)
     const q = { stationId, from, to }
-    const [vRes, cRes] = await Promise.all([
-      apiGet<ValidationPayload>('/reports/payroll-validation', q),
-      apiGet<CombinedPayload>('/reports/payroll-combined', { ...q, includeDetails: '0' }),
-    ])
+    const vRes = await apiGet<ValidationPayload>('/reports/payroll-validation', q, { timeoutMs: 60_000 })
     if (!vRes.ok) {
       setValidation(null)
       setCombined(null)
       setError(vRes.error)
+      setLoading(false)
+      return
+    }
+    setValidation(vRes.data)
+
+    const cRes = await apiGet<CombinedPayload>('/reports/payroll-combined', { ...q, includeDetails: '0' }, {
+      timeoutMs: 90_000,
+    })
+    if (!cRes.ok) {
+      setCombined(null)
+      const isTimeout = cRes.error.includes('Zeitüberschreitung') || cRes.error.includes('timeout')
+      setError(
+        isTimeout
+          ? `Berechnung der Zusammenfassung abgebrochen (Server-Timeout). Schichtplan- und Zeiterfassungs-Lohn laden weiterhin. ${cRes.error}`
+          : `Kombi-Lohn: ${cRes.error}`,
+      )
     } else {
-      setValidation(vRes.data)
-      setCombined(cRes.ok ? cRes.data : null)
-      if (!cRes.ok) setError(`Kombi-Lohn: ${cRes.error}`)
+      setCombined(cRes.data)
+      setError(null)
     }
     setLoading(false)
   }, [stationId, from, to, canView])

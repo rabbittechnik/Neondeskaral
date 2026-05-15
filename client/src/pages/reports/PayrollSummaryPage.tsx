@@ -272,10 +272,10 @@ export function PayrollSummaryPage() {
     if (ac.signal.aborted) return
     if (!res.ok) {
       setData(null)
-      const hint =
-        res.error.includes('Zeitüberschreitung') || res.error.includes('timeout')
-          ? 'Die Berechnung dauert länger als erwartet — bitte Zeitraum verkürzen oder erneut versuchen.'
-          : null
+      const isTimeout = res.error.includes('Zeitüberschreitung') || res.error.includes('timeout')
+      const hint = isTimeout
+        ? 'Die Einzelabrechnungen (Schichtplan/Zeiterfassung) laden, aber die Zusammenfassung konnte nicht erstellt werden. Bitte erneut berechnen oder Zeitraum verkürzen.'
+        : null
       setError(
         [res.error, hint, `Station: ${stationId}`, `Zeitraum: ${from} – ${to}`].filter(Boolean).join(' · '),
       )

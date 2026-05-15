@@ -870,10 +870,12 @@ export function buildPayrollValidationReport(
     const R = emp as Record<string, unknown>
     if (!employeeReceivesPayrollSurcharges(R)) continue
 
-    const wage = resolveHourlyWageForSupplements(db, R, fromDate)
     const wd0 = berlinWeekday0Sun(s.date)
     const isSun = wd0 === 0
     const isHol = isGermanPublicHolidayYmd(s.date, federalState, holidayOverlay)
+    if (!isSun && !isHol) continue
+
+    const wage = resolveHourlyWageForSupplements(db, R, fromDate)
     const sup = computeScheduleShiftSupplementEuros({
       emp: surchargeFieldsFromEmployee(R),
       hourlyWage: wage,
