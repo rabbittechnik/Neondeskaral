@@ -17,6 +17,8 @@ import { suggestedTimesForType } from './shiftDefaults'
 import type { Absence } from '../../../types/absence'
 import { ShiftWeekDayPicker } from './ShiftWeekDayPicker'
 import { formatDayMonthDot, weekDayDates, WEEKDAY_LABELS_SHORT } from '../scheduleWeekUtils'
+import { ShiftLinkedTimeEntry } from './ShiftLinkedTimeEntry'
+import type { TimeEntry } from '../../../types/timeTracking'
 
 type Mode = 'create' | 'edit'
 
@@ -33,6 +35,8 @@ type Props = {
   employeeSelectOptions: ShiftEmployeeOption[]
   absences?: Absence[]
   onBulkCreate?: (draft: ShiftDraft, dates: string[]) => void | Promise<void>
+  timeEntries?: TimeEntry[]
+  canCorrectTime?: boolean
 }
 
 function draftFromShift(s: ScheduleShift): ShiftDraft {
@@ -95,6 +99,8 @@ export function ShiftModal({
   employeeSelectOptions,
   absences,
   onBulkCreate,
+  timeEntries = [],
+  canCorrectTime = false,
 }: Props) {
   const [form, setForm] = useState<ShiftDraft>(() => emptyDraft(weekMonday))
   const [selectedDates, setSelectedDates] = useState<string[]>(() => [toISODate(weekMonday)])
@@ -311,6 +317,10 @@ export function ShiftModal({
               hideDate={mode === 'create'}
               hideStatus={mode === 'create'}
             />
+
+            {mode === 'edit' && shift ? (
+              <ShiftLinkedTimeEntry shift={shift} timeEntries={timeEntries} canCorrect={canCorrectTime} />
+            ) : null}
 
             {isMultiCreate ? (
               <div className="mt-4 rounded-[var(--radius-sm)] border border-cyan-400/25 bg-cyan-500/5 p-3">

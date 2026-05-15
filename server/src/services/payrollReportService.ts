@@ -376,6 +376,16 @@ export type PayrollTimeEntryDetailRow = {
   stampedStartAt?: string
   stampedEndAt?: string
   timeCorrectionNote?: string
+  correctedStartAt?: string
+  correctedEndAt?: string
+  correctionReason?: string
+  correctionReasonLabel?: string
+  correctionNote?: string
+  correctedByName?: string
+  correctedAt?: string
+  plannedShiftStart?: string
+  plannedShiftEnd?: string
+  shiftId?: string | null
 }
 
 export function calculatePayrollTimeTrackingReport(
@@ -2315,15 +2325,17 @@ export function listPayrollTimeEntryDetails(
   const out: PayrollTimeEntryDetailRow[] = []
   for (const te of list) {
     if (!te.end_at) continue
-    const eff = effectiveTimeEntryForPayroll(te, detailCorrMap)
-    if (!eff.end_at) continue
-    const h = entryNetHoursInRange(eff.start_at, eff.end_at, eff.break_minutes ?? 0, fromDate, toDate)
-    const approval =
+    const approvalRaw =
       te.status === 'completed'
         ? te.approval_status && String(te.approval_status).trim()
           ? te.approval_status
           : 'pending'
         : te.approval_status ?? ''
+    if (approvalRaw !== 'approved') continue
+    const eff = effectiveTimeEntryForPayroll(te, detailCorrMap)
+    if (!eff.end_at) continue
+    const h = entryNetHoursInRange(eff.start_at, eff.end_at, eff.break_minutes ?? 0, fromDate, toDate)
+    const approval = approvalRaw
     const earlyMin = te.end_deviation_type === 'early' ? Number(te.end_deviation_minutes ?? 0) : 0
     let earlyLeaveSummary: string | undefined
     if (earlyMin > 30) {
@@ -2339,13 +2351,38 @@ export function listPayrollTimeEntryDetails(
     let timeCorrectionNote: string | undefined
     let stampedStartAt: string | undefined
     let stampedEndAt: string | undefined
+    let correctedStartAt: string | undefined
+    let correctedEndAt: string | undefined
+    let correctionReason: string | undefined
+    let correctionReasonLabel: string | undefined
+    let correctionNote: string | undefined
+    let correctedByName: string | undefined
+    let correctedAt: string | undefined
     if (corrRow) {
-      stampedStartAt = te.start_at
-      stampedEndAt = te.end_at ?? undefined
+      stampedStartAt = corrRow.original_clock_in_at
+      stampedEndAt = corrRow.original_clock_out_at ?? undefined
       if (corrRow.correction_kind === 'manual') {
-        timeCorrectionNote = `Korrigiert: ${timeCorrectionReasonLabelDe(corrRow.reason)}`
+        correctedStartAt = corrRow.corrected_clock_in_at
+        correctedEndAt = corrRow.corrected_clock_out_at ?? undefined
+        correctionReason = corrRow.reason
+        correctionReasonLabel = timeCorrectionReasonLabelDe(corrRow.reason)
+        correctionNote = corrRow.note ? String(corrRow.note) : undefined
+        correctedByName = corrRow.corrected_by_name ? String(corrRow.corrected_by_name) : undefined
+        correctedAt = corrRow.created_at
+        timeCorrectionNote = `Korrigiert: ${correctionReasonLabel}`
       } else if (corrRow.correction_kind === 'auto_clock_out') {
         timeCorrectionNote = 'Automatisch ausgestempelt — bitte prüfen'
+      }
+    }
+    let plannedShiftStart: string | undefined
+    let plannedShiftEnd: string | undefined
+    if (te.shift_id) {
+      const sh = db
+        .prepare(`SELECT start_time, end_time FROM shifts WHERE id = ?`)
+        .get(te.shift_id) as { start_time: string; end_time: string } | undefined
+      if (sh) {
+        plannedShiftStart = String(sh.start_time ?? '').slice(0, 5)
+        plannedShiftEnd = String(sh.end_time ?? '').slice(0, 5)
       }
     }
     out.push({
@@ -2360,8 +2397,23 @@ export function listPayrollTimeEntryDetails(
       source: te.source ?? '',
       status: te.status ?? '',
       approvalStatus: approval,
+      shiftId: te.shift_id ?? null,
+      ...(plannedShiftStart && plannedShiftEnd ? { plannedShiftStart, plannedShiftEnd } : {}),
       ...(earlyLeaveSummary ? { earlyLeaveSummary } : {}),
-      ...(corrRow ? { stampedStartAt, stampedEndAt, timeCorrectionNote } : {}),
+      ...(corrRow
+        ? {
+            stampedStartAt,
+            stampedEndAt,
+            timeCorrectionNote,
+            correctedStartAt,
+            correctedEndAt,
+            correctionReason,
+            correctionReasonLabel,
+            correctionNote,
+            correctedByName,
+            correctedAt,
+          }
+        : {}),
     })
   }
 

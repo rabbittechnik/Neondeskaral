@@ -416,6 +416,58 @@ export function countPendingApproval(db: Database, stationId = DEFAULT_STATION_I
   return row.c ?? 0
 }
 
+export type ApprovedTimeEntryLookupRow = PendingTimeEntryListRow & {
+  hasManualCorrection: boolean
+}
+
+/** Freigegebene Zeiten für nachträgliche Korrektur (Suche nach Name/Datum). */
+export function listApprovedTimeEntriesForLookup(
+  db: Database,
+  stationId: string,
+  opts: { fromDate?: string; toDate?: string; q?: string; limit?: number },
+): { items: ApprovedTimeEntryLookupRow[] } {
+  const limit = Math.min(200, Math.max(1, opts.limit ?? 80))
+  let sql = `SELECT te.*, e.display_name AS employee_display_name
+    FROM time_entries te
+    JOIN employees e ON e.id = te.employee_id
+    WHERE te.station_id = ?
+      AND te.status = 'completed'
+      AND te.approval_status = 'approved'
+      AND te.end_at IS NOT NULL AND trim(te.end_at) != ''`
+  const params: (string | number)[] = [stationId]
+  if (opts.fromDate && /^\d{4}-\d{2}-\d{2}$/.test(opts.fromDate)) {
+    sql += ` AND date(te.end_at) >= date(?)`
+    params.push(opts.fromDate)
+  }
+  if (opts.toDate && /^\d{4}-\d{2}-\d{2}$/.test(opts.toDate)) {
+    sql += ` AND date(te.start_at) <= date(?)`
+    params.push(opts.toDate)
+  }
+  const q = String(opts.q ?? '').trim()
+  if (q) {
+    sql += ` AND (e.display_name LIKE ? OR te.id LIKE ? OR date(te.start_at) LIKE ?)`
+    const like = `%${q}%`
+    params.push(like, like, like)
+  }
+  sql += ` ORDER BY datetime(te.end_at) DESC LIMIT ?`
+  params.push(limit)
+  const rows = db.prepare(sql).all(...params) as (TimeEntryRow & { employee_display_name: string })[]
+  const corrMap = loadLatestCorrectionsMapForIds(
+    db,
+    rows.map((r) => r.id),
+  )
+  const items = rows.map((r) => {
+    const { employee_display_name: employeeDisplayName, ...row } = r
+    const corr = corrMap.get(r.id)
+    return {
+      ...enrichTimeEntryApiWithEffective(db, row as TimeEntryRow),
+      employeeDisplayName,
+      hasManualCorrection: corr?.correction_kind === 'manual',
+    }
+  })
+  return { items }
+}
+
 export function getTimeEntryDetail(db: Database, id: string) {
   const row = db.prepare(`SELECT * FROM time_entries WHERE id = ?`).get(id) as TimeEntryRow | undefined
   if (!row) return undefined

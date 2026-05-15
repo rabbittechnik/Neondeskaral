@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, ClipboardCheck, AlertTriangle } from 'lucide-react'
 import { useAuth } from '../../context/auth-context'
 import { apiGet, apiSend } from '../../services/api'
@@ -132,23 +132,37 @@ function berlinHmFromIso(iso: string): string {
 }
 
 const TIME_CORRECTION_REASON_OPTIONS: { key: string; label: string }[] = [
-  { key: 'forgot_checkout', label: 'Mitarbeiter hat vergessen auszustempeln' },
-  { key: 'forgot_checkin', label: 'Mitarbeiter hat vergessen einzustempeln' },
-  { key: 'system_error', label: 'Systemfehler / Tablet-Fehler' },
-  { key: 'wrong_person', label: 'falsche Person ausgewählt' },
-  { key: 'shift_ended_early', label: 'Schicht wurde früher beendet' },
-  { key: 'shift_ended_late', label: 'Schicht wurde später beendet' },
-  { key: 'management_correction', label: 'Korrektur durch Leitung' },
-  { key: 'other', label: 'Sonstiges' },
+  { key: 'system_error', label: 'Systemfehler' },
+  { key: 'forgot_checkout', label: 'Mitarbeiter hat Ausstempeln vergessen' },
+  { key: 'forgot_checkin', label: 'Mitarbeiter hat Einstempeln vergessen' },
+  { key: 'wrong_stamp_time', label: 'falsche Stempelzeit' },
+  { key: 'early_sick', label: 'früher gegangen wegen Krankheit' },
+  { key: 'early_agreed_swap', label: 'früher gegangen wegen abgesprochenem Wechsel' },
+  { key: 'late_handover', label: 'länger geblieben wegen Übergabe' },
+  { key: 'late_customer_ops', label: 'länger geblieben wegen Kunden / Betrieb' },
+  { key: 'management_correction', label: 'manuelle Leitungskorrektur' },
+  { key: 'other', label: 'sonstiger Grund' },
 ]
+
+type ApprovedLookupRow = PendingRow & { hasManualCorrection?: boolean }
 
 export function TimeApprovalsPage() {
   const { user } = useAuth()
   const { stationId } = useStation()
+  const [searchParams] = useSearchParams()
   const allowed = canAccessTimeApprovalsPage(user)
   const canApprove = canApproveTimeEntries(user)
   const canCorrect = canCorrectStampTimes(user)
   const [items, setItems] = useState<PendingRow[]>([])
+  const [approvedItems, setApprovedItems] = useState<ApprovedLookupRow[]>([])
+  const [approvedQ, setApprovedQ] = useState('')
+  const [approvedFrom, setApprovedFrom] = useState(() => {
+    const d = new Date()
+    d.setDate(d.getDate() - 30)
+    return d.toISOString().slice(0, 10)
+  })
+  const [approvedTo, setApprovedTo] = useState(() => new Date().toISOString().slice(0, 10))
+  const [approvedLoading, setApprovedLoading] = useState(false)
   const [count, setCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
@@ -197,7 +211,26 @@ export function TimeApprovalsPage() {
     void load()
   }, [load])
 
-  const openDetail = async (id: string) => {
+  const loadApprovedLookup = useCallback(async () => {
+    if (!allowed || !stationId) return
+    setApprovedLoading(true)
+    const res = await apiGet<{ items: ApprovedLookupRow[] }>('/time-entries/approved-lookup', {
+      stationId,
+      from: approvedFrom,
+      to: approvedTo,
+      q: approvedQ.trim() || undefined,
+      limit: '80',
+    })
+    setApprovedLoading(false)
+    if (res.ok) setApprovedItems(res.data.items ?? [])
+    else setApprovedItems([])
+  }, [allowed, stationId, approvedFrom, approvedTo, approvedQ])
+
+  useEffect(() => {
+    void loadApprovedLookup()
+  }, [loadApprovedLookup])
+
+  const openDetail = useCallback(async (id: string) => {
     setBusy(true)
     const res = await apiGet<DetailPayload>(`/time-entries/${encodeURIComponent(id)}/detail`)
     setBusy(false)
@@ -206,7 +239,18 @@ export function TimeApprovalsPage() {
       return
     }
     setDetail(res.data)
-  }
+  }, [])
+
+  const entryFromUrl = searchParams.get('entry')
+  const correctFromUrl = searchParams.get('correct') === '1'
+  useEffect(() => {
+    if (!entryFromUrl || !allowed) return
+    void openDetail(entryFromUrl).then(() => {
+      if (correctFromUrl) setTcOpen(true)
+    })
+  }, [entryFromUrl, correctFromUrl, allowed, openDetail])
+
+  const detailIsApproved = detail?.timeEntry.approvalStatus === 'approved'
 
   const approve = async () => {
     if (!detail) return
@@ -276,11 +320,11 @@ export function TimeApprovalsPage() {
     setTcOpen(true)
   }
 
-  const submitTimeCorrection = async () => {
+  const submitTimeCorrection = async (approveAfter: boolean) => {
     if (!detail) return
     const workDateYmdBerlin = detail.workDateYmdBerlin ?? detail.timeEntry.startAt.slice(0, 10)
     if (tcReason === 'other' && !tcNote.trim()) {
-      setErr('Bei „Sonstiges“ ist eine Bemerkung Pflicht.')
+      setErr('Bei „sonstiger Grund“ ist eine Bemerkung Pflicht.')
       return
     }
     if (!tcStartHm.trim() || !tcEndHm.trim()) {
@@ -298,6 +342,8 @@ export function TimeApprovalsPage() {
         breakMinutes: Number(tcBreak) || 0,
         reason: tcReason,
         note: tcNote.trim() || undefined,
+        keepApproved: detailIsApproved || approveAfter,
+        approveAfter,
       },
     )
     setBusy(false)
@@ -308,6 +354,7 @@ export function TimeApprovalsPage() {
     setTcOpen(false)
     if (res.data.detail) setDetail(res.data.detail)
     await load()
+    await loadApprovedLookup()
     dispatchNotificationsRefresh()
   }
 
@@ -460,6 +507,92 @@ export function TimeApprovalsPage() {
         )}
       </section>
 
+      <section className="rounded-xl border border-white/10 bg-[var(--bg-card)] p-4">
+        <h2 className="text-sm font-semibold text-[var(--text-main)]">Freigegebene Zeiten korrigieren</h2>
+        <p className="mt-1 text-xs text-[var(--text-muted)]">
+          Bereits freigegebene Buchungen können nachträglich korrigiert werden (revisionssicher, Lohnabrechnung nutzt die
+          korrigierte Zeit).
+        </p>
+        <div className="mt-3 flex flex-wrap items-end gap-3">
+          <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
+            Von
+            <input
+              type="date"
+              value={approvedFrom}
+              onChange={(e) => setApprovedFrom(e.target.value)}
+              className="rounded-md border border-[var(--border-strong)] bg-[var(--bg-elevated)] px-2 py-1.5 text-sm"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
+            Bis
+            <input
+              type="date"
+              value={approvedTo}
+              onChange={(e) => setApprovedTo(e.target.value)}
+              className="rounded-md border border-[var(--border-strong)] bg-[var(--bg-elevated)] px-2 py-1.5 text-sm"
+            />
+          </label>
+          <label className="flex min-w-[12rem] flex-1 flex-col gap-1 text-xs text-[var(--text-muted)]">
+            Suche (Name / Datum)
+            <input
+              type="search"
+              value={approvedQ}
+              onChange={(e) => setApprovedQ(e.target.value)}
+              className="rounded-md border border-[var(--border-strong)] bg-[var(--bg-elevated)] px-2 py-1.5 text-sm"
+              placeholder="z. B. Max Vins"
+            />
+          </label>
+          <Button type="button" variant="outline" disabled={approvedLoading} onClick={() => void loadApprovedLookup()}>
+            Suchen
+          </Button>
+        </div>
+        {approvedLoading ? (
+          <p className="mt-3 text-sm text-[var(--text-muted)]">Lade freigegebene Zeiten…</p>
+        ) : !approvedItems.length ? (
+          <p className="mt-3 text-sm text-[var(--text-muted)]">Keine freigegebenen Einträge im Zeitraum.</p>
+        ) : (
+          <div className="mt-3 overflow-x-auto rounded-lg border border-white/10">
+            <table className="w-full min-w-[640px] text-left text-sm">
+              <thead className="bg-white/[0.03] text-xs uppercase tracking-wide text-[var(--text-faint)]">
+                <tr>
+                  <th className="px-3 py-2">Mitarbeiter</th>
+                  <th className="px-3 py-2">Datum</th>
+                  <th className="px-3 py-2">Gestempelt</th>
+                  <th className="px-3 py-2">Status</th>
+                  <th className="px-3 py-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {approvedItems.map((row) => (
+                  <tr key={row.id} className="border-t border-[var(--border-subtle)]">
+                    <td className="px-3 py-2">{row.employeeDisplayName}</td>
+                    <td className="px-3 py-2">{row.startAt.slice(0, 10)}</td>
+                    <td className="px-3 py-2 tabular-nums">
+                      {new Date(row.startAt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })} –{' '}
+                      {row.endAt
+                        ? new Date(row.endAt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+                        : '—'}
+                    </td>
+                    <td className="px-3 py-2">
+                      {row.hasManualCorrection ? (
+                        <span className="text-violet-200">korrigiert</span>
+                      ) : (
+                        <span className="text-emerald-200">freigegeben</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <Button type="button" variant="outline" className="text-xs" onClick={() => void openDetail(row.id)}>
+                        Öffnen / korrigieren
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
       {detail ? (
         <LargeReviewModal
           open
@@ -487,7 +620,7 @@ export function TimeApprovalsPage() {
                   Zeit korrigieren
                 </Button>
               ) : null}
-              {canApprove ? (
+              {canApprove && !detailIsApproved ? (
                 <>
                   <Button type="button" variant="outline" onClick={() => setCorrOpen(true)} disabled={busy}>
                     Korrektur nötig
@@ -511,6 +644,12 @@ export function TimeApprovalsPage() {
         >
           <div className="review-modal-content grid grid-cols-1 gap-4 min-[1000px]:grid-cols-2 min-[1400px]:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)_minmax(0,1fr)]">
             <div className="min-w-0 space-y-4">
+              {detailIsApproved ? (
+                <p className="rounded-lg border border-amber-400/35 bg-amber-500/10 px-3 py-2 text-xs text-amber-50/95">
+                  Diese Zeitbuchung wurde bereits freigegeben. Korrekturen werden revisionssicher protokolliert und
+                  fließen in die Lohnabrechnung ein.
+                </p>
+              ) : null}
               <LargeReviewSection title="Basisdaten & Zeiten">
             <dl className="space-y-2 text-sm">
               <div className="flex justify-between gap-2">
@@ -1059,13 +1198,30 @@ export function TimeApprovalsPage() {
                 variant="primary"
                 className="flex-1 sm:flex-none"
                 disabled={busy}
-                onClick={() => void submitTimeCorrection()}
+                onClick={() => void submitTimeCorrection(false)}
               >
                 Korrektur speichern
               </Button>
+              {!detailIsApproved && canApprove ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="flex-1 border-emerald-400/40 text-emerald-100 sm:flex-none"
+                  disabled={busy}
+                  onClick={() => void submitTimeCorrection(true)}
+                >
+                  Korrigieren und freigeben
+                </Button>
+              ) : null}
             </>
           }
         >
+          {detailIsApproved ? (
+            <p className="mb-4 rounded-lg border border-amber-400/35 bg-amber-500/10 px-3 py-2 text-xs text-amber-50/95">
+              Diese Zeitbuchung wurde bereits freigegeben. Eine Änderung wird als Korrektur gespeichert und in der
+              Lohnabrechnung neu berücksichtigt (Original-Stempel bleibt im Protokoll).
+            </p>
+          ) : null}
           <LargeReviewSection title="Ist-Zustand (gestempelt)">
             <p className="text-xs text-[var(--text-faint)]">
               Aktuell gestempelt:{' '}

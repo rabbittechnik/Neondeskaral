@@ -46,6 +46,7 @@ import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { useScheduleShiftInteractions } from '../../components/schedule/useScheduleShiftInteractions'
 import { useAbsences } from '../../context/absences-context'
 import { useAuth } from '../../context/auth-context'
+import { canCorrectStampTimes } from '../../utils/timeApproval'
 import { formatShiftTimeRangeDE } from '../../utils/dateFormat'
 import { computeTimelineRangeFromWeekBlocks } from '../../utils/scheduleTimeline'
 import { useViewportScheduleDensity } from '../../hooks/useViewportScheduleDensity'
@@ -60,6 +61,7 @@ import type { ShiftDraft } from '../../components/schedule/shift/shiftConflicts'
 export function SchedulePage() {
   const { federalState, stationId, hasPermission, selectedStation, standardWorkTimesJson } = useStation()
   const { user } = useAuth()
+  const canCorrectTime = canCorrectStampTimes(user)
   const { absences } = useAbsences()
   const { employees } = useEmployees()
   const { shifts, setShifts, ensureWeekSeeded, loading: shiftsLoading, error: shiftsError, refetchRange } =
@@ -599,6 +601,8 @@ export function SchedulePage() {
         employeeSelectOptions={shiftEmployeeOptions}
         absences={absences}
         onBulkCreate={handleBulkCreate}
+        timeEntries={timeEntries}
+        canCorrectTime={canCorrectTime}
       />
 
       <ConfirmDialog

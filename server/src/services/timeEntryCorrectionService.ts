@@ -25,11 +25,16 @@ export type TimeEntryCorrectionRow = {
 }
 
 export const TIME_CORRECTION_REASON_KEYS = [
+  'system_error',
   'forgot_checkout',
   'forgot_checkin',
-  'system_error',
+  'wrong_stamp_time',
   'wrong_person',
+  'early_sick',
+  'early_agreed_swap',
   'shift_ended_early',
+  'late_handover',
+  'late_customer_ops',
   'shift_ended_late',
   'management_correction',
   'other',
@@ -40,14 +45,19 @@ export type TimeCorrectionReasonKey = (typeof TIME_CORRECTION_REASON_KEYS)[numbe
 export function timeCorrectionReasonLabelDe(key: string): string {
   const k = String(key ?? '').trim()
   const m: Record<string, string> = {
-    forgot_checkout: 'Mitarbeiter hat vergessen auszustempeln',
-    forgot_checkin: 'Mitarbeiter hat vergessen einzustempeln',
-    system_error: 'Systemfehler / Tablet-Fehler',
+    system_error: 'Systemfehler',
+    forgot_checkout: 'Mitarbeiter hat Ausstempeln vergessen',
+    forgot_checkin: 'Mitarbeiter hat Einstempeln vergessen',
+    wrong_stamp_time: 'falsche Stempelzeit',
     wrong_person: 'falsche Person ausgewählt',
+    early_sick: 'früher gegangen wegen Krankheit',
+    early_agreed_swap: 'früher gegangen wegen abgesprochenem Wechsel',
     shift_ended_early: 'Schicht wurde früher beendet',
+    late_handover: 'länger geblieben wegen Übergabe',
+    late_customer_ops: 'länger geblieben wegen Kunden / Betrieb',
     shift_ended_late: 'Schicht wurde später beendet',
-    management_correction: 'Korrektur durch Leitung',
-    other: 'Sonstiges',
+    management_correction: 'manuelle Leitungskorrektur',
+    other: 'sonstiger Grund',
     auto_clock_out: 'Automatisch ausgestempelt (Sicherheitsregel)',
   }
   return (m[k] ?? k) || '—'
@@ -129,6 +139,16 @@ export function rowToCorrectionApi(r: TimeEntryCorrectionRow) {
   }
 }
 
+export type InsertManualCorrectionOptions = {
+  /** Nach Korrektur sofort freigeben (Leitung). */
+  approveAfter?: boolean
+  /**
+   * Freigabe-Status beibehalten (Standard bei bereits freigegebenen Einträgen).
+   * Manuelle Korrekturen dürfen die Lohnabrechnung nicht durch Zurücksetzen auf „pending“ verlieren.
+   */
+  keepApproved?: boolean
+}
+
 export function insertManualTimeCorrection(
   db: Database,
   timeEntryId: string,
@@ -145,15 +165,23 @@ export function insertManualTimeCorrection(
   },
   byUserId: string,
   byDisplayName: string,
+  options?: InsertManualCorrectionOptions,
 ): TimeEntryCorrectionRow {
   const te = db.prepare(`SELECT * FROM time_entries WHERE id = ?`).get(timeEntryId) as TeLike & {
     station_id: string
     employee_id: string
     status: string | null
+    approval_status: string | null
+    approved_by: string | null
+    approved_at: string | null
   } | undefined
   if (!te) throw new Error('Zeiteintrag nicht gefunden')
   if (String(te.status ?? '') !== 'completed') throw new Error('Nur abgeschlossene Zeiten können korrigiert werden')
   if (!te.end_at?.trim()) throw new Error('Zeiteintrag hat kein Ende — bitte zuerst abschließen')
+
+  const wasApproved = String(te.approval_status ?? '').trim() === 'approved'
+  const approveAfter = options?.approveAfter === true
+  const keepApproved = options?.keepApproved === true || approveAfter || wasApproved
 
   const reason = String(body.reason ?? '').trim()
   if (!TIME_CORRECTION_REASON_KEYS.includes(reason as TimeCorrectionReasonKey)) throw new Error('Ungültiger Korrekturgrund')
@@ -209,9 +237,24 @@ export function insertManualTimeCorrection(
     ts,
   )
 
-  db.prepare(
-    `UPDATE time_entries SET approval_status = 'pending', payroll_relevant = 0, updated_at = ? WHERE id = ?`,
-  ).run(ts, timeEntryId)
+  if (approveAfter || keepApproved) {
+    db.prepare(
+      `UPDATE time_entries SET
+        approval_status = 'approved',
+        payroll_relevant = 1,
+        approved_by = COALESCE(?, approved_by),
+        approved_at = COALESCE(?, approved_at),
+        rejected_by = NULL,
+        rejected_at = NULL,
+        rejection_reason = NULL,
+        updated_at = ?
+      WHERE id = ?`,
+    ).run(approveAfter ? byUserId : te.approved_by, approveAfter ? ts : te.approved_at, ts, timeEntryId)
+  } else {
+    db.prepare(
+      `UPDATE time_entries SET approval_status = 'pending', payroll_relevant = 0, updated_at = ? WHERE id = ?`,
+    ).run(ts, timeEntryId)
+  }
 
   return db.prepare(`SELECT * FROM time_entry_corrections WHERE id = ?`).get(id) as TimeEntryCorrectionRow
 }

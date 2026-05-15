@@ -5,6 +5,7 @@ import { requirePermission, requireAnyPermission } from '../middleware/stationAu
 import * as timeTracking from '../services/timeTrackingService.js'
 import { prunePlaceholderTimeEntries } from '../services/timeEntryPlaceholderService.js'
 import * as timeEntryCorrections from '../services/timeEntryCorrectionService.js'
+import { invalidatePayrollCacheForStation } from '../services/payrollCache.js'
 import * as terminal from '../services/terminalService.js'
 import { updateShiftChecklistReviewItems } from '../services/shiftChecklistReviewService.js'
 import type { BackshopItemSnapshot } from '../services/backshopRoutineService.js'
@@ -43,6 +44,29 @@ timeEntriesRouter.get('/pending-approval', (req, res) => {
       items: timeTracking.listPendingApproval(getDb(), stationId!),
       count: timeTracking.countPendingApproval(getDb(), stationId!),
     })
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
+  }
+})
+
+timeEntriesRouter.get('/approved-lookup', (req, res) => {
+  try {
+    const stationId = typeof req.query.stationId === 'string' ? req.query.stationId : undefined
+    if (!requireAnyPermission(req, res, stationId, ['time.approve', 'time.correct'])) return
+    const from = typeof req.query.from === 'string' ? req.query.from.trim() : ''
+    const to = typeof req.query.to === 'string' ? req.query.to.trim() : ''
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : ''
+    const limitRaw = Number(req.query.limit ?? 80)
+    const limit = Number.isFinite(limitRaw) ? Math.min(200, Math.max(1, Math.round(limitRaw))) : 80
+    jsonOk(
+      res,
+      timeTracking.listApprovedTimeEntriesForLookup(getDb(), stationId!, {
+        fromDate: from || undefined,
+        toDate: to || undefined,
+        q: q || undefined,
+        limit,
+      }),
+    )
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
   }
@@ -190,6 +214,8 @@ timeEntriesRouter.post('/:id/correct-times', (req, res) => {
     if (!row) return jsonErr(res, 'Zeiteintrag nicht gefunden', 404)
     if (!requireAnyPermission(req, res, row.station_id, ['time.approve', 'time.correct'])) return
     const b = (req.body ?? {}) as Record<string, unknown>
+    const approveAfter = b.approveAfter === true || b.approveAfter === 'true' || b.approveAfter === 1
+    const keepApproved = b.keepApproved === true || b.keepApproved === 'true' || b.keepApproved === 1
     const out = timeEntryCorrections.insertManualTimeCorrection(
       getDb(),
       req.params.id,
@@ -205,7 +231,9 @@ timeEntriesRouter.post('/:id/correct-times', (req, res) => {
       },
       req.adminUser!.sub,
       String(req.adminUser?.displayName || req.adminUser?.username || '').trim(),
+      { approveAfter, keepApproved: keepApproved || approveAfter },
     )
+    invalidatePayrollCacheForStation(row.station_id)
     jsonOk(res, {
       correction: timeEntryCorrections.rowToCorrectionApi(out),
       detail: timeTracking.getTimeEntryDetail(getDb(), req.params.id),

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { AlertTriangle, FileSpreadsheet, Printer, Table2 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { PageHeader } from '../../components/ui/PageHeader'
@@ -83,6 +84,20 @@ type TimeDetailItem = {
   status: string
   approvalStatus: string
   synthetic?: boolean
+  stampedStartAt?: string
+  stampedEndAt?: string
+  correctedStartAt?: string
+  correctedEndAt?: string
+  correctionReasonLabel?: string
+  timeCorrectionNote?: string
+  plannedShiftStart?: string
+  plannedShiftEnd?: string
+}
+
+function hmBerlin(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' })
 }
 
 function monthStartToToday(): { from: string; to: string } {
@@ -565,6 +580,8 @@ export function PayrollTimePage() {
                           <th className="py-2 pr-2">Quelle</th>
                           <th className="py-2 pr-2">Status</th>
                           <th className="py-2 pr-2">Freigabe</th>
+                          <th className="py-2 pr-2">Korrektur</th>
+                          <th className="py-2 pr-2" />
                         </tr>
                       </thead>
                       <tbody>
@@ -575,8 +592,22 @@ export function PayrollTimePage() {
                           >
                             <td className="py-1.5 pr-2 whitespace-nowrap">{it.date}</td>
                             <td className="py-1.5 pr-2">{it.employeeName}</td>
-                            <td className="py-1.5 pr-2 font-mono text-[11px]">{it.startAt}</td>
-                            <td className="py-1.5 pr-2 font-mono text-[11px]">{it.endAt}</td>
+                            <td className="py-1.5 pr-2 font-mono text-[11px]">
+                              {it.stampedStartAt ? hmBerlin(it.stampedStartAt) : hmBerlin(it.startAt)}
+                              {it.plannedShiftStart ? (
+                                <span className="block text-[10px] text-[var(--text-faint)]">Plan {it.plannedShiftStart}</span>
+                              ) : null}
+                            </td>
+                            <td className="py-1.5 pr-2 font-mono text-[11px]">
+                              {it.correctedEndAt
+                                ? `${hmBerlin(it.correctedStartAt ?? it.startAt)}–${hmBerlin(it.correctedEndAt)}`
+                                : it.stampedEndAt
+                                  ? hmBerlin(it.stampedEndAt)
+                                  : hmBerlin(it.endAt)}
+                              {it.plannedShiftEnd ? (
+                                <span className="block text-[10px] text-[var(--text-faint)]">Plan {it.plannedShiftEnd}</span>
+                              ) : null}
+                            </td>
                             <td className="py-1.5 pr-2 tabular-nums">{it.synthetic ? '—' : it.breakMinutes}</td>
                             <td className="py-1.5 pr-2 text-right tabular-nums">{formatHoursDe(it.hours)}</td>
                             <td className="py-1.5 pr-2 text-[var(--text-muted)]">
@@ -590,6 +621,19 @@ export function PayrollTimePage() {
                             </td>
                             <td className="py-1.5 pr-2">{it.synthetic ? 'berechnet' : it.status}</td>
                             <td className="py-1.5 pr-2">{it.approvalStatus}</td>
+                            <td className="py-1.5 pr-2 text-[11px] text-violet-200/90">
+                              {it.correctionReasonLabel ?? it.timeCorrectionNote ?? '—'}
+                            </td>
+                            <td className="py-1.5 pr-2">
+                              {!it.synthetic && it.approvalStatus === 'approved' ? (
+                                <Link
+                                  to={`/time-approvals?entry=${encodeURIComponent(it.id)}&correct=1`}
+                                  className="text-cyan-300 hover:underline"
+                                >
+                                  Korrigieren
+                                </Link>
+                              ) : null}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
