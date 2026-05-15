@@ -32,7 +32,14 @@ import {
   openShiftWarnings,
 } from '../../components/schedule/schedulePanelUtils'
 import { useEmployees } from '../../context/employees-context'
-import { persistShiftDelete, persistShiftUpsert, useScheduleShifts } from '../../context/schedule-shifts-context'
+import {
+  persistShiftDelete,
+  persistShiftsBulk,
+  persistShiftUpsert,
+  useScheduleShifts,
+} from '../../context/schedule-shifts-context'
+import { PublishWeekDialog, type WeekPublicationApi } from '../../components/schedule/PublishWeekDialog'
+import { WeekPublicationBadge } from '../../components/schedule/WeekPublicationBadge'
 import { useStation } from '../../context/station-context'
 import { ScheduleAssistantModal } from '../../components/schedule/assistant/ScheduleAssistantModal'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
@@ -43,6 +50,7 @@ import { formatShiftTimeRangeDE } from '../../utils/dateFormat'
 import { computeTimelineRangeFromWeekBlocks } from '../../utils/scheduleTimeline'
 import { useViewportScheduleDensity } from '../../hooks/useViewportScheduleDensity'
 import { apiGet, apiSend } from '../../services/api'
+import type { ShiftDraft } from '../../components/schedule/shift/shiftConflicts'
 
 export function SchedulePage() {
   const { federalState, stationId, hasPermission, selectedStation, standardWorkTimesJson } = useStation()
@@ -63,6 +71,9 @@ export function SchedulePage() {
   const [assistantOpen, setAssistantOpen] = useState(false)
   const [pruneConfirmOpen, setPruneConfirmOpen] = useState(false)
   const [pruneBusy, setPruneBusy] = useState(false)
+  const [publishOpen, setPublishOpen] = useState(false)
+  const [weekPublication, setWeekPublication] = useState<WeekPublicationApi | null>(null)
+  const [weekPubLoading, setWeekPubLoading] = useState(false)
 
   const viewportDensity = useViewportScheduleDensity()
 
@@ -341,6 +352,59 @@ export function SchedulePage() {
     setShifts((prev) => prev.filter((x) => x.id !== id))
   }
 
+  const handleBulkCreate = async (draft: ShiftDraft, dates: string[]) => {
+    if (!stationId) return
+    const result = await persistShiftsBulk(
+      {
+        dates,
+        employeeId: draft.employeeId,
+        workAreaId: draft.workAreaId,
+        startTime: draft.shiftType === 'frei' ? '' : draft.startTime,
+        endTime: draft.shiftType === 'frei' ? '' : draft.endTime,
+        breakMinutes: draft.breakMinutes,
+        shiftType: draft.shiftType,
+        note: draft.note,
+        conflict: draft.conflict,
+      },
+      stationId,
+    )
+    if (!result) {
+      window.alert('Schichten konnten nicht gespeichert werden.')
+      return
+    }
+    if (result.created.length) {
+      setShifts((prev) => {
+        const map = new Map(prev.map((s) => [s.id, s]))
+        for (const s of result.created) map.set(s.id, s)
+        return [...map.values()]
+      })
+    }
+    const msg: string[] = []
+    if (result.created.length) msg.push(`${result.created.length} Schicht(en) angelegt.`)
+    if (result.skipped.length) msg.push(`${result.skipped.length} übersprungen.`)
+    if (result.errors.length) msg.push(`${result.errors.length} Fehler.`)
+    if (msg.length > 1 || result.skipped.length || result.errors.length) {
+      window.alert(msg.join(' '))
+    }
+    void loadWeekPublication()
+  }
+
+  const loadWeekPublication = useCallback(async () => {
+    if (!stationId) return
+    setWeekPubLoading(true)
+    const res = await apiGet<{ publication: WeekPublicationApi }>('/shifts/week-publication', {
+      stationId,
+      weekMonday: weekStartIso,
+    })
+    setWeekPubLoading(false)
+    if (res.ok && res.data?.publication) setWeekPublication(res.data.publication)
+    else setWeekPublication(null)
+  }, [stationId, weekStartIso])
+
+  useEffect(() => {
+    void loadWeekPublication()
+  }, [loadWeekPublication])
+
   const runPruneOpenShifts = useCallback(async () => {
     if (!stationId) return
     setPruneBusy(true)
@@ -363,16 +427,14 @@ export function SchedulePage() {
     }
   }, [stationId, weekStartIso, weekEndIso, refetchRange])
 
-  const stub = () => {
-    alert('Funktion folgt mit Backend (später).')
-  }
-
   const toggleEmployeeFilter = (id: string) => {
     setEmployeeFilter((prev) => (prev === id ? 'all' : id))
   }
 
   const canEditPlan = hasPermission('schedule.edit')
+  const canPublishPlan = hasPermission('schedule.publish')
   const currentUserId = user?.id ?? ''
+  const weekRangeLabel = `${formatDE(weekMonday)} – ${formatDE(weekSunday)}`
 
   const shiftInteractions = useScheduleShiftInteractions({
     canEdit: canEditPlan,
@@ -421,6 +483,11 @@ export function SchedulePage() {
                 {formatDE(weekMonday)} – {formatDE(weekSunday)}
               </span>
             </span>
+            <WeekPublicationBadge
+              status={weekPublication?.status ?? 'draft'}
+              hasUnpublishedChanges={weekPublication?.hasUnpublishedChanges ?? false}
+              loading={weekPubLoading}
+            />
           </div>
         </div>
         <ScheduleViewTabs active={view} onChange={setView} />
@@ -450,9 +517,9 @@ export function SchedulePage() {
         onPrevWeek={() => setWeekOffset((w) => w - 1)}
         onNextWeek={() => setWeekOffset((w) => w + 1)}
         onNewShift={openCreate}
-        onPublish={stub}
-        onPrint={stub}
-        onMore={canEditPlan ? () => setPruneConfirmOpen(true) : stub}
+        onPublish={() => setPublishOpen(true)}
+        onPrint={() => setView('print')}
+        onMore={canEditPlan ? () => setPruneConfirmOpen(true) : () => {}}
         moreDisabled={pruneBusy}
         moreTitle={
           canEditPlan
@@ -484,6 +551,22 @@ export function SchedulePage() {
         onApplied={handleAssistantApplied}
       />
 
+      {stationId ? (
+        <PublishWeekDialog
+          open={publishOpen}
+          onClose={() => setPublishOpen(false)}
+          stationId={stationId}
+          weekMondayIso={weekStartIso}
+          weekRangeLabel={weekRangeLabel}
+          calendarWeek={isoWeek}
+          canPublish={canPublishPlan}
+          onChanged={() => {
+            void loadWeekPublication()
+            void refetchRange(weekStartIso, weekEndIso)
+          }}
+        />
+      ) : null}
+
       <ShiftModal
         open={modalOpen}
         mode={modalMode}
@@ -495,6 +578,8 @@ export function SchedulePage() {
         onDelete={handleDelete}
         getEmployeeDisplayName={getEmployeeDisplayName}
         employeeSelectOptions={shiftEmployeeOptions}
+        absences={absences}
+        onBulkCreate={handleBulkCreate}
       />
 
       <ConfirmDialog

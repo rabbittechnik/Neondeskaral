@@ -36,4 +36,12 @@ export type EmployeeWeekSchedulePayload = {
   shifts: EmployeeWeekScheduleShift[]
   workAreas: EmployeeWeekScheduleWorkArea[]
   holidays: { date: string; name: string }[]
+  weekPublished?: boolean
+  weekPublication?: {
+    status: 'draft' | 'published'
+    publishedAt: string | null
+    hasUnpublishedChanges: boolean
+    calendarWeek: number
+    calendarWeekYear: number
+  }
 }

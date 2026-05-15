@@ -35,6 +35,22 @@ import {
   taskEligibleForEmployeeRow,
   type TodayShiftLite,
 } from './taskEligibilityService.js'
+import {
+  getWeekPublication,
+  isWeekPublishedForStation,
+} from './weekSchedulePublicationService.js'
+
+/** Mitarbeiter sehen Schichten nur in Kalenderwochen mit status=published (weekly_schedule_publications). */
+export const EMPLOYEE_APP_WEEK_SCHEDULE_PUBLISHED_ONLY = true
+
+function filterShiftsForPublishedWeeks<T extends { date: string }>(
+  db: Database,
+  stationId: string,
+  shifts: T[],
+): T[] {
+  if (!EMPLOYEE_APP_WEEK_SCHEDULE_PUBLISHED_ONLY) return shifts
+  return shifts.filter((s) => isWeekPublishedForStation(db, stationId, s.date))
+}
 
 export const EMPLOYEE_APP_ACCESS_DENIED_MESSAGE =
   'Dein Mitarbeiterzugang wurde deaktiviert. Bitte wende dich an die Stationsleitung.'
@@ -260,12 +276,13 @@ export function buildEmployeeAccessPayload(db: Database, token: string, meta?: E
   const fromIso = from.toISOString().slice(0, 10)
   const toIso = to.toISOString().slice(0, 10)
 
-  const shifts = listShifts(db, {
+  const shiftsRaw = listShifts(db, {
     stationId,
     from: fromIso,
     to: toIso,
     employeeId: empId,
-  }).map((s) => ({
+  })
+  const shifts = filterShiftsForPublishedWeeks(db, stationId, shiftsRaw).map((s) => ({
     id: s.id,
     date: s.date,
     startTime: s.startTime,
@@ -274,6 +291,7 @@ export function buildEmployeeAccessPayload(db: Database, token: string, meta?: E
     shiftType: s.shiftType,
     status: s.status,
   }))
+  const todayWeekPublished = isWeekPublishedForStation(db, stationId, todayYmd)
 
   const absencesRaw = listAbsences(db, {
     stationId,
@@ -366,14 +384,9 @@ export function buildEmployeeAccessPayload(db: Database, token: string, meta?: E
     timeEntries,
     runningTimeEntry: running,
     activeShiftWarnings,
+    todayWeekPublished,
   }
 }
-
-/**
- * Wenn true, liefert der Mitarbeiter-Wochenplan nur veröffentlichte Schichten.
- * Vorerst false: alle Schichten sichtbar, Logik bleibt vorbereitet.
- */
-export const EMPLOYEE_APP_WEEK_SCHEDULE_PUBLISHED_ONLY = false
 
 function ymdFromDate(d: Date): string {
   const y = d.getFullYear()
@@ -462,13 +475,18 @@ export function buildEmployeeWeekSchedule(
   const weekSunday = addDaysToYmd(weekMonday, 6)
   const { week: calendarWeek, weekYear: calendarWeekYear } = isoCalendarWeekFromMondayYmd(weekMonday)
 
+  const weekPublication = getWeekPublication(db, row.station_id, weekMonday)
+  const weekIsPublished = weekPublication.status === 'published'
+
   let shifts = listShifts(db, {
     stationId: row.station_id,
     from: weekMonday,
     to: weekSunday,
   })
-  if (EMPLOYEE_APP_WEEK_SCHEDULE_PUBLISHED_ONLY) {
-    shifts = shifts.filter((s) => s.status === 'Veröffentlicht')
+  if (EMPLOYEE_APP_WEEK_SCHEDULE_PUBLISHED_ONLY && !weekIsPublished) {
+    shifts = []
+  } else if (EMPLOYEE_APP_WEEK_SCHEDULE_PUBLISHED_ONLY) {
+    shifts = filterShiftsForPublishedWeeks(db, row.station_id, shifts)
   }
 
   const empIds = shifts.map((s) => s.employeeId).filter((x): x is string => Boolean(x))
@@ -497,6 +515,14 @@ export function buildEmployeeWeekSchedule(
     workAreas,
     /** Platzhalter für spätere Feiertags-Anzeige */
     holidays: [] as { date: string; name: string }[],
+    weekPublication: {
+      status: weekPublication.status,
+      publishedAt: weekPublication.publishedAt,
+      hasUnpublishedChanges: weekPublication.hasUnpublishedChanges,
+      calendarWeek: weekPublication.calendarWeek,
+      calendarWeekYear: weekPublication.year,
+    },
+    weekPublished: weekIsPublished,
   }
 }
 
@@ -948,7 +974,20 @@ export function employeeAccessListMyShiftsForRange(
   toYmd: string,
   meta?: EmployeeAccessRequestMeta,
 ):
-  | { ok: true; data: { from: string; to: string; shifts: EmployeeAccessMyShiftRow[] } }
+  | {
+      ok: true
+      data: {
+        from: string
+        to: string
+        shifts: EmployeeAccessMyShiftRow[]
+        weekPublished: boolean
+        weekPublication: {
+          status: 'draft' | 'published'
+          calendarWeek: number
+          calendarWeekYear: number
+        }
+      }
+    }
   | { ok: false; error: 'invalid_token' | 'bad_range' } {
   const ctx = resolveEmployeeAccessContext(db, token, meta)
   if (!ctx.ok) return { ok: false as const, error: 'invalid_token' as const }
@@ -957,12 +996,13 @@ export function employeeAccessListMyShiftsForRange(
   if (!YMD_RE.test(f) || !YMD_RE.test(t) || f > t) return { ok: false as const, error: 'bad_range' as const }
   if (daysInclusive(f, t) > 62) return { ok: false as const, error: 'bad_range' as const }
   const row = ctx.row
-  const shifts = listShifts(db, {
+  const shiftsRaw = listShifts(db, {
     stationId: row.station_id,
     employeeId: row.id,
     from: f,
     to: t,
-  }).map((s) => ({
+  })
+  const shifts = filterShiftsForPublishedWeeks(db, row.station_id, shiftsRaw).map((s) => ({
     id: s.id,
     date: s.date,
     startTime: s.startTime,
@@ -971,7 +1011,21 @@ export function employeeAccessListMyShiftsForRange(
     shiftType: s.shiftType,
     status: s.status,
   }))
-  return { ok: true as const, data: { from: f, to: t, shifts } }
+  const weekPublication = getWeekPublication(db, row.station_id, f)
+  return {
+    ok: true as const,
+    data: {
+      from: f,
+      to: t,
+      shifts,
+      weekPublished: weekPublication.status === 'published',
+      weekPublication: {
+        status: weekPublication.status,
+        calendarWeek: weekPublication.calendarWeek,
+        calendarWeekYear: weekPublication.year,
+      },
+    },
+  }
 }
 
 export function employeeAccessListTimeEntriesReadModel(

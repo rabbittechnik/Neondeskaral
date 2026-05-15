@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { X } from 'lucide-react'
 import type { ScheduleShift } from '../../../data/mockSchedule'
 import { createLocalShiftId, toISODate } from '../../../data/mockSchedule'
@@ -8,11 +8,15 @@ import type { ShiftEmployeeOption } from './EmployeeSelect'
 import { ConfirmDialog } from '../../ui/ConfirmDialog'
 import { ConflictWarningBox } from './ConflictWarningBox'
 import {
+  buildMultiDayShiftPreview,
   collectShiftWarnings,
   validateRequiredFields,
   type ShiftDraft,
 } from './shiftConflicts'
 import { suggestedTimesForType } from './shiftDefaults'
+import type { Absence } from '../../../types/absence'
+import { ShiftWeekDayPicker } from './ShiftWeekDayPicker'
+import { formatDayMonthDot, weekDayDates, WEEKDAY_LABELS_SHORT } from '../scheduleWeekUtils'
 
 type Mode = 'create' | 'edit'
 
@@ -27,6 +31,8 @@ type Props = {
   onDelete: (id: string) => void | Promise<void>
   getEmployeeDisplayName: (id: string) => string
   employeeSelectOptions: ShiftEmployeeOption[]
+  absences?: Absence[]
+  onBulkCreate?: (draft: ShiftDraft, dates: string[]) => void | Promise<void>
 }
 
 function draftFromShift(s: ScheduleShift): ShiftDraft {
@@ -87,12 +93,26 @@ export function ShiftModal({
   onDelete,
   getEmployeeDisplayName,
   employeeSelectOptions,
+  absences,
+  onBulkCreate,
 }: Props) {
   const [form, setForm] = useState<ShiftDraft>(() => emptyDraft(weekMonday))
+  const [selectedDates, setSelectedDates] = useState<string[]>(() => [toISODate(weekMonday)])
   const [requiredErrors, setRequiredErrors] = useState<string[]>([])
   const [blockedWarnings, setBlockedWarnings] = useState<string[]>([])
   const [blockedDraft, setBlockedDraft] = useState<ShiftDraft | null>(null)
+  const [blockedDates, setBlockedDates] = useState<string[] | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
+
+  const conflictCtx = useMemo(() => ({ absences }), [absences])
+
+  const formatDateLabel = useCallback((iso: string) => {
+    const days = weekDayDates(weekMonday)
+    const idx = days.findIndex((d) => toISODate(d) === iso)
+    const suffix = idx >= 0 ? WEEKDAY_LABELS_SHORT[idx] : ''
+    const d = days[idx]
+    return suffix && d ? `${suffix} ${formatDayMonthDot(d)}` : iso
+  }, [weekMonday])
 
   useEffect(() => {
     if (!open) return
@@ -101,15 +121,35 @@ export function ShiftModal({
     setBlockedDraft(null)
     if (mode === 'edit' && shift) {
       setForm(draftFromShift(shift))
+      setSelectedDates([shift.date])
     } else {
-      setForm(emptyDraft(weekMonday))
+      const draft = emptyDraft(weekMonday)
+      setForm(draft)
+      setSelectedDates([draft.date])
     }
+    setBlockedDates(null)
   }, [open, mode, shift, weekMonday])
 
-  const liveWarnings = useMemo(
-    () => collectShiftWarnings(form, allShifts, getEmployeeDisplayName),
-    [form, allShifts, getEmployeeDisplayName],
-  )
+  const isMultiCreate = mode === 'create' && selectedDates.length > 1
+
+  const previewRows = useMemo(() => {
+    if (mode !== 'create' || selectedDates.length <= 1) return []
+    return buildMultiDayShiftPreview(
+      { ...form, status: 'Entwurf' },
+      selectedDates,
+      allShifts,
+      getEmployeeDisplayName,
+      formatDateLabel,
+      conflictCtx,
+    )
+  }, [mode, form, selectedDates, allShifts, getEmployeeDisplayName, formatDateLabel, conflictCtx])
+
+  const liveWarnings = useMemo(() => {
+    if (isMultiCreate) {
+      return previewRows.flatMap((r) => r.warnings.map((w) => `${r.label}: ${w}`))
+    }
+    return collectShiftWarnings(form, allShifts, getEmployeeDisplayName, conflictCtx)
+  }, [isMultiCreate, previewRows, form, allShifts, getEmployeeDisplayName, conflictCtx])
 
   useEffect(() => {
     if (!open) return
@@ -130,40 +170,70 @@ export function ShiftModal({
     }))
   }
 
-  const commit = async (draft: ShiftDraft, ignoreWarnings: boolean) => {
-    const req = validateRequiredFields(draft)
+  const commit = async (draft: ShiftDraft, dates: string[], ignoreWarnings: boolean) => {
+    const req = validateRequiredFields({ ...draft, date: dates[0] ?? draft.date })
     setRequiredErrors(req)
     if (req.length > 0) return
 
-    const war = collectShiftWarnings(draft, allShifts, getEmployeeDisplayName)
+    const multi = mode === 'create' && dates.length > 1
+    if (multi) {
+      const rows = buildMultiDayShiftPreview(
+        { ...draft, status: 'Entwurf' },
+        dates,
+        allShifts,
+        getEmployeeDisplayName,
+        formatDateLabel,
+        conflictCtx,
+      )
+      const war = rows.flatMap((r) => r.warnings.map((w) => `${r.label}: ${w}`))
+      if (war.length > 0 && !ignoreWarnings) {
+        setBlockedWarnings(war)
+        setBlockedDraft(draft)
+        setBlockedDates(dates)
+        return
+      }
+      if (!onBulkCreate) {
+        window.alert('Mehrfach-Anlage nicht verfügbar.')
+        return
+      }
+      try {
+        await Promise.resolve(onBulkCreate({ ...draft, status: 'Entwurf' }, dates))
+        onClose()
+      } catch {
+        window.alert('Schichten konnten nicht gespeichert werden.')
+      }
+      return
+    }
+
+    const single = { ...draft, date: dates[0] ?? draft.date, status: 'Entwurf' as const }
+    const war = collectShiftWarnings(single, allShifts, getEmployeeDisplayName, conflictCtx)
     if (war.length > 0 && !ignoreWarnings) {
       setBlockedWarnings(war)
-      setBlockedDraft(draft)
+      setBlockedDraft(single)
+      setBlockedDates([single.date])
       return
     }
 
     try {
-      await Promise.resolve(onUpsert(draftToShift(draft)))
+      await Promise.resolve(onUpsert(draftToShift(single)))
       onClose()
     } catch {
       window.alert('Schicht konnte nicht gespeichert werden.')
     }
   }
 
-  const tryCommit = (statusOverride?: ScheduleShift['status']) => {
-    const draft: ShiftDraft = {
-      ...form,
-      status: statusOverride ?? form.status,
-    }
-    void commit(draft, false)
+  const tryCommit = () => {
+    const dates = mode === 'create' ? selectedDates : [form.date]
+    void commit({ ...form, status: 'Entwurf' }, dates, false)
   }
 
   const forceCommit = () => {
-    if (blockedDraft) {
-      void commit(blockedDraft, true)
+    if (blockedDraft && blockedDates) {
+      void commit(blockedDraft, blockedDates, true)
       return
     }
-    void commit({ ...form, status: form.status }, true)
+    const dates = mode === 'create' ? selectedDates : [form.date]
+    void commit({ ...form, status: 'Entwurf' }, dates, true)
   }
 
   if (!open) return null
@@ -209,17 +279,66 @@ export function ShiftModal({
           </div>
 
           <div className="flex-1 overflow-y-auto px-5 py-5">
+            {mode === 'create' ? (
+              <div>
+                <div className="mb-4">
+                  <ShiftWeekDayPicker
+                    weekMonday={weekMonday}
+                    selected={selectedDates}
+                    onChange={(dates) => {
+                      setSelectedDates(dates)
+                      setForm((f) => ({ ...f, date: dates[0] ?? f.date }))
+                      setBlockedWarnings([])
+                      setBlockedDraft(null)
+                      setBlockedDates(null)
+                    }}
+                  />
+                </div>
+              </div>
+            ) : null}
+
             <ShiftForm
               values={form}
               onChange={(next) => {
                 setForm(next)
                 setBlockedWarnings([])
                 setBlockedDraft(null)
+                setBlockedDates(null)
               }}
               onShiftTypeChange={handleTypeChange}
               requiredErrors={requiredErrors}
               employeeOptions={employeeSelectOptions}
+              hideDate={mode === 'create'}
+              hideStatus={mode === 'create'}
             />
+
+            {isMultiCreate ? (
+              <div className="mt-4 rounded-[var(--radius-sm)] border border-cyan-400/25 bg-cyan-500/5 p-3">
+                <p className="text-sm font-medium text-cyan-100">
+                  Es werden {selectedDates.length} Schichten angelegt
+                </p>
+                <div className="mt-2 overflow-x-auto">
+                  <table className="w-full min-w-[280px] text-left text-xs">
+                    <thead>
+                      <tr className="text-[var(--text-faint)]">
+                        <th className="pb-1 pr-2 font-medium">Tag</th>
+                        <th className="pb-1 font-medium">Hinweise</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {previewRows.map((row) => (
+                        <tr key={row.date} className="border-t border-white/5">
+                          <td className="py-1.5 pr-2 text-[var(--text-main)]">{row.label}</td>
+                          <td className="py-1.5 text-[var(--text-muted)]">
+                            {row.warnings.length ? row.warnings.join(' · ') : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : null}
 
             {liveWarnings.length > 0 && !showBlockedBox ? (
               <div className="mt-4">
@@ -259,15 +378,8 @@ export function ShiftModal({
               </>
             ) : (
               <>
-                <Button variant="outline" type="button" onClick={() => tryCommit('Entwurf')}>
-                  Speichern
-                </Button>
-                <Button
-                  variant="primary"
-                  type="button"
-                  onClick={() => tryCommit('Veröffentlicht')}
-                >
-                  Speichern & veröffentlichen
+                <Button variant="primary" type="button" onClick={() => tryCommit()}>
+                  {isMultiCreate ? `${selectedDates.length} Schichten speichern` : 'Speichern'}
                 </Button>
               </>
             )}

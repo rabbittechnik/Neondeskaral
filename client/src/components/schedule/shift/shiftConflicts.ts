@@ -1,4 +1,5 @@
 import type { ScheduleShift, ShiftTypeId } from '../../../data/mockSchedule'
+import type { Absence } from '../../../types/absence'
 
 export type ShiftDraft = {
   id?: string
@@ -14,6 +15,21 @@ export type ShiftDraft = {
   conflict?: boolean
 }
 
+export type ShiftWarningContext = {
+  absences?: Absence[]
+}
+
+const ABSENCE_TYPE_LABEL: Record<string, string> = {
+  paid_vacation: 'Urlaub',
+  unpaid_vacation: 'Unbezahlter Urlaub',
+  day_off: 'Frei',
+  sick: 'Krank',
+  special_leave: 'Sonderurlaub',
+  child_sick: 'Kind krank',
+  other: 'Abwesenheit',
+  school: 'Schule',
+}
+
 function parseTime(t: string): number | null {
   const s = t.trim()
   if (!s) return null
@@ -27,6 +43,28 @@ function endMinutesRelative(start: number, end: number, overnight: boolean): num
   if (!overnight) return end
   if (end <= start) return end + 24 * 60
   return end
+}
+
+function dateInRange(ymd: string, start: string, end: string): boolean {
+  return ymd >= start && ymd <= end
+}
+
+function absenceWarningForDate(
+  employeeId: string | undefined,
+  date: string,
+  absences: Absence[] | undefined,
+): string | null {
+  if (!employeeId?.trim() || !absences?.length) return null
+  const hit = absences.find(
+    (a) =>
+      a.employeeId === employeeId &&
+      a.status !== 'storniert' &&
+      a.status !== 'abgelehnt' &&
+      dateInRange(date, a.startDate, a.endDate),
+  )
+  if (!hit) return null
+  const label = ABSENCE_TYPE_LABEL[hit.type] ?? 'Abwesenheit'
+  return `Mitarbeiter hat an diesem Tag ${label} (${hit.status === 'genehmigt' ? 'genehmigt' : 'eingetragen'}).`
 }
 
 /** Pflichtfelder — blockieren Speichern bis behoben. */
@@ -49,6 +87,17 @@ export function collectShiftWarnings(
   d: ShiftDraft,
   allShifts: ScheduleShift[],
   getEmployeeDisplayName: (id: string) => string,
+  ctx?: ShiftWarningContext,
+): string[] {
+  return collectShiftWarningsForDate(d, d.date, allShifts, getEmployeeDisplayName, ctx)
+}
+
+export function collectShiftWarningsForDate(
+  d: ShiftDraft,
+  date: string,
+  allShifts: ScheduleShift[],
+  getEmployeeDisplayName: (id: string) => string,
+  ctx?: ShiftWarningContext,
 ): string[] {
   const warnings: string[] = []
   const id = d.id
@@ -56,6 +105,9 @@ export function collectShiftWarnings(
   if (!d.employeeId?.trim()) {
     warnings.push('Kein Mitarbeiter — wird als offene Schicht (Unbesetzt) geführt.')
   }
+
+  const absenceMsg = absenceWarningForDate(d.employeeId, date, ctx?.absences)
+  if (absenceMsg) warnings.push(absenceMsg)
 
   if (d.shiftType === 'frei') return warnings
 
@@ -73,18 +125,37 @@ export function collectShiftWarnings(
   if (d.employeeId?.trim()) {
     const sameDay = allShifts.filter(
       (s) =>
-        s.date === d.date &&
+        s.date === date &&
         s.employeeId === d.employeeId &&
         s.id !== id &&
         s.shiftType !== 'frei',
     )
     if (sameDay.length > 0) {
       const name = getEmployeeDisplayName(d.employeeId!)
-      warnings.push(
-        `${name} hat an diesem Tag bereits eine andere Schicht im Plan.`,
-      )
+      warnings.push(`${name} hat an diesem Tag bereits eine andere Schicht im Plan.`)
     }
   }
 
   return warnings
+}
+
+export type MultiDayShiftPreviewRow = {
+  date: string
+  label: string
+  warnings: string[]
+}
+
+export function buildMultiDayShiftPreview(
+  draft: ShiftDraft,
+  dates: string[],
+  allShifts: ScheduleShift[],
+  getEmployeeDisplayName: (id: string) => string,
+  formatDateLabel: (iso: string) => string,
+  ctx?: ShiftWarningContext,
+): MultiDayShiftPreviewRow[] {
+  return dates.map((date) => ({
+    date,
+    label: formatDateLabel(date),
+    warnings: collectShiftWarningsForDate({ ...draft, date }, date, allShifts, getEmployeeDisplayName, ctx),
+  }))
 }

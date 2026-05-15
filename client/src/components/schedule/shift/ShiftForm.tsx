@@ -12,6 +12,8 @@ type Props = {
   requiredErrors: string[]
   disabled?: boolean
   employeeOptions: ShiftEmployeeOption[]
+  hideDate?: boolean
+  hideStatus?: boolean
 }
 
 export function ShiftForm({
@@ -21,6 +23,8 @@ export function ShiftForm({
   requiredErrors,
   disabled,
   employeeOptions,
+  hideDate,
+  hideStatus,
 }: Props) {
   return (
     <div className="space-y-4">
@@ -52,20 +56,22 @@ export function ShiftForm({
         />
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <label htmlFor="shift-date" className={labelClass}>
-            Datum
-          </label>
-          <input
-            id="shift-date"
-            type="date"
-            className={inputClass}
-            value={values.date}
-            disabled={disabled}
-            onChange={(e) => onChange({ ...values, date: e.target.value })}
-          />
-        </div>
+      <div className={`grid gap-4 ${hideDate ? '' : 'sm:grid-cols-2'}`}>
+        {!hideDate ? (
+          <div>
+            <label htmlFor="shift-date" className={labelClass}>
+              Datum
+            </label>
+            <input
+              id="shift-date"
+              type="date"
+              className={inputClass}
+              value={values.date}
+              disabled={disabled}
+              onChange={(e) => onChange({ ...values, date: e.target.value })}
+            />
+          </div>
+        ) : null}
         <ShiftTypeSelect
           id="shift-type"
           value={values.shiftType}
@@ -124,6 +130,7 @@ export function ShiftForm({
         />
       </div>
 
+      {!hideStatus ? (
       <div>
         <span className={labelClass}>Status</span>
         <div className="flex flex-wrap gap-2">
@@ -146,6 +153,7 @@ export function ShiftForm({
           ))}
         </div>
       </div>
+      ) : null}
 
       <div>
         <label htmlFor="shift-note" className={labelClass}>

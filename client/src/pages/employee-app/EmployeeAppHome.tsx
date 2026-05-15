@@ -81,6 +81,7 @@ type Payload = {
   }
   timeEntries: TimeEntry[]
   runningTimeEntry?: TimeEntry
+  todayWeekPublished?: boolean
 }
 
 function plannedToday(shifts: PubShift[], today: string): PubShift | undefined {
@@ -633,8 +634,16 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
 
             {shiftStatus.variant === 'no_shift' ? (
               <>
-                <p className="mt-3 text-base font-medium text-slate-100">Heute keine weitere Schicht geplant.</p>
-                <p className="mt-1 text-sm text-slate-400">Status: Keine Schicht im Plan</p>
+                <p className="mt-3 text-base font-medium text-slate-100">
+                  {payload.todayWeekPublished === false
+                    ? 'Der Dienstplan für diese Woche wurde noch nicht veröffentlicht.'
+                    : 'Heute keine weitere Schicht geplant.'}
+                </p>
+                <p className="mt-1 text-sm text-slate-400">
+                  {payload.todayWeekPublished === false
+                    ? 'Sobald die Stationsleitung die Woche freigibt, siehst du hier deine Schicht.'
+                    : 'Status: Keine Schicht im Plan'}
+                </p>
               </>
             ) : null}
 

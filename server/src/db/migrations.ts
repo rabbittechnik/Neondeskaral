@@ -201,6 +201,31 @@ export function runMigrations(db: Database.Database) {
   ensureStationExtendedModules2026(db)
   ensureStationBreakPolicyColumnsAndZeroBodelshausenBreaks(db)
   ensureTimeEntryCorrections2026(db)
+  ensureWeeklySchedulePublicationsTable(db)
+}
+
+function ensureWeeklySchedulePublicationsTable(db: Database.Database) {
+  db.exec(`CREATE TABLE IF NOT EXISTS weekly_schedule_publications (
+    id TEXT PRIMARY KEY,
+    station_id TEXT NOT NULL,
+    year INTEGER NOT NULL,
+    calendar_week INTEGER NOT NULL,
+    week_start_date TEXT NOT NULL,
+    week_end_date TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'draft',
+    published_at TEXT,
+    published_by_user_id TEXT,
+    unpublished_at TEXT,
+    unpublished_by_user_id TEXT,
+    has_unpublished_changes INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(station_id, week_start_date),
+    FOREIGN KEY (station_id) REFERENCES stations(id)
+  )`)
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_wsp_station_week ON weekly_schedule_publications(station_id, week_start_date)`,
+  )
 }
 
 /** Revisionssichere Zeiterfassungs-Korrekturen + Auto-Ausstempeln (Stationseinstellung). */

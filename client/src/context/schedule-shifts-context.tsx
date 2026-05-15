@@ -158,3 +158,28 @@ export async function persistShiftDelete(id: string): Promise<boolean> {
   const res = await apiSend('DELETE', `/shifts/${encodeURIComponent(id)}`)
   return res.ok
 }
+
+export type BulkCreateShiftsResult = {
+  created: ScheduleShift[]
+  skipped: { date: string; reason: string }[]
+  errors: { date: string; message: string }[]
+}
+
+/** Mehrere Schichten (gleiche Zeiten/Typ) — werden als Entwurf angelegt. */
+export async function persistShiftsBulk(
+  body: {
+    dates: string[]
+    employeeId?: string
+    workAreaId: string
+    startTime: string
+    endTime: string
+    breakMinutes: number
+    shiftType: string
+    note?: string
+    conflict?: boolean
+  },
+  stationId: string,
+): Promise<BulkCreateShiftsResult | undefined> {
+  const res = await apiSend<BulkCreateShiftsResult>('POST', '/shifts/bulk', body, { stationId })
+  return res.ok && res.data ? (res.data as BulkCreateShiftsResult) : undefined
+}

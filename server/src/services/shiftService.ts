@@ -1,6 +1,7 @@
 import type { Database } from 'better-sqlite3'
 import { randomUUID } from 'node:crypto'
 import { nowIso } from '../utils/timestamps.js'
+import { markWeekHasUnpublishedChangesIfPublished } from './weekSchedulePublicationService.js'
 
 export type ShiftRow = {
   id: string
@@ -183,7 +184,62 @@ export function createShift(db: Database, body: Record<string, unknown>, station
     ts,
     ts,
   )
+  markWeekHasUnpublishedChangesIfPublished(db, sid, date)
   return getShift(db, id)
+}
+
+export type BulkCreateShiftsResult = {
+  created: ReturnType<typeof rowToScheduleShift>[]
+  skipped: { date: string; reason: string }[]
+  errors: { date: string; message: string }[]
+}
+
+/** Mehrere Schichten (gleiche Zeiten/Typ) in einem Vorgang — immer als Entwurf. */
+export function createShiftsBulk(
+  db: Database,
+  body: Record<string, unknown>,
+  stationId: string,
+): BulkCreateShiftsResult {
+  const sid = String(stationId ?? '').trim()
+  if (!sid) throw new Error('stationId erforderlich')
+  const rawDates = body.dates
+  const dates = Array.isArray(rawDates)
+    ? [...new Set(rawDates.map((d) => String(d).trim()).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)))]
+    : []
+  if (dates.length === 0) throw new Error('dates (Array von YYYY-MM-DD) erforderlich')
+
+  const created: ReturnType<typeof rowToScheduleShift>[] = []
+  const skipped: { date: string; reason: string }[] = []
+  const errors: { date: string; message: string }[] = []
+
+  const base = {
+    employeeId: body.employeeId,
+    workAreaId: body.workAreaId,
+    startTime: body.startTime,
+    endTime: body.endTime,
+    breakMinutes: body.breakMinutes ?? 0,
+    shiftType: body.shiftType ?? 'frueh',
+    note: body.note ?? '',
+    status: 'Entwurf',
+    published: false,
+    conflict: body.conflict === true,
+  }
+
+  for (const date of dates) {
+    try {
+      const shift = createShift(db, { ...base, date }, sid)
+      if (shift) created.push(shift)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Fehler'
+      if (msg.includes('UNIQUE') || msg.includes('bereits')) {
+        skipped.push({ date, reason: msg })
+      } else {
+        errors.push({ date, message: msg })
+      }
+    }
+  }
+
+  return { created, skipped, errors }
 }
 
 export function updateShift(db: Database, id: string, body: Record<string, unknown>) {
@@ -256,12 +312,18 @@ export function updateShift(db: Database, id: string, body: Record<string, unkno
     ts,
     id,
   )
-  return getShift(db, id)
+  const updated = getShift(db, id)
+  if (updated?.date) markWeekHasUnpublishedChangesIfPublished(db, existing.station_id, updated.date)
+  return updated
 }
 
 export function deleteShift(db: Database, id: string) {
+  const existing = db.prepare(`SELECT station_id, date FROM shifts WHERE id = ?`).get(id) as
+    | { station_id: string; date: string }
+    | undefined
   const r = db.prepare(`DELETE FROM shifts WHERE id = ?`).run(id)
   if (r.changes === 0) throw new Error('Schicht nicht gefunden')
+  if (existing) markWeekHasUnpublishedChangesIfPublished(db, existing.station_id, existing.date)
 }
 
 export function publishShift(db: Database, id: string) {
@@ -271,20 +333,15 @@ export function publishShift(db: Database, id: string) {
   return getShift(db, id)
 }
 
+/** @deprecated Veröffentlichung läuft über weekly_schedule_publications — siehe weekSchedulePublicationService.publishWeekSchedule */
 export function publishWeek(db: Database, weekMondayIso: string, stationId: string) {
-  const sid = String(stationId ?? '').trim()
-  if (!sid) throw new Error('stationId erforderlich')
   const mon = new Date(`${weekMondayIso}T12:00:00`)
   const sun = new Date(mon)
   sun.setDate(sun.getDate() + 6)
   const toStr = (d: Date) =>
     `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-  const from = toStr(mon)
+  const from = weekMondayIso
   const to = toStr(sun)
-  const ts = nowIso()
-  db.prepare(
-    `UPDATE shifts SET published = 1, status = 'published', updated_at = ? WHERE station_id = ? AND date >= ? AND date <= ?`,
-  ).run(ts, sid, from, to)
   return { ok: true as const, from, to }
 }
 

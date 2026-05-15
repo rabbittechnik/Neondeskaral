@@ -114,6 +114,12 @@ export function EmployeeWeekPlanTab({ accessToken, viewerEmployeeId }: Props) {
 
       {state === 'loading' ? <p className="text-slate-400">Wochenplan wird geladen…</p> : null}
 
+      {state === 'ok' && data && data.weekPublished === false ? (
+        <p className="rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+          Der Dienstplan für KW {kw} wurde noch nicht veröffentlicht. Es werden keine Schichten angezeigt.
+        </p>
+      ) : null}
+
       {/* Mobil: Tageskarten */}
       <div className="space-y-4 md:hidden">
         {dayKeys.map((date) => {

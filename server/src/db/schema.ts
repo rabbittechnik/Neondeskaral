@@ -256,6 +256,24 @@ const statements = [
     FOREIGN KEY (employee_id) REFERENCES employees(id),
     FOREIGN KEY (work_area_id) REFERENCES work_areas(id)
   )`,
+  `CREATE TABLE IF NOT EXISTS weekly_schedule_publications (
+    id TEXT PRIMARY KEY,
+    station_id TEXT NOT NULL,
+    year INTEGER NOT NULL,
+    calendar_week INTEGER NOT NULL,
+    week_start_date TEXT NOT NULL,
+    week_end_date TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'draft',
+    published_at TEXT,
+    published_by_user_id TEXT,
+    unpublished_at TEXT,
+    unpublished_by_user_id TEXT,
+    has_unpublished_changes INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(station_id, week_start_date),
+    FOREIGN KEY (station_id) REFERENCES stations(id)
+  )`,
   `CREATE TABLE IF NOT EXISTS absences (
     id TEXT PRIMARY KEY,
     station_id TEXT NOT NULL,

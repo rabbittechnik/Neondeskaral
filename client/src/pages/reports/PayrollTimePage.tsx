@@ -7,6 +7,7 @@ import { Card } from '../../components/ui/Card'
 import { useAuth } from '../../context/auth-context'
 import { useStation } from '../../context/station-context'
 import { apiGet } from '../../services/api'
+import { PayrollLohnMainTable } from '../../components/reports/PayrollLohnMainTable'
 
 type EmploymentFilter =
   | 'all'
@@ -137,17 +138,6 @@ const EXPORT_COL_HEADERS = [
   'Vorschuß',
   'Summe',
 ] as const
-
-const TH_MAIN = 'px-2 py-2.5 text-left text-xs font-semibold tracking-tight text-[var(--text-main)] print:text-black sm:text-sm'
-const TH_NOWRAP = `${TH_MAIN} whitespace-nowrap [word-break:normal] [overflow-wrap:normal]`
-const TH_NUM = `${TH_NOWRAP} text-right`
-const TD_BASE = 'border-b border-white/[0.06] px-2 py-2.5 align-middle text-sm print:border-neutral-300 print:text-black sm:py-3'
-const TD_NAME = `${TD_BASE} text-left font-medium text-[var(--text-main)]`
-const TD_NUM = `${TD_BASE} text-right tabular-nums tracking-tight`
-const TD_SUM = `${TD_NUM} text-base font-bold text-cyan-200/95 print:text-black`
-const TD_HIDE_SCREEN_PRINT = `${TD_BASE} hidden print:table-cell`
-const TD_HIDE_XL = `${TD_BASE} hidden xl:table-cell`
-const TD_ART = `${TD_BASE} hidden text-[var(--text-muted)] md:table-cell`
 
 export function PayrollTimePage() {
   const { user } = useAuth()
@@ -475,8 +465,8 @@ export function PayrollTimePage() {
         </p>
       ) : null}
 
-      <Card className="min-w-0 overflow-hidden print:shadow-none print:ring-0">
-        <div id="payroll-report-print" className="w-full min-w-0 p-3 sm:p-4 print:p-2">
+      <Card padding="none" className="min-w-0 overflow-hidden border-cyan-500/15 print:shadow-none print:ring-0">
+        <div id="payroll-report-print" className="w-full p-6 print:p-2">
           <p className="mb-3 text-xs text-[var(--text-muted)] print:hidden">{metaLine}</p>
           <div className="mb-4 hidden print:block">
             <h2 className="text-lg font-semibold text-black">Lohnabrechnung (Zeiterfassung)</h2>
@@ -492,121 +482,15 @@ export function PayrollTimePage() {
           ) : !data?.rows.length ? (
             <p className="text-sm text-[var(--text-muted)]">Keine Abrechnungsdaten im gewählten Zeitraum.</p>
           ) : (
-            <div className="payroll-time-scroll -mx-1 overflow-x-auto print:overflow-visible">
-              <table className="payroll-time-main w-max min-w-full border-collapse text-left print:w-full print:text-black">
-                <thead>
-                  <tr className="border-b border-white/15 bg-white/[0.04] print:border-neutral-400 print:bg-transparent">
-                    <th className={`${TH_MAIN} w-10 print:hidden`}>
-                      <input
-                        type="checkbox"
-                        aria-label="Alle auswählen"
-                        checked={selected.size === data.rows.length && data.rows.length > 0}
-                        onChange={toggleAll}
-                      />
-                    </th>
-                    <th className={`${TH_NOWRAP} min-w-[9rem]`}>Mitarbeiter</th>
-                    <th className={`${TH_NOWRAP} hidden md:table-cell`}>Art</th>
-                    <th className={TH_NUM}>Stundenlohn</th>
-                    <th className={TH_NUM}>Verwendet</th>
-                    <th className={`${TH_NOWRAP} max-w-[12rem] hidden print:table-cell`}>Hinweis</th>
-                    <th className={TH_NUM}>Stunden</th>
-                    <th className={`${TH_NUM} hidden print:table-cell`}>Überstd.</th>
-                    <th className={TH_NUM}>U-Tage</th>
-                    <th className={TH_NUM}>Grundlohn</th>
-                    <th className={TH_NUM}>Zuschläge</th>
-                    <th className={`${TH_NUM} hidden xl:table-cell`}>Mankogeld</th>
-                    <th className={`${TH_NUM} hidden xl:table-cell`}>VL</th>
-                    <th className={`${TH_NUM} hidden print:table-cell`}>Kassendiff.</th>
-                    <th className={`${TH_NUM} hidden print:table-cell`}>Prämie</th>
-                    <th className={`${TH_NUM} hidden xl:table-cell`}>Vorschuss</th>
-                    <th className={TH_NUM}>Summe</th>
-                    <th className={`${TH_NOWRAP} w-[5.5rem] print:hidden`}>Details</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.rows.map((r) => (
-                    <tr key={r.employeeId} className="hover:bg-white/[0.03] print:border-b print:border-neutral-200">
-                      <td className={`${TD_BASE} print:hidden`}>
-                        <input
-                          type="checkbox"
-                          checked={selected.has(r.employeeId)}
-                          onChange={() => toggleRow(r.employeeId)}
-                          aria-label={`Auswahl ${r.employeeName}`}
-                        />
-                      </td>
-                      <td className={TD_NAME}>
-                        <button
-                          type="button"
-                          className="text-left font-semibold text-cyan-100/95 underline-offset-2 hover:underline"
-                          onClick={() => void openDetails(r.employeeId)}
-                        >
-                          {r.employeeName}
-                        </button>
-                        {r.messages?.length ? (
-                          <div className="mt-1 max-w-[14rem] text-xs font-normal leading-snug text-amber-200/90 print:max-w-none print:text-neutral-700">
-                            {r.messages.join(' · ')}
-                          </div>
-                        ) : null}
-                      </td>
-                      <td className={TD_ART}>{r.employmentType}</td>
-                      <td className={`${TD_NUM} text-[var(--text-muted)]`}>{formatRegisteredHourly(r)}</td>
-                      <td className={TD_NUM}>{formatEuroDe(r.hourlyWage)}</td>
-                      <td className={`${TD_HIDE_SCREEN_PRINT} max-w-[14rem] text-left text-xs text-[var(--text-muted)]`}>
-                        {r.minimumWageNote?.trim() ? r.minimumWageNote.trim() : '—'}
-                      </td>
-                      <td className={TD_NUM}>
-                        <span className="font-medium">{formatHoursDe(r.totalHours)}</span>
-                      </td>
-                      <td className={`${TD_HIDE_SCREEN_PRINT} text-right tabular-nums`}>
-                        {r.overtimeHours > 0 ? formatHoursDe(r.overtimeHours) : '—'}
-                      </td>
-                      <td className={TD_NUM}>{formatDaysDe(r.vacationDays)}</td>
-                      <td className={TD_NUM}>{formatEuroDe(r.basePay)}</td>
-                      <td className={TD_NUM}>{formatEuroDe(r.supplementsTotal)}</td>
-                      <td className={`${TD_HIDE_XL} text-right tabular-nums`}>{formatEuroDe(r.mankogeld)}</td>
-                      <td className={`${TD_HIDE_XL} text-right tabular-nums`}>{formatEuroDe(r.vl)}</td>
-                      <td className={`${TD_HIDE_SCREEN_PRINT} text-right tabular-nums`}>{formatEuroDe(r.cashDifference)}</td>
-                      <td className={`${TD_HIDE_SCREEN_PRINT} text-right tabular-nums`}>{formatEuroDe(r.bonus)}</td>
-                      <td className={`${TD_HIDE_XL} text-right tabular-nums`}>{formatEuroDe(r.advance)}</td>
-                      <td className={TD_SUM}>{formatEuroDe(r.total)}</td>
-                      <td className={`${TD_BASE} print:hidden`}>
-                        <Button type="button" variant="outline" className="whitespace-nowrap px-2 py-1.5 text-xs" onClick={() => void openDetails(r.employeeId)}>
-                          Details
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t-2 border-white/20 bg-white/[0.06] print:border-neutral-500 print:bg-neutral-100">
-                    <td className="py-3 print:hidden" />
-                    <td className="py-3 pr-2 font-semibold text-[var(--text-main)] print:text-black">Summe</td>
-                    <td className="hidden py-3 md:table-cell" />
-                    <td className="py-3 print:text-black" />
-                    <td className="py-3 print:text-black" />
-                    <td className="hidden py-3 print:table-cell" />
-                    <td className={`${TD_NUM} py-3 font-semibold print:text-black`}>{formatHoursDe(data.totals.totalHours)}</td>
-                    <td className={`${TD_HIDE_SCREEN_PRINT} py-3 font-semibold`}>
-                      {data.totals.overtimeHours > 0 ? formatHoursDe(data.totals.overtimeHours) : '—'}
-                    </td>
-                    <td className={`${TD_NUM} py-3 font-semibold print:text-black`}>{formatDaysDe(data.totals.vacationDays)}</td>
-                    <td className={`${TD_NUM} py-3 font-semibold print:text-black`}>{formatEuroDe(data.totals.basePay)}</td>
-                    <td className={`${TD_NUM} py-3 font-semibold print:text-black`}>{formatEuroDe(data.totals.supplementsTotal)}</td>
-                    <td className={`${TD_HIDE_XL} py-3 font-semibold print:text-black`}>{formatEuroDe(data.totals.mankogeld)}</td>
-                    <td className={`${TD_HIDE_XL} py-3 font-semibold print:text-black`}>{formatEuroDe(data.totals.vl)}</td>
-                    <td className={`${TD_HIDE_SCREEN_PRINT} py-3 font-semibold print:text-black`}>
-                      {formatEuroDe(data.totals.cashDifference)}
-                    </td>
-                    <td className={`${TD_HIDE_SCREEN_PRINT} py-3 font-semibold print:text-black`}>{formatEuroDe(data.totals.bonus)}</td>
-                    <td className={`${TD_HIDE_XL} py-3 font-semibold print:text-black`}>{formatEuroDe(data.totals.advance)}</td>
-                    <td className="border-t-2 border-white/20 py-3 text-right text-base font-bold tabular-nums text-cyan-200 print:border-neutral-500 print:text-black">
-                      {formatEuroDe(data.totals.total)}
-                    </td>
-                    <td className="print:hidden" />
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
+            <PayrollLohnMainTable
+              rows={data.rows}
+              totals={data.totals}
+              selected={selected}
+              onToggleRow={toggleRow}
+              onToggleAll={toggleAll}
+              onOpenDetails={(id) => void openDetails(id)}
+              hoursSublineLabel="Gestempelt"
+            />
           )}
         </div>
       </Card>
