@@ -159,9 +159,11 @@ export function buildIstOnlyBlocksForWeek(
         continue
       }
 
-      const start = entryStartHm(e)
-      const end = entryEndHm(e)
-      if (!isRealHmRange(start, end)) continue
+      const startRaw = entryStartHm(e)
+      const endRaw = entryEndHm(e)
+      if (!isRealHmRange(startRaw, endRaw)) continue
+      const start = startRaw
+      const end = endRaw!
       const dedupe = `${e.employeeId}:${dateISO}:${start}-${end}`
       if (seen.has(dedupe)) continue
       seen.add(dedupe)
