@@ -7,7 +7,8 @@ import { Card } from '../../components/ui/Card'
 import { useAuth } from '../../context/auth-context'
 import { useStation } from '../../context/station-context'
 import { apiGet } from '../../services/api'
-import { PayrollLohnMainTable } from '../../components/reports/PayrollLohnMainTable'
+import { PayrollScheduleMainTable } from '../../components/reports/PayrollScheduleMainTable'
+import { PayrollDetailExtraFields } from '../../components/reports/PayrollDetailExtraFields'
 
 type EmploymentFilter =
   | 'all'
@@ -94,17 +95,8 @@ function monthStartToToday(): { from: string; to: string } {
   return { from: `${y}-${m}-01`, to: `${y}-${m}-${d}` }
 }
 
-function formatEuroDe(n: number): string {
-  return new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(n)
-}
-
 function formatHoursDe(n: number): string {
   return `${n.toFixed(2).replace('.', ',')} Std.`
-}
-
-function formatRegisteredHourly(r: ReportRow): string {
-  if (r.registeredHourlyWage == null) return '—'
-  return formatEuroDe(r.registeredHourlyWage)
 }
 
 function formatYmdDe(ymd: string): string {
@@ -338,6 +330,20 @@ export function PayrollSchedulePage() {
   const metaLine = `${selectedStation?.name ?? data?.stationName ?? 'Station'} · ${from} – ${to}`
   const detailRow = data?.rows.find((r) => r.employeeId === detailEmployeeId) ?? null
 
+  const scheduleTableTotals = useMemo(() => {
+    if (!data?.totals) return null
+    const paidVacationHours = data.rows.reduce((s, r) => s + r.paidVacationHours, 0)
+    return {
+      totalHours: data.totals.totalHours,
+      vacationDays: data.totals.vacationDays,
+      paidVacationHours: Math.round(paidVacationHours * 100) / 100,
+      basePay: data.totals.basePay,
+      supplementsTotal: data.totals.supplementsTotal,
+      advance: data.totals.advance,
+      total: data.totals.total,
+    }
+  }, [data])
+
   return (
     <div className="space-y-6 pb-10 print:pb-0">
       <PageHeader
@@ -447,17 +453,16 @@ export function PayrollSchedulePage() {
             <p className="text-sm text-[var(--text-muted)]">
               Keine Abrechnungsdaten im gewählten Zeitraum (keine Schichten oder keine relevanten Buchungen).
             </p>
-          ) : (
-            <PayrollLohnMainTable
+          ) : scheduleTableTotals ? (
+            <PayrollScheduleMainTable
               rows={data.rows}
-              totals={data.totals}
+              totals={scheduleTableTotals}
               selected={selected}
               onToggleRow={toggleRow}
               onToggleAll={toggleAll}
               onOpenDetails={setDetailEmployeeId}
-              hoursSublineLabel="Schichten"
             />
-          )}
+          ) : null}
         </div>
       </Card>
 
@@ -488,36 +493,27 @@ export function PayrollSchedulePage() {
               </button>
             </div>
             <div className="min-h-0 flex-1 overflow-auto p-3 sm:p-4">
-              <dl className="mb-4 grid gap-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-elevated)]/30 p-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
-                <div>
-                  <dt className="text-xs text-[var(--text-faint)]">Eingetr. Lohn</dt>
-                  <dd className="tabular-nums text-sky-200/90">{formatRegisteredHourly(detailRow)}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-[var(--text-faint)]">Verwend. Lohn</dt>
-                  <dd className="tabular-nums text-sky-200/90">{formatEuroDe(detailRow.hourlyWage)}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-[var(--text-faint)]">Hinweis</dt>
-                  <dd className="text-slate-300/90">{detailRow.minimumWageNote?.trim() || '—'}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-[var(--text-faint)]">Mankogeld</dt>
-                  <dd className="tabular-nums text-orange-200/80">{formatEuroDe(detailRow.mankogeld)}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-[var(--text-faint)]">VL</dt>
-                  <dd className="tabular-nums text-orange-200/80">{formatEuroDe(detailRow.vl)}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-[var(--text-faint)]">Kassendif.</dt>
-                  <dd className="tabular-nums text-orange-200/80">{formatEuroDe(detailRow.cashDifference)}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-[var(--text-faint)]">Prämie</dt>
-                  <dd className="tabular-nums text-slate-200/90">{formatEuroDe(detailRow.bonus)}</dd>
-                </div>
-              </dl>
+              <PayrollDetailExtraFields
+                row={{
+                  employmentType: detailRow.employmentType,
+                  registeredHourlyWage: detailRow.registeredHourlyWage,
+                  hourlyWage: detailRow.hourlyWage,
+                  minimumWageNote: detailRow.minimumWageNote,
+                  overtimeHours: detailRow.overtimeHours,
+                  mankogeld: detailRow.mankogeld,
+                  vl: detailRow.vl,
+                  cashDifference: detailRow.cashDifference,
+                  bonus: detailRow.bonus,
+                  advance: detailRow.advance,
+                  vacationDays: detailRow.vacationDays,
+                  paidVacationHours: detailRow.paidVacationHours,
+                  paidOtherAbsenceHours: detailRow.paidOtherAbsenceHours,
+                  workPlanHours: detailRow.workPlanHours,
+                  totalHours: detailRow.totalHours,
+                }}
+                showEmployment
+                showAdvance
+              />
               {!detailRow.scheduleLines?.length ? (
                 <p className="text-sm text-[var(--text-muted)]">Keine Detailzeilen vom Server geliefert.</p>
               ) : (

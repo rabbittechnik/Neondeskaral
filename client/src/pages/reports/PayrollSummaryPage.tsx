@@ -9,6 +9,7 @@ import { useStation } from '../../context/station-context'
 import { useEmployees } from '../../context/employees-context'
 import { apiGet } from '../../services/api'
 import { PayrollSummaryMainTable } from '../../components/reports/PayrollSummaryMainTable'
+import { PayrollDetailExtraFields } from '../../components/reports/PayrollDetailExtraFields'
 
 type EmploymentFilter =
   | 'all'
@@ -129,11 +130,6 @@ function formatHoursDe(n: number): string {
 function formatYmdDe(ymd: string): string {
   const [y, m, d] = ymd.split('-')
   return `${d}.${m}.${y}`
-}
-
-function formatRegisteredHourly(r: ReportRow): string {
-  if (r.registeredHourlyWage == null) return '—'
-  return formatEuroDe(r.registeredHourlyWage)
 }
 
 function formatPlanBreakdownDe(d: DayDetail): string {
@@ -670,7 +666,7 @@ export function PayrollSummaryPage() {
           ) : !data?.rows.length ? (
             <p className="text-sm text-[var(--text-muted)]">Keine Abrechnungsdaten im gewählten Zeitraum.</p>
           ) : (
-                        <PayrollSummaryMainTable
+            <PayrollSummaryMainTable
               rows={data.rows}
               totals={data.totals}
               selected={selected}
@@ -692,59 +688,24 @@ export function PayrollSummaryPage() {
               Schließen
             </Button>
           </div>
-          <dl className="mb-4 grid gap-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-elevated)]/30 p-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
-            <div>
-              <dt className="text-xs text-[var(--text-faint)]">Ohne Stempel</dt>
-              <dd className="tabular-nums text-orange-200/90">{detailRow.missingTimeEntriesDayCount} Tage</dd>
-            </div>
-
-            <div>
-              <dt className="text-xs text-[var(--text-faint)]">Ohne Plan</dt>
-              <dd className="tabular-nums text-orange-200/90">{detailRow.unplannedWorkDayCount} Tage</dd>
-            </div>
-
-            <div>
-              <dt className="text-xs text-[var(--text-faint)]">Eingetr. Lohn</dt>
-              <dd className="tabular-nums text-sky-200/90">{formatRegisteredHourly(detailRow)}</dd>
-            </div>
-
-            <div>
-              <dt className="text-xs text-[var(--text-faint)]">Mankogeld</dt>
-              <dd className="tabular-nums text-orange-200/80">{formatEuroDe(detailRow.mankogeld)}</dd>
-            </div>
-
-            <div>
-              <dt className="text-xs text-[var(--text-faint)]">VL</dt>
-              <dd className="tabular-nums text-orange-200/80">{formatEuroDe(detailRow.vl)}</dd>
-            </div>
-
-            <div>
-              <dt className="text-xs text-[var(--text-faint)]">Kassendif.</dt>
-              <dd className="tabular-nums text-orange-200/80">{formatEuroDe(detailRow.cashDifference)}</dd>
-            </div>
-
-            <div>
-              <dt className="text-xs text-[var(--text-faint)]">Prämie</dt>
-              <dd className="tabular-nums text-slate-200/90">{formatEuroDe(detailRow.bonus)}</dd>
-            </div>
-
-            <div>
-              <dt className="text-xs text-[var(--text-faint)]">Hinweis</dt>
-              <dd className="text-slate-300/90">{detailRow.minimumWageNote?.trim() || '—'}</dd>
-            </div>
-
-            {detailRow.paidVacationHours > 0 || (detailRow.paidOtherAbsenceHours ?? 0) > 0 ? (
-              <div className="sm:col-span-2">
-                <dt className="text-xs text-[var(--text-faint)]">Verwendet (Aufschlüsselung)</dt>
-                <dd className="text-emerald-200/90">
-                  {detailRow.paidVacationHours > 0 ? `Urlaub ${formatHoursDe(detailRow.paidVacationHours)}` : ''}
-                  {(detailRow.paidOtherAbsenceHours ?? 0) > 0
-                    ? `${detailRow.paidVacationHours > 0 ? ' · ' : ''}sonst. bez. Abw. ${formatHoursDe(detailRow.paidOtherAbsenceHours ?? 0)}`
-                    : ''}
-                </dd>
-              </div>
-            ) : null}
-          </dl>
+          <PayrollDetailExtraFields
+            row={{
+              registeredHourlyWage: detailRow.registeredHourlyWage,
+              hourlyWage: detailRow.hourlyWage,
+              minimumWageNote: detailRow.minimumWageNote,
+              mankogeld: detailRow.mankogeld,
+              vl: detailRow.vl,
+              cashDifference: detailRow.cashDifference,
+              bonus: detailRow.bonus,
+              advance: detailRow.advance,
+              paidVacationHours: detailRow.paidVacationHours,
+              paidOtherAbsenceHours: detailRow.paidOtherAbsenceHours,
+              missingTimeEntriesDayCount: detailRow.missingTimeEntriesDayCount,
+              unplannedWorkDayCount: detailRow.unplannedWorkDayCount,
+            }}
+            showAdvance
+            showSummaryHints
+          />
           <p className="mb-3 text-xs text-[var(--text-muted)]">
             Manuelle Korrekturen pro Tag können später ergänzt werden. Farben: grün = Zeiterfassung übernommen / passt,
             gelb = Schichtplan-Fallback, orange = ohne Plan gearbeitet, rot = offene Zeiterfassung.

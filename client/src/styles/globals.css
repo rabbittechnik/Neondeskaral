@@ -69,16 +69,6 @@
     box-shadow: 0 0 10px var(--holiday-other-glow);
   }
 
-  .payroll-time-main th,
-  .payroll-time-main td {
-    word-break: normal;
-    overflow-wrap: normal;
-  }
-
-  .payroll-time-main th {
-    hyphens: none;
-  }
-
   .payroll-table-scroll {
     width: 100%;
     overflow-x: auto;
@@ -86,20 +76,24 @@
     -webkit-overflow-scrolling: touch;
   }
 
+  .payroll-report-table,
   .payroll-summary-table {
     width: max-content;
     min-width: 100%;
     table-layout: auto;
   }
 
-  .payroll-summary-table--main {
-    min-width: 1320px;
+  .payroll-report-table--main {
+    min-width: 1500px;
   }
 
-  .payroll-summary-table--full {
-    min-width: 1900px;
+  .payroll-report-table--summary,
+  .payroll-summary-table--summary {
+    min-width: 1800px;
   }
 
+  .payroll-report-table th,
+  .payroll-report-table td,
   .payroll-summary-table th,
   .payroll-summary-table td {
     white-space: nowrap;
@@ -109,10 +103,13 @@
     hyphens: none;
   }
 
+  .payroll-report-table tbody tr,
   .payroll-summary-table tbody tr {
     min-height: 52px;
   }
 
+  .payroll-report-table th.employee-col,
+  .payroll-report-table td.employee-col,
   .payroll-summary-table th.employee-col,
   .payroll-summary-table td.employee-col {
     position: sticky;
@@ -123,28 +120,31 @@
     box-shadow: 4px 0 12px rgba(0, 0, 0, 0.35);
   }
 
+  .payroll-report-table tfoot td.employee-col,
   .payroll-summary-table tfoot td.employee-col {
     z-index: 3;
     background: rgba(15, 23, 42, 0.95);
   }
 
+  .payroll-report-table thead th.employee-col,
   .payroll-summary-table thead th.employee-col {
     z-index: 4;
     background: rgba(30, 41, 59, 0.98);
   }
 
   @media print {
-    .payroll-summary-table--main {
+    .payroll-report-table--main,
+    .payroll-report-table--summary {
       min-width: 1900px;
     }
 
-    .payroll-summary-table th.payroll-col-screen-only,
-    .payroll-summary-table td.payroll-col-screen-only {
+    .payroll-report-table th.payroll-col-screen-only,
+    .payroll-report-table td.payroll-col-screen-only {
       display: none !important;
     }
 
-    .payroll-summary-table th.payroll-col-print-only,
-    .payroll-summary-table td.payroll-col-print-only {
+    .payroll-report-table th.payroll-col-print-only,
+    .payroll-report-table td.payroll-col-print-only {
       display: table-cell !important;
     }
   }

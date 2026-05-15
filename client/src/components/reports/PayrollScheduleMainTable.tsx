@@ -4,7 +4,9 @@ import {
   PAYROLL_TABLE_MAIN,
   PAYROLL_ROW,
   PAYROLL_TFOOT,
+  PAYROLL_THEAD_ROW,
   PAYROLL_TD_EMPLOYEE,
+  PAYROLL_MIN_W,
   payrollTh,
   payrollTd,
   formatDaysDe,
@@ -12,15 +14,14 @@ import {
   formatHoursDe,
 } from './payrollReportTable'
 
-export type PayrollLohnTableRow = {
+export type PayrollScheduleTableRow = {
   employeeId: string
   employeeName: string
+  employmentType: string
+  hourlyWage: number
   totalHours: number
-  workPlanHours?: number
-  paidVacationHours?: number
-  paidOtherAbsenceHours?: number
-  overtimeHours: number
   vacationDays: number
+  paidVacationHours: number
   basePay: number
   supplementsTotal: number
   advance: number
@@ -28,10 +29,10 @@ export type PayrollLohnTableRow = {
   messages?: string[]
 }
 
-export type PayrollLohnTableTotals = {
+export type PayrollScheduleTableTotals = {
   totalHours: number
-  overtimeHours: number
   vacationDays: number
+  paidVacationHours: number
   basePay: number
   supplementsTotal: number
   advance: number
@@ -39,56 +40,30 @@ export type PayrollLohnTableTotals = {
 }
 
 type Props = {
-  rows: PayrollLohnTableRow[]
-  totals: PayrollLohnTableTotals
+  rows: PayrollScheduleTableRow[]
+  totals: PayrollScheduleTableTotals
   selected: Set<string>
   onToggleRow: (id: string) => void
   onToggleAll: () => void
   onOpenDetails: (employeeId: string) => void
-  hoursSublineLabel?: 'Schichten' | 'Gestempelt'
 }
 
-const thStyle = (minW: number) => ({ minWidth: minW })
+const mw = (n: number) => ({ minWidth: n })
 
-function HoursSubline({
-  r,
-  label,
-}: {
-  r: PayrollLohnTableRow
-  label: 'Schichten' | 'Gestempelt'
-}) {
-  if (r.workPlanHours == null) return null
-  if (
-    !(r.paidVacationHours != null && r.paidVacationHours > 0) &&
-    !((r.paidOtherAbsenceHours ?? 0) > 0) &&
-    r.workPlanHours === r.totalHours
-  ) {
-    return null
-  }
-  return (
-    <div className="mt-1 text-xs font-normal leading-snug text-[var(--text-faint)]">
-      {label} {formatHoursDe(r.workPlanHours)}
-      {(r.paidVacationHours ?? 0) > 0 ? ` · Urlaub ${formatHoursDe(r.paidVacationHours ?? 0)}` : ''}
-      {(r.paidOtherAbsenceHours ?? 0) > 0 ? ` · sonst. bez. Abw. ${formatHoursDe(r.paidOtherAbsenceHours ?? 0)}` : ''}
-    </div>
-  )
-}
-
-export function PayrollLohnMainTable({
+export function PayrollScheduleMainTable({
   rows,
   totals,
   selected,
   onToggleRow,
   onToggleAll,
   onOpenDetails,
-  hoursSublineLabel = 'Schichten',
 }: Props) {
   return (
     <PayrollTableScroll>
       <table className={PAYROLL_TABLE_MAIN}>
         <thead>
-          <tr className="border-b border-[var(--border-subtle)] bg-[var(--bg-elevated)]/50 text-left">
-            <th className="w-10 px-2 py-3 print:hidden" style={thStyle(40)}>
+          <tr className={PAYROLL_THEAD_ROW}>
+            <th className="w-10 px-2 py-3 print:hidden" style={mw(PAYROLL_MIN_W.checkbox)}>
               <input
                 type="checkbox"
                 aria-label="Alle auswählen"
@@ -96,31 +71,43 @@ export function PayrollLohnMainTable({
                 onChange={onToggleAll}
               />
             </th>
-            <th className={`${payrollTh('employee', 'left')} employee-col`} style={thStyle(170)}>
+            <th className={`${payrollTh('employee', 'left')} employee-col`} style={mw(PAYROLL_MIN_W.employee)}>
               Mitarbeiter
             </th>
-            <th className={payrollTh('time')} style={thStyle(120)}>
+            <th
+              className={`${payrollTh('muted', 'left')} payroll-col-screen-only hidden xl:table-cell`}
+              style={mw(PAYROLL_MIN_W.employment)}
+            >
+              Art
+            </th>
+            <th className={payrollTh('wage')} style={mw(PAYROLL_MIN_W.wage)}>
+              Stundenlohn
+            </th>
+            <th className={payrollTh('plan')} style={mw(PAYROLL_MIN_W.hours)}>
               Stunden
             </th>
-            <th className={payrollTh('diff')} style={thStyle(100)}>
-              Überstd.
-            </th>
-            <th className={payrollTh('vacation')} style={thStyle(90)}>
+            <th className={payrollTh('vacation')} style={mw(PAYROLL_MIN_W.vacationDays)}>
               U-Tage
             </th>
-            <th className={payrollTh('base')} style={thStyle(120)}>
+            <th className={payrollTh('used')} style={mw(PAYROLL_MIN_W.vacationHours)}>
+              Urlaub Std.
+            </th>
+            <th className={payrollTh('base')} style={mw(PAYROLL_MIN_W.base)}>
               Grundlohn
             </th>
-            <th className={payrollTh('supplements')} style={thStyle(120)}>
+            <th className={payrollTh('supplements')} style={mw(PAYROLL_MIN_W.supplements)}>
               Zuschläge
             </th>
-            <th className={payrollTh('deduction')} style={thStyle(110)}>
+            <th
+              className={`${payrollTh('deduction')} payroll-col-screen-only hidden lg:table-cell`}
+              style={mw(PAYROLL_MIN_W.deduction)}
+            >
               Vorschuss
             </th>
-            <th className={`${payrollTh('total')} font-bold`} style={thStyle(130)}>
+            <th className={`${payrollTh('total')} font-bold`} style={mw(PAYROLL_MIN_W.total)}>
               Summe
             </th>
-            <th className={`${payrollTh('muted', 'left')} print:hidden`} style={thStyle(100)}>
+            <th className={`${payrollTh('muted', 'left')} print:hidden`} style={mw(PAYROLL_MIN_W.details)}>
               Details
             </th>
           </tr>
@@ -128,7 +115,7 @@ export function PayrollLohnMainTable({
         <tbody>
           {rows.map((r) => (
             <tr key={r.employeeId} className={PAYROLL_ROW}>
-              <td className="px-2 py-3 print:hidden">
+              <td className="px-2 py-2.5 print:hidden">
                 <input
                   type="checkbox"
                   checked={selected.has(r.employeeId)}
@@ -144,19 +131,22 @@ export function PayrollLohnMainTable({
                   </div>
                 ) : null}
               </td>
-              <td className={payrollTd('time')}>
-                <span className="font-medium">{formatHoursDe(r.totalHours)}</span>
-                <HoursSubline r={r} label={hoursSublineLabel} />
+              <td className={`${payrollTd('muted', 'text-left')} payroll-col-screen-only hidden xl:table-cell`}>
+                {r.employmentType}
               </td>
-              <td className={payrollTd('diff')}>
-                {r.overtimeHours > 0 ? formatHoursDe(r.overtimeHours) : '—'}
+              <td className={payrollTd('wage')}>{formatEuroDe(r.hourlyWage)}</td>
+              <td className={payrollTd('plan')}>
+                <span className="font-medium">{formatHoursDe(r.totalHours)}</span>
               </td>
               <td className={payrollTd('vacation')}>{formatDaysDe(r.vacationDays)}</td>
+              <td className={payrollTd('used')}>{formatHoursDe(r.paidVacationHours)}</td>
               <td className={payrollTd('base')}>{formatEuroDe(r.basePay)}</td>
               <td className={payrollTd('supplements')}>{formatEuroDe(r.supplementsTotal)}</td>
-              <td className={payrollTd('deduction')}>{formatEuroDe(r.advance)}</td>
+              <td className={`${payrollTd('deduction')} payroll-col-screen-only hidden lg:table-cell`}>
+                {formatEuroDe(r.advance)}
+              </td>
               <td className={`${payrollTd('total')} text-base font-semibold`}>{formatEuroDe(r.total)}</td>
-              <td className="px-3 py-3 print:hidden">
+              <td className="px-4 py-2.5 print:hidden">
                 <Button
                   type="button"
                   variant="outline"
@@ -172,15 +162,17 @@ export function PayrollLohnMainTable({
         <tfoot>
           <tr className={PAYROLL_TFOOT}>
             <td className="py-3 print:hidden" />
-            <td className="employee-col px-3 py-3 text-sm font-bold text-[var(--text-main)]">Summe</td>
-            <td className={`${payrollTd('time')} py-3 font-semibold`}>{formatHoursDe(totals.totalHours)}</td>
-            <td className={`${payrollTd('diff')} py-3 font-semibold`}>
-              {totals.overtimeHours > 0 ? formatHoursDe(totals.overtimeHours) : '—'}
-            </td>
+            <td className="employee-col px-4 py-3 text-sm font-bold text-[var(--text-main)]">Summe</td>
+            <td className="payroll-col-screen-only hidden xl:table-cell" />
+            <td className="py-3" />
+            <td className={`${payrollTd('plan')} py-3 font-semibold`}>{formatHoursDe(totals.totalHours)}</td>
             <td className={`${payrollTd('vacation')} py-3 font-semibold`}>{formatDaysDe(totals.vacationDays)}</td>
+            <td className={`${payrollTd('used')} py-3 font-semibold`}>{formatHoursDe(totals.paidVacationHours)}</td>
             <td className={`${payrollTd('base')} py-3 font-semibold`}>{formatEuroDe(totals.basePay)}</td>
             <td className={`${payrollTd('supplements')} py-3 font-semibold`}>{formatEuroDe(totals.supplementsTotal)}</td>
-            <td className={`${payrollTd('deduction')} py-3 font-semibold`}>{formatEuroDe(totals.advance)}</td>
+            <td className={`${payrollTd('deduction')} payroll-col-screen-only hidden py-3 font-semibold lg:table-cell`}>
+              {formatEuroDe(totals.advance)}
+            </td>
             <td className={`${payrollTd('total')} py-3 text-base font-bold`}>{formatEuroDe(totals.total)}</td>
             <td className="print:hidden" />
           </tr>

@@ -1,7 +1,7 @@
 import { Button } from '../ui/Button'
 import {
   PayrollTableScroll,
-  PAYROLL_TABLE_SUMMARY,
+  PAYROLL_TABLE_MAIN,
   PAYROLL_ROW,
   PAYROLL_TFOOT,
   PAYROLL_THEAD_ROW,
@@ -10,39 +10,31 @@ import {
   payrollTh,
   payrollTd,
   formatDaysDe,
-  formatDiffHoursDe,
   formatEuroDe,
   formatHoursDe,
+  formatHoursOrDash,
 } from './payrollReportTable'
 
-export type PayrollSummaryTableRow = {
+export type PayrollTimeTableRow = {
   employeeId: string
   employeeName: string
-  scheduleHoursTotal: number
-  timeTrackingHoursTotal: number
-  usedHoursTotal: number
-  differenceHours: number
-  extraUnplannedHours: number
-  missingTimeEntriesDayCount: number
-  unplannedWorkDayCount: number
-  vacationDays: number
   hourlyWage: number
+  workPlanHours?: number
+  totalHours: number
+  vacationDays: number
+  paidVacationHours: number
   basePay: number
   supplementsTotal: number
   advance: number
   total: number
-  paidVacationHours: number
-  paidOtherAbsenceHours?: number
   messages?: string[]
 }
 
-export type PayrollSummaryTableTotals = {
-  scheduleHours: number
-  timeTrackingHours: number
-  usedHours: number
-  differenceHours: number
-  extraUnplannedHours: number
+export type PayrollTimeTableTotals = {
+  workPlanHours: number
+  totalHours: number
   vacationDays: number
+  paidVacationHours: number
   basePay: number
   supplementsTotal: number
   advance: number
@@ -50,8 +42,8 @@ export type PayrollSummaryTableTotals = {
 }
 
 type Props = {
-  rows: PayrollSummaryTableRow[]
-  totals: PayrollSummaryTableTotals
+  rows: PayrollTimeTableRow[]
+  totals: PayrollTimeTableTotals
   selected: Set<string>
   onToggleRow: (id: string) => void
   onToggleAll: () => void
@@ -60,7 +52,7 @@ type Props = {
 
 const mw = (n: number) => ({ minWidth: n })
 
-export function PayrollSummaryMainTable({
+export function PayrollTimeMainTable({
   rows,
   totals,
   selected,
@@ -70,7 +62,7 @@ export function PayrollSummaryMainTable({
 }: Props) {
   return (
     <PayrollTableScroll>
-      <table className={PAYROLL_TABLE_SUMMARY}>
+      <table className={PAYROLL_TABLE_MAIN}>
         <thead>
           <tr className={PAYROLL_THEAD_ROW}>
             <th className="w-10 px-2 py-3 print:hidden" style={mw(PAYROLL_MIN_W.checkbox)}>
@@ -84,26 +76,29 @@ export function PayrollSummaryMainTable({
             <th className={`${payrollTh('employee', 'left')} employee-col`} style={mw(PAYROLL_MIN_W.employee)}>
               Mitarbeiter
             </th>
-            <th className={payrollTh('plan')} style={mw(PAYROLL_MIN_W.hours)}>
-              Plan
+            <th className={payrollTh('wage')} style={mw(PAYROLL_MIN_W.wage)}>
+              Stundenlohn
             </th>
             <th className={payrollTh('time')} style={mw(PAYROLL_MIN_W.hours)}>
               Erfasst
             </th>
             <th className={payrollTh('used')} style={mw(PAYROLL_MIN_W.hours)}>
-              Verwendet
+              Freigegeben
             </th>
-            <th className={payrollTh('diff')} style={mw(PAYROLL_MIN_W.diff)}>
-              Differenz
-            </th>
-            <th className={payrollTh('extra')} style={mw(PAYROLL_MIN_W.diff)}>
-              Zusatz
+            <th
+              className={`${payrollTh('warning')} payroll-col-screen-only hidden xl:table-cell`}
+              style={mw(PAYROLL_MIN_W.hours)}
+            >
+              Offen
             </th>
             <th className={payrollTh('vacation')} style={mw(PAYROLL_MIN_W.vacationDays)}>
               U-Tage
             </th>
-            <th className={payrollTh('wage')} style={mw(PAYROLL_MIN_W.wage)}>
-              Stundenlohn
+            <th
+              className={`${payrollTh('used')} payroll-col-screen-only hidden lg:table-cell`}
+              style={mw(PAYROLL_MIN_W.vacationHours)}
+            >
+              Urlaub Std.
             </th>
             <th className={payrollTh('base')} style={mw(PAYROLL_MIN_W.base)}>
               Grundlohn
@@ -144,15 +139,18 @@ export function PayrollSummaryMainTable({
                   </div>
                 ) : null}
               </td>
-              <td className={payrollTd('plan')}>{formatHoursDe(r.scheduleHoursTotal)}</td>
-              <td className={payrollTd('time')}>{formatHoursDe(r.timeTrackingHoursTotal)}</td>
-              <td className={payrollTd('used')}>
-                <span className="font-medium">{formatHoursDe(r.usedHoursTotal)}</span>
-              </td>
-              <td className={payrollTd('diff')}>{formatDiffHoursDe(r.differenceHours)}</td>
-              <td className={payrollTd('extra')}>{formatHoursDe(r.extraUnplannedHours)}</td>
-              <td className={payrollTd('vacation')}>{formatDaysDe(r.vacationDays)}</td>
               <td className={payrollTd('wage')}>{formatEuroDe(r.hourlyWage)}</td>
+              <td className={payrollTd('time')}>{formatHoursOrDash(r.workPlanHours)}</td>
+              <td className={payrollTd('used')}>
+                <span className="font-medium">{formatHoursDe(r.totalHours)}</span>
+              </td>
+              <td className={`${payrollTd('warning')} payroll-col-screen-only hidden xl:table-cell`} title="Nicht freigegebene Zeiten siehe Details">
+                —
+              </td>
+              <td className={payrollTd('vacation')}>{formatDaysDe(r.vacationDays)}</td>
+              <td className={`${payrollTd('used')} payroll-col-screen-only hidden lg:table-cell`}>
+                {formatHoursDe(r.paidVacationHours)}
+              </td>
               <td className={payrollTd('base')}>{formatEuroDe(r.basePay)}</td>
               <td className={payrollTd('supplements')}>{formatEuroDe(r.supplementsTotal)}</td>
               <td className={`${payrollTd('deduction')} payroll-col-screen-only hidden xl:table-cell`}>
@@ -176,13 +174,14 @@ export function PayrollSummaryMainTable({
           <tr className={PAYROLL_TFOOT}>
             <td className="py-3 print:hidden" />
             <td className="employee-col px-4 py-3 text-sm font-bold text-[var(--text-main)]">Summe</td>
-            <td className={`${payrollTd('plan')} py-3 font-semibold`}>{formatHoursDe(totals.scheduleHours)}</td>
-            <td className={`${payrollTd('time')} py-3 font-semibold`}>{formatHoursDe(totals.timeTrackingHours)}</td>
-            <td className={`${payrollTd('used')} py-3 font-semibold`}>{formatHoursDe(totals.usedHours)}</td>
-            <td className={`${payrollTd('diff')} py-3 font-semibold`}>{formatDiffHoursDe(totals.differenceHours)}</td>
-            <td className={`${payrollTd('extra')} py-3 font-semibold`}>{formatHoursDe(totals.extraUnplannedHours)}</td>
+            <td className="py-3" />
+            <td className={`${payrollTd('time')} py-3 font-semibold`}>{formatHoursDe(totals.workPlanHours)}</td>
+            <td className={`${payrollTd('used')} py-3 font-semibold`}>{formatHoursDe(totals.totalHours)}</td>
+            <td className="payroll-col-screen-only hidden xl:table-cell" />
             <td className={`${payrollTd('vacation')} py-3 font-semibold`}>{formatDaysDe(totals.vacationDays)}</td>
-            <td className="px-4 py-3" />
+            <td className={`${payrollTd('used')} payroll-col-screen-only hidden py-3 font-semibold lg:table-cell`}>
+              {formatHoursDe(totals.paidVacationHours)}
+            </td>
             <td className={`${payrollTd('base')} py-3 font-semibold`}>{formatEuroDe(totals.basePay)}</td>
             <td className={`${payrollTd('supplements')} py-3 font-semibold`}>{formatEuroDe(totals.supplementsTotal)}</td>
             <td className={`${payrollTd('deduction')} payroll-col-screen-only hidden py-3 font-semibold xl:table-cell`}>

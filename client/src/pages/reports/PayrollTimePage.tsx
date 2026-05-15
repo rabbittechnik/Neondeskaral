@@ -7,7 +7,8 @@ import { Card } from '../../components/ui/Card'
 import { useAuth } from '../../context/auth-context'
 import { useStation } from '../../context/station-context'
 import { apiGet } from '../../services/api'
-import { PayrollLohnMainTable } from '../../components/reports/PayrollLohnMainTable'
+import { PayrollTimeMainTable } from '../../components/reports/PayrollTimeMainTable'
+import { PayrollDetailExtraFields } from '../../components/reports/PayrollDetailExtraFields'
 
 type EmploymentFilter =
   | 'all'
@@ -92,21 +93,8 @@ function monthStartToToday(): { from: string; to: string } {
   return { from: `${y}-${m}-01`, to: `${y}-${m}-${d}` }
 }
 
-function formatEuroDe(n: number): string {
-  return new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(n)
-}
-
 function formatHoursDe(n: number): string {
   return `${n.toFixed(2).replace('.', ',')} Std.`
-}
-
-function formatDaysDe(n: number): string {
-  return `${n.toFixed(1).replace('.', ',')} Tage`
-}
-
-function formatRegisteredHourly(r: ReportRow): string {
-  if (r.registeredHourlyWage == null) return '—'
-  return formatEuroDe(r.registeredHourlyWage)
 }
 
 const FILTER_OPTIONS: { value: EmploymentFilter; label: string }[] = [
@@ -361,6 +349,23 @@ export function PayrollTimePage() {
 
   const metaLine = `${selectedStation?.name ?? data?.stationName ?? 'Station'} · ${from} – ${to}`
 
+  const timeTableTotals = useMemo(() => {
+    if (!data?.totals) return null
+    const workPlanHours = data.rows.reduce((s, r) => s + (r.workPlanHours ?? 0), 0)
+    const paidVacationHours = data.rows.reduce((s, r) => s + r.paidVacationHours, 0)
+    return {
+      workPlanHours: Math.round(workPlanHours * 100) / 100,
+      totalHours: data.totals.totalHours,
+      vacationDays: data.totals.vacationDays,
+      paidVacationHours: Math.round(paidVacationHours * 100) / 100,
+      basePay: data.totals.basePay,
+      supplementsTotal: data.totals.supplementsTotal,
+      advance: data.totals.advance,
+      total: data.totals.total,
+    }
+  }, [data])
+
+
   return (
     <div className="space-y-6 pb-10 print:pb-0">
       <PageHeader
@@ -481,17 +486,16 @@ export function PayrollTimePage() {
             <p className="text-sm text-[var(--text-muted)]">Lade Daten…</p>
           ) : !data?.rows.length ? (
             <p className="text-sm text-[var(--text-muted)]">Keine Abrechnungsdaten im gewählten Zeitraum.</p>
-          ) : (
-            <PayrollLohnMainTable
+          ) : timeTableTotals ? (
+            <PayrollTimeMainTable
               rows={data.rows}
-              totals={data.totals}
+              totals={timeTableTotals}
               selected={selected}
               onToggleRow={toggleRow}
               onToggleAll={toggleAll}
               onOpenDetails={(id) => void openDetails(id)}
-              hoursSublineLabel="Gestempelt"
             />
-          )}
+          ) : null}
         </div>
       </Card>
 
@@ -516,60 +520,27 @@ export function PayrollTimePage() {
               ) : (
                 <>
                   {detailSummary ? (
-                    <div className="mb-6 rounded-xl border border-white/10 bg-black/20 p-4 text-sm">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text-faint)]">Weitere Werte (Lohnzeile)</p>
-                      <dl className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                        <div>
-                          <dt className="text-[var(--text-muted)]">Beschäftigungsart</dt>
-                          <dd className="font-medium text-[var(--text-main)]">{detailSummary.employmentType}</dd>
-                        </div>
-                        <div>
-                          <dt className="text-[var(--text-muted)]">Eingetr. Stundenlohn</dt>
-                          <dd className="tabular-nums text-[var(--text-main)]">{formatRegisteredHourly(detailSummary)}</dd>
-                        </div>
-                        <div>
-                          <dt className="text-[var(--text-muted)]">Verwend. Stundenlohn</dt>
-                          <dd className="tabular-nums text-[var(--text-main)]">{formatEuroDe(detailSummary.hourlyWage)}</dd>
-                        </div>
-                        {detailSummary.minimumWageNote?.trim() ? (
-                          <div className="sm:col-span-2 lg:col-span-3">
-                            <dt className="text-[var(--text-muted)]">Mindestlohn / Hinweis</dt>
-                            <dd className="text-[var(--text-main)]">{detailSummary.minimumWageNote.trim()}</dd>
-                          </div>
-                        ) : null}
-                        <div>
-                          <dt className="text-[var(--text-muted)]">Überstunden</dt>
-                          <dd className="tabular-nums text-[var(--text-main)]">
-                            {detailSummary.overtimeHours > 0 ? formatHoursDe(detailSummary.overtimeHours) : '—'}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt className="text-[var(--text-muted)]">Kassendifferenz</dt>
-                          <dd className="tabular-nums text-[var(--text-main)]">{formatEuroDe(detailSummary.cashDifference)}</dd>
-                        </div>
-                        <div>
-                          <dt className="text-[var(--text-muted)]">Prämie</dt>
-                          <dd className="tabular-nums text-[var(--text-main)]">{formatEuroDe(detailSummary.bonus)}</dd>
-                        </div>
-                        <div>
-                          <dt className="text-[var(--text-muted)]">Urlaubstage (U-Tage)</dt>
-                          <dd className="tabular-nums text-[var(--text-main)]">{formatDaysDe(detailSummary.vacationDays)}</dd>
-                        </div>
-                        {detailSummary.workPlanHours != null ? (
-                          <div className="sm:col-span-2 lg:col-span-3">
-                            <dt className="text-[var(--text-muted)]">Stundenaufteilung (Zeiterfassung / Abwesenheit)</dt>
-                            <dd className="text-[var(--text-main)]">
-                              Gestempelt {formatHoursDe(detailSummary.workPlanHours)}
-                              {detailSummary.paidVacationHours > 0 ? ` · Urlaub ${formatHoursDe(detailSummary.paidVacationHours)}` : ''}
-                              {(detailSummary.paidOtherAbsenceHours ?? 0) > 0
-                                ? ` · sonst. bez. Abw. ${formatHoursDe(detailSummary.paidOtherAbsenceHours ?? 0)}`
-                                : ''}
-                              {` · Summe Stunden ${formatHoursDe(detailSummary.totalHours)}`}
-                            </dd>
-                          </div>
-                        ) : null}
-                      </dl>
-                    </div>
+                    <PayrollDetailExtraFields
+                      row={{
+                        employmentType: detailSummary.employmentType,
+                        registeredHourlyWage: detailSummary.registeredHourlyWage,
+                        hourlyWage: detailSummary.hourlyWage,
+                        minimumWageNote: detailSummary.minimumWageNote,
+                        overtimeHours: detailSummary.overtimeHours,
+                        mankogeld: detailSummary.mankogeld,
+                        vl: detailSummary.vl,
+                        cashDifference: detailSummary.cashDifference,
+                        bonus: detailSummary.bonus,
+                        advance: detailSummary.advance,
+                        vacationDays: detailSummary.vacationDays,
+                        paidVacationHours: detailSummary.paidVacationHours,
+                        paidOtherAbsenceHours: detailSummary.paidOtherAbsenceHours,
+                        workPlanHours: detailSummary.workPlanHours,
+                        totalHours: detailSummary.totalHours,
+                      }}
+                      showEmployment
+                      showAdvance
+                    />
                   ) : null}
                   {!detailItems.length ? (
                     <p className="text-sm text-[var(--text-muted)]">Keine Zeiterfassungs- oder Abwesenheitszeilen im Zeitraum.</p>
