@@ -84,7 +84,7 @@ export const GERMAN_HOLIDAYS: GermanHoliday[] = [
     date: '2026-05-01',
     scope: 'nationwide',
     states: 'ALL',
-    type: 'public',
+    type: 'special',
   },
   {
     id: 'de-2026-christi-himmelfahrt',

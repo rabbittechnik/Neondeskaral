@@ -7,12 +7,19 @@ import type { TimeEntryRow } from './timeTrackingService.js'
 import {
   computeSupplementEurosForTimeEntry,
   computeScheduleShiftSupplementEuros,
+  computeScheduleShiftSupplementBreakdown,
+  computeTimeEntrySupplementBreakdown,
+  buildPayrollDaySupplementAudit,
   isGermanPublicHolidayYmd,
   publicHolidayNameDe,
   type EmployeeSurchargeFields,
+  type PayrollDaySupplementAudit,
+  type PayrollSupplementLineDebug,
   type ScheduleShiftSurchargeDebug,
 } from './payrollSurchargeService.js'
 import { buildStationHolidayOverlay } from './stationExtraHolidayService.js'
+import { loadStationPayrollSurchargeRules } from './stationPayrollSurchargeRulesService.js'
+import type { StationPayrollSurchargeRules } from '../types/stationPayrollSurchargeRules.js'
 import type { StationHolidayOverlay } from '../types/stationHolidayOverlay.js'
 import { employmentTypeSubjectToStatutoryMinimum, getEffectiveHourlyRate } from './statutoryMinWageService.js'
 import { listShifts } from './shiftService.js'
@@ -196,22 +203,11 @@ export type PayrollCombinedDayDetail = {
   plannedOtherPaidAbsenceMinutes: number
   isPublicHoliday?: boolean
   holidayNameDe?: string
-  supplementBreakdown?: PayrollDaySupplementBreakdown
+  /** Zuschlags-Debug: Aufschlüsselung je Tag (Vergleich Originalsystem). */
+  supplementDebug?: PayrollDaySupplementAudit
 }
 
-export type PayrollDaySupplementBreakdown = {
-  holidayHours: number
-  holidayEuro: number
-  sundayHours: number
-  sundayEuro: number
-  saturdayHours: number
-  saturdayEuro: number
-  nightHours: number
-  nightEuro: number
-  night04Hours: number
-  night04Euro: number
-  totalEuro: number
-}
+export type { PayrollDaySupplementAudit } from './payrollSurchargeService.js'
 
 export type PayrollEmployeeRangeAudit = {
   detailUsedMinutes: number
@@ -344,6 +340,7 @@ export function calculatePayrollTimeTrackingReport(
 
   const federalState = String(station.federal_state ?? 'BW').toUpperCase() as GermanState
   const holidayOverlay = buildStationHolidayOverlay(db, stationId)
+  const stationSurchargeRules = loadStationPayrollSurchargeRules(db, stationId)
   const todayYmd = todayIso()
 
   const employees = db
@@ -436,6 +433,7 @@ export function calculatePayrollTimeTrackingReport(
         breakMinutes: t.break_minutes ?? 0,
         federalState,
         holidayOverlay,
+        stationRules: stationSurchargeRules,
       })
     }
     totalHours = Math.round(totalHours * 100) / 100
@@ -614,6 +612,7 @@ export function calculatePayrollScheduleReport(
 
   const federalState = String(station.federal_state ?? 'BW').toUpperCase() as GermanState
   const holidayOverlay = buildStationHolidayOverlay(db, stationId)
+  const stationSurchargeRules = loadStationPayrollSurchargeRules(db, stationId)
   const todayYmd = todayIso()
 
   const employees = db
@@ -695,6 +694,7 @@ export function calculatePayrollScheduleReport(
         breakMinutes: s.breakMinutes ?? 0,
         federalState,
         holidayOverlay,
+        stationRules: stationSurchargeRules,
         employeeId,
         employeeName: emp.display_name,
         debug: dbg,
@@ -887,6 +887,98 @@ export function calculatePayrollScheduleReport(
 function weekdayDeLongEuropeBerlin(ymd: string): string {
   const ms = berlinWallClockToUtcMs(ymd, '12:00')
   return new Intl.DateTimeFormat('de-DE', { weekday: 'long', timeZone: 'Europe/Berlin' }).format(new Date(ms))
+}
+
+function mergeSupplementLines(batches: PayrollSupplementLineDebug[][]): PayrollSupplementLineDebug[] {
+  const map = new Map<string, PayrollSupplementLineDebug>()
+  for (const lines of batches) {
+    for (const l of lines) {
+      const key = `${l.kind}:${l.percent}`
+      const ex = map.get(key)
+      if (ex) {
+        ex.hours = Math.round((ex.hours + l.hours) * 100) / 100
+        ex.amountEuro = Math.round((ex.amountEuro + l.amountEuro) * 100) / 100
+      } else {
+        map.set(key, { ...l })
+      }
+    }
+  }
+  return [...map.values()]
+}
+
+function computeDaySupplementSides(p: {
+  ymd: string
+  myShifts: Array<{ date?: string; startTime?: string; endTime?: string; breakMinutes?: number }>
+  myEntries: TimeEntryRow[]
+  entryCorrMap: Map<string, TimeEntryCorrectionRow>
+  empFields: EmployeeSurchargeFields
+  employmentType: string
+  wageForSupplements: number
+  federalState: GermanState
+  holidayOverlay: StationHolidayOverlay
+  stationRules: StationPayrollSurchargeRules
+  fromDate: string
+  toDate: string
+}): {
+  scheduleTotalEuro: number
+  scheduleLines: PayrollSupplementLineDebug[]
+  timeTrackingTotalEuro: number
+  timeTrackingLines: PayrollSupplementLineDebug[]
+} {
+  const wage = Math.max(0, p.wageForSupplements)
+  const schedBatches: PayrollSupplementLineDebug[][] = []
+  let scheduleTotalEuro = 0
+
+  for (const s of p.myShifts) {
+    if (!s.date || !s.startTime || !s.endTime) continue
+    const { startIso, endIso } = shiftToIsoEndpoints(s.date, s.startTime, s.endTime)
+    const m = netHoursByBerlinYmdInRange(startIso, endIso, s.breakMinutes ?? 0, p.fromDate, p.toDate)
+    if (!m.has(p.ymd) || (m.get(p.ymd) ?? 0) <= 0) continue
+    const br = computeScheduleShiftSupplementBreakdown({
+      emp: p.empFields,
+      hourlyWage: wage,
+      shiftDate: s.date,
+      startTime: s.startTime,
+      endTime: s.endTime,
+      breakMinutes: s.breakMinutes ?? 0,
+      federalState: p.federalState,
+      holidayOverlay: p.holidayOverlay,
+      stationRules: p.stationRules,
+      onlyBerlinYmd: p.ymd,
+    })
+    scheduleTotalEuro += br.totalEuro
+    schedBatches.push(br.lines)
+  }
+
+  const timeBatches: PayrollSupplementLineDebug[][] = []
+  let timeTrackingTotalEuro = 0
+  for (const te of p.myEntries) {
+    const t = effectiveTimeEntryForPayroll(te, p.entryCorrMap)
+    if (!t.start_at || !t.end_at) continue
+    const m = netHoursByBerlinYmdInRange(t.start_at, t.end_at, t.break_minutes ?? 0, p.fromDate, p.toDate)
+    if (!m.has(p.ymd) || (m.get(p.ymd) ?? 0) <= 0) continue
+    const br = computeTimeEntrySupplementBreakdown({
+      employmentType: p.employmentType,
+      emp: p.empFields,
+      hourlyWage: wage,
+      startIso: t.start_at,
+      endIso: t.end_at,
+      breakMinutes: t.break_minutes ?? 0,
+      federalState: p.federalState,
+      holidayOverlay: p.holidayOverlay,
+      stationRules: p.stationRules,
+      onlyBerlinYmd: p.ymd,
+    })
+    timeTrackingTotalEuro += br.totalEuro
+    timeBatches.push(br.lines)
+  }
+
+  return {
+    scheduleTotalEuro: Math.round(scheduleTotalEuro * 100) / 100,
+    scheduleLines: mergeSupplementLines(schedBatches),
+    timeTrackingTotalEuro: Math.round(timeTrackingTotalEuro * 100) / 100,
+    timeTrackingLines: mergeSupplementLines(timeBatches),
+  }
 }
 
 function weekdayShortFlags(ymd: string): { sat: boolean; sun: boolean } {
@@ -1268,6 +1360,7 @@ export function calculatePayrollCombinedReport(
 
   const federalState = String(station.federal_state ?? 'BW').toUpperCase() as GermanState
   const holidayOverlay = buildStationHolidayOverlay(db, stationId)
+  const stationSurchargeRules = loadStationPayrollSurchargeRules(db, stationId)
   const todayYmd = todayIso()
 
   const employees = db
@@ -1634,7 +1727,12 @@ export function calculatePayrollCombinedReport(
 
       let daySup = 0
       if (!hasOpen) {
-        if (source === 'schedule_fallback') {
+        const useScheduleSupplements =
+          stationSurchargeRules.supplementsPreferSchedule && shMin > 0
+            ? true
+            : source === 'schedule_fallback'
+
+        if (useScheduleSupplements) {
           for (const s of myShifts) {
             if (!s.date || !s.startTime || !s.endTime) continue
             const { startIso, endIso } = shiftToIsoEndpoints(s.date, s.startTime, s.endTime)
@@ -1649,6 +1747,7 @@ export function calculatePayrollCombinedReport(
               breakMinutes: s.breakMinutes ?? 0,
               federalState,
               holidayOverlay,
+              stationRules: stationSurchargeRules,
               onlyBerlinYmd: ymd,
             })
           }
@@ -1667,6 +1766,7 @@ export function calculatePayrollCombinedReport(
               breakMinutes: t.break_minutes ?? 0,
               federalState,
               holidayOverlay,
+              stationRules: stationSurchargeRules,
               onlyBerlinYmd: ymd,
             })
           }
@@ -1678,6 +1778,51 @@ export function calculatePayrollCombinedReport(
 
       const diffDay = minutesToHours2(usedMin - shMin)
       const isHol = isGermanPublicHolidayYmd(ymd, federalState, holidayOverlay)
+
+      const appliedBasis: 'schedule' | 'time_tracking' | 'none' = hasOpen
+        ? 'none'
+        : stationSurchargeRules.supplementsPreferSchedule && shMin > 0
+          ? 'schedule'
+          : source === 'schedule_fallback'
+            ? 'schedule'
+            : source === 'time_tracking' || source === 'time_tracking_extra'
+              ? 'time_tracking'
+              : 'none'
+
+      const sides = computeDaySupplementSides({
+        ymd,
+        myShifts,
+        myEntries,
+        entryCorrMap,
+        empFields,
+        employmentType,
+        wageForSupplements,
+        federalState,
+        holidayOverlay,
+        stationRules: stationSurchargeRules,
+        fromDate,
+        toDate,
+      })
+
+      const supplementDebug = buildPayrollDaySupplementAudit({
+        date: ymd,
+        weekdayDe: weekdayDeLongEuropeBerlin(ymd),
+        workHoursUsed: minutesToHours2(usedMin),
+        vacationHours: vh,
+        hourlyWage: Math.max(0, wageForSupplements),
+        appliedBasis,
+        scheduleLines: sides.scheduleLines,
+        timeTrackingLines: sides.timeTrackingLines,
+        scheduleTotalEuro: sides.scheduleTotalEuro,
+        timeTrackingTotalEuro: sides.timeTrackingTotalEuro,
+        federalState,
+        holidayOverlay,
+      })
+
+      if (process.env.PAYROLL_SUPPLEMENT_DEBUG === '1' && supplementDebug.dayTotalEuro > 0) {
+        console.info('[PAYROLL_SUPPLEMENT_DEBUG]', JSON.stringify(supplementDebug))
+      }
+
       details.push({
         date: ymd,
         weekdayDe: weekdayDeLongEuropeBerlin(ymd),
@@ -1701,6 +1846,7 @@ export function calculatePayrollCombinedReport(
         plannedOtherPaidAbsenceMinutes: vhOtherMin,
         isPublicHoliday: isHol,
         holidayNameDe: isHol ? publicHolidayNameDe(ymd, federalState, holidayOverlay) : undefined,
+        supplementDebug,
       })
     }
 

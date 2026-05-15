@@ -200,6 +200,7 @@ export function runMigrations(db: Database.Database) {
   mergeDocumentsPermissionsIntoAccess(db)
   ensureStationExtendedModules2026(db)
   ensureStationBreakPolicyColumnsAndZeroBodelshausenBreaks(db)
+  ensureStationPayrollSurchargeRuleColumns(db)
   ensureTimeEntryCorrections2026(db)
   ensureWeeklySchedulePublicationsTable(db)
 }
@@ -1689,6 +1690,63 @@ function ensureStationExtendedModules2026(db: Database.Database) {
 }
 
 /** Pausenregelung in Stammdaten + Aral Bodelshausen: keine automatische Pause (0 Min.) in bestehenden Schichten/Zeiten. */
+/** Stationsregeln Lohn-Zuschläge (Früh/Spät/Nacht an Werktagen, Schichtplan-Basis). */
+function ensureStationPayrollSurchargeRuleColumns(db: Database.Database) {
+  const cols = new Set((db.prepare(`PRAGMA table_info(stations)`).all() as { name: string }[]).map((c) => c.name))
+  const add = (name: string, ddl: string) => {
+    if (!cols.has(name)) {
+      db.exec(`ALTER TABLE stations ADD COLUMN ${ddl}`)
+      cols.add(name)
+    }
+  }
+  add('normal_weekday_night_bonus_enabled', 'normal_weekday_night_bonus_enabled INTEGER')
+  add('normal_weekday_evening_bonus_enabled', 'normal_weekday_evening_bonus_enabled INTEGER')
+  add('saturday_surcharge_enabled', 'saturday_surcharge_enabled INTEGER')
+  add('sunday_surcharge_enabled', 'sunday_surcharge_enabled INTEGER')
+  add('payroll_supplements_prefer_schedule', 'payroll_supplements_prefer_schedule INTEGER')
+  add('default_special_holiday_percent', 'default_special_holiday_percent REAL')
+
+  const ts = nowIso()
+  db.prepare(
+    `UPDATE stations SET
+      normal_weekday_night_bonus_enabled = COALESCE(normal_weekday_night_bonus_enabled, 1),
+      normal_weekday_evening_bonus_enabled = COALESCE(normal_weekday_evening_bonus_enabled, 1),
+      saturday_surcharge_enabled = COALESCE(saturday_surcharge_enabled, 1),
+      sunday_surcharge_enabled = COALESCE(sunday_surcharge_enabled, 1),
+      payroll_supplements_prefer_schedule = COALESCE(payroll_supplements_prefer_schedule, 0),
+      default_special_holiday_percent = COALESCE(default_special_holiday_percent, 150),
+      updated_at = ?
+    WHERE normal_weekday_night_bonus_enabled IS NULL
+       OR normal_weekday_evening_bonus_enabled IS NULL
+       OR saturday_surcharge_enabled IS NULL
+       OR sunday_surcharge_enabled IS NULL
+       OR payroll_supplements_prefer_schedule IS NULL
+       OR default_special_holiday_percent IS NULL`,
+  ).run(ts)
+
+  db.prepare(
+    `UPDATE stations SET
+      normal_weekday_night_bonus_enabled = 0,
+      normal_weekday_evening_bonus_enabled = 0,
+      saturday_surcharge_enabled = 0,
+      sunday_surcharge_enabled = 0,
+      payroll_supplements_prefer_schedule = 1,
+      default_special_holiday_percent = 150,
+      updated_at = ?
+    WHERE id = 'aral-bodelshausen'`,
+  ).run(ts)
+
+  db.prepare(
+    `UPDATE employees SET
+      special_holiday_surcharge_percent = 150,
+      holiday_surcharge_percent = COALESCE(holiday_surcharge_percent, 125),
+      updated_at = ?
+    WHERE station_id = 'aral-bodelshausen'
+      AND (special_holiday_surcharge_percent IS NULL OR special_holiday_surcharge_percent <= 0)
+      AND surcharge_mode IN ('individual', 'tax_free')`,
+  ).run(ts)
+}
+
 function ensureStationBreakPolicyColumnsAndZeroBodelshausenBreaks(db: Database.Database) {
   const cols = new Set((db.prepare(`PRAGMA table_info(stations)`).all() as { name: string }[]).map((r) => r.name))
   if (!cols.has('automatic_break_deduction')) {

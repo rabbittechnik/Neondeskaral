@@ -1,6 +1,10 @@
 import type { GermanState } from '../data/germanHolidays2026.js'
 import { GERMAN_HOLIDAYS_2026, holidayAppliesToState } from '../data/germanHolidays2026.js'
 import type { StationHolidayOverlay } from '../types/stationHolidayOverlay.js'
+import {
+  DEFAULT_STATION_PAYROLL_SURCHARGE_RULES,
+  type StationPayrollSurchargeRules,
+} from '../types/stationPayrollSurchargeRules.js'
 import { addDaysToYmd, berlinWallClockToUtcMs, padHHMM } from '../utils/europeBerlinWallTime.js'
 
 export type EmployeeSurchargeFields = {
@@ -83,12 +87,187 @@ export function publicHolidayNameDe(ymd: string, state: GermanState, overlay?: S
   return parts.join(' · ')
 }
 
-/** Besondere Feiertage / Brückentage: Silvester ab 14 Uhr, Neujahr, Weihnachten (Profil „besondere Feiertage“). */
-function isSpecialHolidayCalendarMoment(ymd: string, hour: number, minute: number): boolean {
+/** Ganztägige gesetzliche B-Feiertage (150-%-Zuschlag / special_holiday_surcharge_percent). */
+const STATUTORY_SPECIAL_HOLIDAY_MD = new Set(['01-01', '05-01', '12-25', '12-26'])
+
+/**
+ * Besondere Feiertage / B-Feiertage: Neujahr, Tag der Arbeit, Weihnachten, Silvester ab 14 Uhr.
+ * Station: `specialAllDayDates` aus Zusatz-Feiertagen (`counts_as_special`).
+ */
+export function isSpecialHolidayCalendarMoment(ymd: string, hour: number, minute: number): boolean {
   const md = ymd.slice(5)
-  if (md === '12-25' || md === '12-26' || md === '01-01') return true
+  if (STATUTORY_SPECIAL_HOLIDAY_MD.has(md)) return true
   if (md === '12-31' && (hour > 14 || (hour === 14 && minute >= 0))) return true
   return false
+}
+
+export function isSpecialHolidayYmd(
+  ymd: string,
+  overlay?: StationHolidayOverlay | null,
+  hour = 12,
+  minute = 0,
+): boolean {
+  if (overlay?.specialAllDayDates.has(ymd)) return true
+  return isSpecialHolidayCalendarMoment(ymd, hour, minute)
+}
+
+export type HolidayPayrollTier = 'none' | 'regular' | 'special'
+
+/** Feiertagsart für Lohnabrechnung / Debug (regular = 125 %, special = B-Feiertag / 150 %). */
+export function resolveHolidayPayrollTier(
+  ymd: string,
+  state: GermanState,
+  overlay?: StationHolidayOverlay | null,
+  hour = 12,
+  minute = 0,
+): HolidayPayrollTier {
+  if (isSpecialHolidayYmd(ymd, overlay, hour, minute)) return 'special'
+  if (isGermanPublicHolidayYmd(ymd, state, overlay)) return 'regular'
+  return 'none'
+}
+
+export type PayrollSupplementLineDebug = {
+  kind: 'special_holiday' | 'holiday' | 'sunday' | 'saturday' | 'night' | 'night04'
+  kindLabelDe: string
+  percent: number
+  hours: number
+  hourlyWage: number
+  amountEuro: number
+}
+
+export type PayrollDaySupplementAudit = {
+  date: string
+  weekdayDe: string
+  workHoursUsed: number
+  vacationHours: number
+  hourlyWage: number
+  appliedBasis: 'schedule' | 'time_tracking' | 'none'
+  scheduleBasisEuro: number
+  timeTrackingBasisEuro: number
+  isPublicHoliday: boolean
+  isSpecialHoliday: boolean
+  holidayNameDe: string
+  holidayType: HolidayPayrollTier
+  lines: PayrollSupplementLineDebug[]
+  dayTotalEuro: number
+  /** Summe der Einzelzeilen (Cent-gerundet) – zur Rundungsprüfung. */
+  linesSumEuro: number
+  notInOriginalSystem: boolean
+  formulaSummary: string
+}
+
+const SUPPLEMENT_KIND_LABEL: Record<PayrollSupplementLineDebug['kind'], string> = {
+  special_holiday: 'Besonderer Feiertag (B-Feiertag)',
+  holiday: 'Feiertag',
+  sunday: 'Sonntag',
+  saturday: 'Samstag',
+  night: 'Nachtzuschlag',
+  night04: '0–4-Uhr-Zuschlag',
+}
+
+type SupplementBreakdownBuckets = Record<PayrollSupplementLineDebug['kind'], { hours: number; amount: number; percent: number }>
+
+function emptyBreakdownBuckets(): SupplementBreakdownBuckets {
+  return {
+    special_holiday: { hours: 0, amount: 0, percent: 0 },
+    holiday: { hours: 0, amount: 0, percent: 0 },
+    sunday: { hours: 0, amount: 0, percent: 0 },
+    saturday: { hours: 0, amount: 0, percent: 0 },
+    night: { hours: 0, amount: 0, percent: 0 },
+    night04: { hours: 0, amount: 0, percent: 0 },
+  }
+}
+
+function bucketsToLines(buckets: SupplementBreakdownBuckets, wage: number): PayrollSupplementLineDebug[] {
+  const lines: PayrollSupplementLineDebug[] = []
+  for (const kind of Object.keys(buckets) as PayrollSupplementLineDebug['kind'][]) {
+    const b = buckets[kind]
+    if (b.hours <= 0 && b.amount <= 0) continue
+    lines.push({
+      kind,
+      kindLabelDe: SUPPLEMENT_KIND_LABEL[kind],
+      percent: Math.round(b.percent * 100) / 100,
+      hours: Math.round(b.hours * 100) / 100,
+      hourlyWage: Math.round(wage * 100) / 100,
+      amountEuro: Math.round(b.amount * 100) / 100,
+    })
+  }
+  return lines
+}
+
+function mergeBreakdownBuckets(a: SupplementBreakdownBuckets, b: SupplementBreakdownBuckets): SupplementBreakdownBuckets {
+  const out = emptyBreakdownBuckets()
+  for (const kind of Object.keys(out) as PayrollSupplementLineDebug['kind'][]) {
+    out[kind].hours = a[kind].hours + b[kind].hours
+    out[kind].amount = a[kind].amount + b[kind].amount
+    out[kind].percent = Math.max(a[kind].percent, b[kind].percent)
+  }
+  return out
+}
+
+function rulesOrDefault(r?: StationPayrollSurchargeRules | null): StationPayrollSurchargeRules {
+  return r ?? DEFAULT_STATION_PAYROLL_SURCHARGE_RULES
+}
+
+/** Mo–Fr ohne gesetzlichen / B-Feiertag (Kalendertag Europe/Berlin). */
+function isNormalPayrollWeekday(
+  weekday0Sun: number,
+  ymd: string,
+  state: GermanState,
+  overlay?: StationHolidayOverlay | null,
+): boolean {
+  if (weekday0Sun === 0 || weekday0Sun === 6) return false
+  if (isGermanPublicHolidayYmd(ymd, state, overlay)) return false
+  if (isSpecialHolidayYmd(ymd, overlay)) return false
+  return true
+}
+
+function allowNightTimeBonusOnInstant(
+  weekday0Sun: number,
+  ymd: string,
+  hour: number,
+  minute: number,
+  state: GermanState,
+  overlay: StationHolidayOverlay | null | undefined,
+  rules: StationPayrollSurchargeRules,
+): boolean {
+  const isHol =
+    isGermanPublicHolidayYmd(ymd, state, overlay) ||
+    isSpecialHolidayYmd(ymd, overlay, hour, minute)
+  if (isHol) return false
+
+  if (isNormalPayrollWeekday(weekday0Sun, ymd, state, overlay)) {
+    return rules.normalWeekdayNightBonusEnabled && rules.normalWeekdayEveningBonusEnabled
+  }
+  return true
+}
+
+function allowSaturdayBonus(weekday0Sun: number, rules: StationPayrollSurchargeRules): boolean {
+  if (weekday0Sun !== 6) return true
+  return rules.saturdaySurchargeEnabled
+}
+
+function allowSundayBonus(weekday0Sun: number, rules: StationPayrollSurchargeRules): boolean {
+  if (weekday0Sun !== 0) return true
+  return rules.sundaySurchargeEnabled
+}
+
+function resolveHolidaySlicePercent(
+  isSpecialMoment: boolean,
+  isPublicHol: boolean,
+  emp: EmployeeSurchargeFields,
+  rules: StationPayrollSurchargeRules,
+): { percent: number; kind: 'special_holiday' | 'holiday' | null } {
+  const holPct = numOr0(emp.holiday_surcharge_percent)
+  const specHolPct = numOr0(emp.special_holiday_surcharge_percent)
+  if (isSpecialMoment) {
+    const pct = specHolPct > 0 ? specHolPct : rules.defaultSpecialHolidayPercent
+    if (pct > 0) return { percent: pct, kind: 'special_holiday' }
+    if (isPublicHol && holPct > 0) return { percent: holPct, kind: 'holiday' }
+    return { percent: 0, kind: null }
+  }
+  if (isPublicHol && holPct > 0) return { percent: holPct, kind: 'holiday' }
+  return { percent: 0, kind: null }
 }
 
 const berlinWeekday = new Intl.DateTimeFormat('en-US', {
@@ -125,15 +304,15 @@ function collectSurchargePercentsForInstant(
   isoMs: number,
   state: GermanState,
   overlay?: StationHolidayOverlay | null,
+  stationRules?: StationPayrollSurchargeRules | null,
 ): number[] {
+  const rules = rulesOrDefault(stationRules)
   const { ymd, hour, minute, weekday0Sun } = berlinWallClock(isoMs)
   const mod = toMinuteOfDay(hour, minute)
   const percents: number[] = []
 
   const satPct = numOr0(emp.saturday_surcharge_percent)
   const sunPct = numOr0(emp.sunday_surcharge_percent)
-  const holPct = numOr0(emp.holiday_surcharge_percent)
-  const specHolPct = numOr0(emp.special_holiday_surcharge_percent)
   const nightPct = numOr0(emp.night_surcharge_percent)
   const n04 = numOr0(emp.night_0_4_surcharge_percent)
   const n04Sun = numOr0(emp.night_0_4_after_sunday_percent)
@@ -145,25 +324,31 @@ function collectSurchargePercentsForInstant(
   const isSpecialMoment = isSpecialHolidayCalendarMoment(ymd, hour, minute) || isCustomSpecialAllDay
   const isDec31Afternoon = ymd.endsWith('-12-31') && hour >= 14
 
-  if (weekday0Sun === 6 && satPct > 0) percents.push(satPct)
-  if (weekday0Sun === 0 && sunPct > 0) percents.push(sunPct)
+  if (weekday0Sun === 6 && satPct > 0 && allowSaturdayBonus(weekday0Sun, rules)) percents.push(satPct)
+  if (weekday0Sun === 0 && sunPct > 0 && allowSundayBonus(weekday0Sun, rules)) percents.push(sunPct)
 
-  if (isSpecialMoment) {
-    if (specHolPct > 0) percents.push(specHolPct)
-    else if (isPublicHol && holPct > 0) percents.push(holPct)
-  } else if (isPublicHol && holPct > 0) {
-    percents.push(holPct)
-  }
+  const holSlice = resolveHolidaySlicePercent(isSpecialMoment, isPublicHol, emp, rules)
+  if (holSlice.percent > 0) percents.push(holSlice.percent)
 
   const ns = parseHm(emp.night_surcharge_start)
   const ne = parseHm(emp.night_surcharge_end)
-  if (ns && ne && nightPct > 0) {
+  if (
+    ns &&
+    ne &&
+    nightPct > 0 &&
+    allowNightTimeBonusOnInstant(weekday0Sun, ymd, hour, minute, state, overlay, rules)
+  ) {
     const startM = toMinuteOfDay(ns.h, ns.m)
     const endM = toMinuteOfDay(ne.h, ne.m)
     if (minuteInSpan(mod, startM, endM)) percents.push(nightPct)
   }
 
-  if (hour >= 0 && hour < 4 && n04 > 0) {
+  if (
+    hour >= 0 &&
+    hour < 4 &&
+    n04 > 0 &&
+    allowNightTimeBonusOnInstant(weekday0Sun, ymd, hour, minute, state, overlay, rules)
+  ) {
     let p = n04
     if (weekday0Sun === 0 && n04Sun > p) p = n04Sun
     if (isPublicHol && n04Hol > p) p = n04Hol
@@ -186,8 +371,9 @@ function maxPercentForInstant(
   isoMs: number,
   state: GermanState,
   overlay?: StationHolidayOverlay | null,
+  stationRules?: StationPayrollSurchargeRules | null,
 ): number {
-  return combinePercents(collectSurchargePercentsForInstant(emp, isoMs, state, overlay), emp)
+  return combinePercents(collectSurchargePercentsForInstant(emp, isoMs, state, overlay, stationRules), emp)
 }
 
 function shiftEndYmd(shiftDate: string, startTime: string, endTime: string): string {
@@ -199,6 +385,146 @@ function shiftEndYmd(shiftDate: string, startTime: string, endTime: string): str
   const eMin = (eh ?? 0) * 60 + (em ?? 0)
   if (eMin <= sMin) return addDaysToYmd(shiftDate, 1)
   return shiftDate
+}
+
+type ScheduleShiftSupplementOpts = {
+  emp: EmployeeSurchargeFields
+  hourlyWage: number
+  shiftDate: string
+  startTime: string
+  endTime: string
+  breakMinutes: number
+  federalState: GermanState
+  holidayOverlay?: StationHolidayOverlay | null
+  stationRules?: StationPayrollSurchargeRules | null
+  onlyBerlinYmd?: string
+}
+
+function accumulateScheduleShiftSupplement(
+  opts: ScheduleShiftSupplementOpts,
+): { supplement: number; buckets: SupplementBreakdownBuckets } {
+  const mode = String(opts.emp.surcharge_mode ?? 'none').toLowerCase()
+  if (mode === 'none') return { supplement: 0, buckets: emptyBreakdownBuckets() }
+
+  const wage = Number(opts.hourlyWage)
+  if (!Number.isFinite(wage) || wage <= 0) return { supplement: 0, buckets: emptyBreakdownBuckets() }
+
+  const dateStr = String(opts.shiftDate).trim()
+  const st = padHHMM(opts.startTime)
+  const en = padHHMM(opts.endTime)
+  const endYmd = shiftEndYmd(dateStr, st, en)
+  const startMs = berlinWallClockToUtcMs(dateStr, st)
+  const endMs = berlinWallClockToUtcMs(endYmd, en)
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+    return { supplement: 0, buckets: emptyBreakdownBuckets() }
+  }
+
+  const breakMs = Math.max(0, Number(opts.breakMinutes) || 0) * 60_000
+  const workSpan = endMs - startMs - breakMs
+  if (workSpan <= 0) return { supplement: 0, buckets: emptyBreakdownBuckets() }
+  const workEnd = startMs + workSpan
+
+  const STEP_MS = 5 * 60 * 1000
+  let supplement = 0
+  const buckets = emptyBreakdownBuckets()
+  const ymdFilter = opts.onlyBerlinYmd?.trim()
+  const holOv = opts.holidayOverlay ?? null
+  const rules = rulesOrDefault(opts.stationRules)
+
+  for (let t = startMs; t < workEnd; t += STEP_MS) {
+    const sliceEnd = Math.min(t + STEP_MS, workEnd)
+    const hours = (sliceEnd - t) / 3_600_000
+    const mid = (t + sliceEnd) / 2
+    const { ymd, hour, minute, weekday0Sun } = berlinWallClock(mid)
+    if (ymdFilter && ymd !== ymdFilter) continue
+    const mod = toMinuteOfDay(hour, minute)
+    const satPct = numOr0(opts.emp.saturday_surcharge_percent)
+    const sunPct = numOr0(opts.emp.sunday_surcharge_percent)
+    const nightPct = numOr0(opts.emp.night_surcharge_percent)
+    const n04 = numOr0(opts.emp.night_0_4_surcharge_percent)
+    const n04Sun = numOr0(opts.emp.night_0_4_after_sunday_percent)
+    const n04Hol = numOr0(opts.emp.night_0_4_after_holiday_percent)
+    const n04Spec = numOr0(opts.emp.night_0_4_after_special_holiday_percent)
+    const isPublicHol = isGermanPublicHolidayYmd(ymd, opts.federalState, holOv)
+    const isCustomSpecialAllDay = holOv?.specialAllDayDates.has(ymd) ?? false
+    const isSpecialMoment = isSpecialHolidayCalendarMoment(ymd, hour, minute) || isCustomSpecialAllDay
+    const isDec31Afternoon = ymd.endsWith('-12-31') && hour >= 14
+
+    if (weekday0Sun === 6 && satPct > 0 && allowSaturdayBonus(weekday0Sun, rules)) {
+      const a = hours * wage * (satPct / 100)
+      buckets.saturday.hours += hours
+      buckets.saturday.amount += a
+      buckets.saturday.percent = satPct
+      supplement += a
+    }
+    if (weekday0Sun === 0 && sunPct > 0 && allowSundayBonus(weekday0Sun, rules)) {
+      const a = hours * wage * (sunPct / 100)
+      buckets.sunday.hours += hours
+      buckets.sunday.amount += a
+      buckets.sunday.percent = sunPct
+      supplement += a
+    }
+
+    const holSlice = resolveHolidaySlicePercent(isSpecialMoment, isPublicHol, opts.emp, rules)
+    if (holSlice.percent > 0 && holSlice.kind) {
+      const a = hours * wage * (holSlice.percent / 100)
+      buckets[holSlice.kind].hours += hours
+      buckets[holSlice.kind].amount += a
+      buckets[holSlice.kind].percent = holSlice.percent
+      supplement += a
+    }
+
+    const ns = parseHm(opts.emp.night_surcharge_start)
+    const ne = parseHm(opts.emp.night_surcharge_end)
+    if (
+      ns &&
+      ne &&
+      nightPct > 0 &&
+      allowNightTimeBonusOnInstant(weekday0Sun, ymd, hour, minute, opts.federalState, holOv, rules)
+    ) {
+      const startM = toMinuteOfDay(ns.h, ns.m)
+      const endM = toMinuteOfDay(ne.h, ne.m)
+      if (minuteInSpan(mod, startM, endM)) {
+        const a = hours * wage * (nightPct / 100)
+        buckets.night.hours += hours
+        buckets.night.amount += a
+        buckets.night.percent = nightPct
+        supplement += a
+      }
+    }
+
+    if (
+      hour >= 0 &&
+      hour < 4 &&
+      n04 > 0 &&
+      allowNightTimeBonusOnInstant(weekday0Sun, ymd, hour, minute, opts.federalState, holOv, rules)
+    ) {
+      let p = n04
+      if (weekday0Sun === 0 && n04Sun > p) p = n04Sun
+      if (isPublicHol && n04Hol > p) p = n04Hol
+      if (isDec31Afternoon && n04Spec > p) p = n04Spec
+      const a = hours * wage * (p / 100)
+      buckets.night04.hours += hours
+      buckets.night04.amount += a
+      buckets.night04.percent = p
+      supplement += a
+    }
+  }
+
+  return { supplement: Math.round(supplement * 100) / 100, buckets }
+}
+
+/** Schichtplan-Zuschläge mit Aufschlüsselung je Kategorie (Debug / Vergleich). */
+export function computeScheduleShiftSupplementBreakdown(
+  opts: ScheduleShiftSupplementOpts,
+): { totalEuro: number; lines: PayrollSupplementLineDebug[]; buckets: SupplementBreakdownBuckets } {
+  const { supplement, buckets } = accumulateScheduleShiftSupplement(opts)
+  const wage = Math.max(0, Number(opts.hourlyWage) || 0)
+  return {
+    totalEuro: supplement,
+    lines: bucketsToLines(buckets, wage),
+    buckets,
+  }
 }
 
 /**
@@ -220,6 +546,7 @@ export function computeScheduleShiftSupplementEuros(opts: {
   federalState: GermanState
   /** Stationsspezifische Zusatz-Feiertage (Lohn). */
   holidayOverlay?: StationHolidayOverlay | null
+  stationRules?: StationPayrollSurchargeRules | null
   employeeId?: string
   employeeName?: string
   /** Nur Zuschlagsminuten, deren Europe/Berlin-Kalendertag dieser YYYY-MM-DD ist (Kombi-Lohn). */
@@ -227,111 +554,22 @@ export function computeScheduleShiftSupplementEuros(opts: {
   /** Nur für PAYROLL_SCHEDULE_DEBUG=1: eine Zeile pro Schicht (ungefähre Aufteilung). */
   debug?: Partial<ScheduleShiftSurchargeDebug>
 }): number {
-  const mode = String(opts.emp.surcharge_mode ?? 'none').toLowerCase()
-  if (mode === 'none') return 0
-
-  const wage = Number(opts.hourlyWage)
-  if (!Number.isFinite(wage) || wage <= 0) return 0
-
-  const dateStr = String(opts.shiftDate).trim()
-  const st = padHHMM(opts.startTime)
-  const en = padHHMM(opts.endTime)
-  const endYmd = shiftEndYmd(dateStr, st, en)
-  const startMs = berlinWallClockToUtcMs(dateStr, st)
-  const endMs = berlinWallClockToUtcMs(endYmd, en)
-  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return 0
-
-  const breakMs = Math.max(0, Number(opts.breakMinutes) || 0) * 60_000
-  const workSpan = endMs - startMs - breakMs
-  if (workSpan <= 0) return 0
-  const workEnd = startMs + workSpan
-
-  const STEP_MS = 5 * 60 * 1000
-  let supplement = 0
-  let holAmt = 0
-  let sunAmt = 0
-  let satAmt = 0
-  let nightAmt = 0
-  let n04Amt = 0
-  let maxHolPctApplied = 0
-
-  const ymdFilter = opts.onlyBerlinYmd?.trim()
+  const { supplement, buckets } = accumulateScheduleShiftSupplement(opts)
   const holOv = opts.holidayOverlay ?? null
 
-  for (let t = startMs; t < workEnd; t += STEP_MS) {
-    const sliceEnd = Math.min(t + STEP_MS, workEnd)
-    const hours = (sliceEnd - t) / 3_600_000
-    const mid = (t + sliceEnd) / 2
-    const { ymd, hour, minute, weekday0Sun } = berlinWallClock(mid)
-    if (ymdFilter && ymd !== ymdFilter) continue
-    const mod = toMinuteOfDay(hour, minute)
-    const satPct = numOr0(opts.emp.saturday_surcharge_percent)
-    const sunPct = numOr0(opts.emp.sunday_surcharge_percent)
-    const holPct = numOr0(opts.emp.holiday_surcharge_percent)
-    const specHolPct = numOr0(opts.emp.special_holiday_surcharge_percent)
-    const nightPct = numOr0(opts.emp.night_surcharge_percent)
-    const n04 = numOr0(opts.emp.night_0_4_surcharge_percent)
-    const n04Sun = numOr0(opts.emp.night_0_4_after_sunday_percent)
-    const n04Hol = numOr0(opts.emp.night_0_4_after_holiday_percent)
-    const n04Spec = numOr0(opts.emp.night_0_4_after_special_holiday_percent)
-    const isPublicHol = isGermanPublicHolidayYmd(ymd, opts.federalState, holOv)
-    const isCustomSpecialAllDay = holOv?.specialAllDayDates.has(ymd) ?? false
-    const isSpecialMoment = isSpecialHolidayCalendarMoment(ymd, hour, minute) || isCustomSpecialAllDay
-    const isDec31Afternoon = ymd.endsWith('-12-31') && hour >= 14
-
-    if (weekday0Sun === 6 && satPct > 0) {
-      const a = hours * wage * (satPct / 100)
-      satAmt += a
-      supplement += a
-    }
-    if (weekday0Sun === 0 && sunPct > 0) {
-      const a = hours * wage * (sunPct / 100)
-      sunAmt += a
-      supplement += a
-    }
-
-    let holP = 0
-    if (isSpecialMoment) {
-      if (specHolPct > 0) holP = specHolPct
-      else if (isPublicHol && holPct > 0) holP = holPct
-    } else if (isPublicHol && holPct > 0) {
-      holP = holPct
-    }
-    if (holP > 0) {
-      maxHolPctApplied = Math.max(maxHolPctApplied, holP)
-      const a = hours * wage * (holP / 100)
-      holAmt += a
-      supplement += a
-    }
-
-    const ns = parseHm(opts.emp.night_surcharge_start)
-    const ne = parseHm(opts.emp.night_surcharge_end)
-    if (ns && ne && nightPct > 0) {
-      const startM = toMinuteOfDay(ns.h, ns.m)
-      const endM = toMinuteOfDay(ne.h, ne.m)
-      if (minuteInSpan(mod, startM, endM)) {
-        const a = hours * wage * (nightPct / 100)
-        nightAmt += a
-        supplement += a
-      }
-    }
-
-    if (hour >= 0 && hour < 4 && n04 > 0) {
-      let p = n04
-      if (weekday0Sun === 0 && n04Sun > p) p = n04Sun
-      if (isPublicHol && n04Hol > p) p = n04Hol
-      if (isDec31Afternoon && n04Spec > p) p = n04Spec
-      const a = hours * wage * (p / 100)
-      n04Amt += a
-      supplement += a
-    }
-  }
-
   if (opts.debug && process.env.PAYROLL_SCHEDULE_DEBUG === '1') {
+    const dateStr = String(opts.shiftDate).trim()
+    const st = padHHMM(opts.startTime)
+    const en = padHHMM(opts.endTime)
+    const endYmd = shiftEndYmd(dateStr, st, en)
+    const startMs = berlinWallClockToUtcMs(dateStr, st)
+    const endMs = berlinWallClockToUtcMs(endYmd, en)
+    const wage = Number(opts.hourlyWage)
     const wall0 = berlinWallClock(startMs)
     const isPH = isGermanPublicHolidayYmd(wall0.ymd, opts.federalState, holOv)
     const grossH = (endMs - startMs) / 3_600_000
     const netH = Math.max(0, grossH - (Number(opts.breakMinutes) || 0) / 60)
+    const maxHolPct = Math.max(buckets.special_holiday.percent, buckets.holiday.percent)
     Object.assign(opts.debug, {
       employeeId: opts.employeeId,
       employeeName: opts.employeeName,
@@ -347,17 +585,158 @@ export function computeScheduleShiftSupplementEuros(opts: {
         isSpecialHolidayCalendarMoment(wall0.ymd, wall0.hour, wall0.minute) ||
         (holOv?.specialAllDayDates.has(wall0.ymd) ?? false),
       hourlyRate: wage,
-      holidayBonusPercentApplied: maxHolPctApplied,
-      holidayBonusAmount: Math.round(holAmt * 100) / 100,
-      sundayBonusAmount: Math.round(sunAmt * 100) / 100,
-      saturdayBonusAmount: Math.round(satAmt * 100) / 100,
-      nightBonusAmount: Math.round(nightAmt * 100) / 100,
-      night04BonusAmount: Math.round(n04Amt * 100) / 100,
+      holidayBonusPercentApplied: maxHolPct,
+      holidayBonusAmount: Math.round((buckets.special_holiday.amount + buckets.holiday.amount) * 100) / 100,
+      sundayBonusAmount: Math.round(buckets.sunday.amount * 100) / 100,
+      saturdayBonusAmount: Math.round(buckets.saturday.amount * 100) / 100,
+      nightBonusAmount: Math.round(buckets.night.amount * 100) / 100,
+      night04BonusAmount: Math.round(buckets.night04.amount * 100) / 100,
       totalBonuses: Math.round(supplement * 100) / 100,
     })
   }
 
-  return Math.round(supplement * 100) / 100
+  return supplement
+}
+
+type TimeEntrySupplementOpts = {
+  employmentType: string
+  emp: EmployeeSurchargeFields
+  hourlyWage: number
+  startIso: string
+  endIso: string
+  breakMinutes: number
+  federalState: GermanState
+  holidayOverlay?: StationHolidayOverlay | null
+  stationRules?: StationPayrollSurchargeRules | null
+  onlyBerlinYmd?: string
+}
+
+function dominantSurchargeKindForInstant(
+  emp: EmployeeSurchargeFields,
+  isoMs: number,
+  state: GermanState,
+  overlay?: StationHolidayOverlay | null,
+  stationRules?: StationPayrollSurchargeRules | null,
+): { kind: PayrollSupplementLineDebug['kind'] | null; percent: number } {
+  const rules = rulesOrDefault(stationRules)
+  const { ymd, hour, minute, weekday0Sun } = berlinWallClock(isoMs)
+  const mod = toMinuteOfDay(hour, minute)
+  const candidates: { kind: PayrollSupplementLineDebug['kind']; pct: number }[] = []
+
+  const satPct = numOr0(emp.saturday_surcharge_percent)
+  const sunPct = numOr0(emp.sunday_surcharge_percent)
+  const nightPct = numOr0(emp.night_surcharge_percent)
+  const n04 = numOr0(emp.night_0_4_surcharge_percent)
+  const n04Sun = numOr0(emp.night_0_4_after_sunday_percent)
+  const n04Hol = numOr0(emp.night_0_4_after_holiday_percent)
+  const n04Spec = numOr0(emp.night_0_4_after_special_holiday_percent)
+
+  const isPublicHol = isGermanPublicHolidayYmd(ymd, state, overlay)
+  const isCustomSpecialAllDay = overlay?.specialAllDayDates.has(ymd) ?? false
+  const isSpecialMoment = isSpecialHolidayCalendarMoment(ymd, hour, minute) || isCustomSpecialAllDay
+  const isDec31Afternoon = ymd.endsWith('-12-31') && hour >= 14
+
+  if (weekday0Sun === 6 && satPct > 0 && allowSaturdayBonus(weekday0Sun, rules)) {
+    candidates.push({ kind: 'saturday', pct: satPct })
+  }
+  if (weekday0Sun === 0 && sunPct > 0 && allowSundayBonus(weekday0Sun, rules)) {
+    candidates.push({ kind: 'sunday', pct: sunPct })
+  }
+  const holSlice = resolveHolidaySlicePercent(isSpecialMoment, isPublicHol, emp, rules)
+  if (holSlice.percent > 0 && holSlice.kind) candidates.push({ kind: holSlice.kind, pct: holSlice.percent })
+
+  const ns = parseHm(emp.night_surcharge_start)
+  const ne = parseHm(emp.night_surcharge_end)
+  if (
+    ns &&
+    ne &&
+    nightPct > 0 &&
+    allowNightTimeBonusOnInstant(weekday0Sun, ymd, hour, minute, state, overlay, rules)
+  ) {
+    const startM = toMinuteOfDay(ns.h, ns.m)
+    const endM = toMinuteOfDay(ne.h, ne.m)
+    if (minuteInSpan(mod, startM, endM)) candidates.push({ kind: 'night', pct: nightPct })
+  }
+
+  if (
+    hour >= 0 &&
+    hour < 4 &&
+    n04 > 0 &&
+    allowNightTimeBonusOnInstant(weekday0Sun, ymd, hour, minute, state, overlay, rules)
+  ) {
+    let p = n04
+    if (weekday0Sun === 0 && n04Sun > p) p = n04Sun
+    if (isPublicHol && n04Hol > p) p = n04Hol
+    if (isDec31Afternoon && n04Spec > p) p = n04Spec
+    candidates.push({ kind: 'night04', pct: p })
+  }
+
+  if (candidates.length === 0) return { kind: null, percent: 0 }
+  const mode = String(emp.surcharge_calculation_mode ?? 'higher').toLowerCase()
+  if (mode === 'stack' || mode === 'add' || mode === 'summe') {
+    return { kind: candidates[0]!.kind, percent: candidates.reduce((s, c) => s + c.pct, 0) }
+  }
+  const best = candidates.reduce((a, b) => (b.pct > a.pct ? b : a))
+  return { kind: best.kind, percent: best.pct }
+}
+
+function accumulateTimeEntrySupplement(opts: TimeEntrySupplementOpts): {
+  supplement: number
+  buckets: SupplementBreakdownBuckets
+} {
+  const et = String(opts.employmentType ?? '').toLowerCase().trim()
+  if (et === 'aushilfe' || et === 'minijob' || et.includes('gering')) {
+    return { supplement: 0, buckets: emptyBreakdownBuckets() }
+  }
+  const mode = String(opts.emp.surcharge_mode ?? 'none').toLowerCase()
+  if (mode === 'none') return { supplement: 0, buckets: emptyBreakdownBuckets() }
+
+  const wage = Number(opts.hourlyWage)
+  if (!Number.isFinite(wage) || wage <= 0) return { supplement: 0, buckets: emptyBreakdownBuckets() }
+
+  const start = new Date(opts.startIso).getTime()
+  const end = new Date(opts.endIso).getTime()
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+    return { supplement: 0, buckets: emptyBreakdownBuckets() }
+  }
+
+  const breakMs = Math.max(0, Number(opts.breakMinutes) || 0) * 60_000
+  const workSpan = end - start - breakMs
+  if (workSpan <= 0) return { supplement: 0, buckets: emptyBreakdownBuckets() }
+  const workEnd = start + workSpan
+
+  const STEP_MS = 5 * 60 * 1000
+  let supplement = 0
+  const buckets = emptyBreakdownBuckets()
+  const ymdFilter = opts.onlyBerlinYmd?.trim()
+  const holOv = opts.holidayOverlay ?? null
+
+  for (let t = start; t < workEnd; t += STEP_MS) {
+    const sliceEnd = Math.min(t + STEP_MS, workEnd)
+    const hours = (sliceEnd - t) / 3_600_000
+    const mid = (t + sliceEnd) / 2
+    if (ymdFilter && berlinWallClock(mid).ymd !== ymdFilter) continue
+    const pct = maxPercentForInstant(opts.emp, mid, opts.federalState, holOv, opts.stationRules)
+    if (pct <= 0) continue
+    const { kind } = dominantSurchargeKindForInstant(opts.emp, mid, opts.federalState, holOv, opts.stationRules)
+    if (!kind) continue
+    const a = hours * wage * (pct / 100)
+    buckets[kind].hours += hours
+    buckets[kind].amount += a
+    buckets[kind].percent = Math.max(buckets[kind].percent, pct)
+    supplement += a
+  }
+
+  return { supplement: Math.round(supplement * 100) / 100, buckets }
+}
+
+/** Zeiterfassungs-Zuschläge mit Aufschlüsselung (dominanter Satz je Scheibe). */
+export function computeTimeEntrySupplementBreakdown(
+  opts: TimeEntrySupplementOpts,
+): { totalEuro: number; lines: PayrollSupplementLineDebug[]; buckets: SupplementBreakdownBuckets } {
+  const { supplement, buckets } = accumulateTimeEntrySupplement(opts)
+  const wage = Math.max(0, Number(opts.hourlyWage) || 0)
+  return { totalEuro: supplement, lines: bucketsToLines(buckets, wage), buckets }
 }
 
 /**
@@ -369,47 +748,67 @@ export function computeScheduleShiftSupplementEuros(opts: {
  * d. h. Feiertag/besonderer Feiertag **verdrängt** den niedrigeren Sonntagssatz, kein Doppelzuschlag aus beiden.
  * Ausnahme: Profil `surcharge_calculation_mode` = stack/add/summe → Summe der Sätze.
  */
-export function computeSupplementEurosForTimeEntry(opts: {
-  employmentType: string
-  emp: EmployeeSurchargeFields
+export function computeSupplementEurosForTimeEntry(opts: TimeEntrySupplementOpts): number {
+  return accumulateTimeEntrySupplement(opts).supplement
+}
+
+/** Referenz-Tage mit Zuschlägen im Originalsystem (Aral Bodelshausen-Vergleich). */
+export const ORIGINAL_SYSTEM_SUPPLEMENT_DATES = new Set(['2026-05-01', '2026-05-14'])
+
+export function buildPayrollDaySupplementAudit(p: {
+  date: string
+  weekdayDe: string
+  workHoursUsed: number
+  vacationHours: number
   hourlyWage: number
-  startIso: string
-  endIso: string
-  breakMinutes: number
+  appliedBasis: 'schedule' | 'time_tracking' | 'none'
+  scheduleLines: PayrollSupplementLineDebug[]
+  timeTrackingLines: PayrollSupplementLineDebug[]
+  scheduleTotalEuro: number
+  timeTrackingTotalEuro: number
   federalState: GermanState
   holidayOverlay?: StationHolidayOverlay | null
-  /** Nur Zuschlagsminuten mit diesem Europe/Berlin-Kalendertag (Kombi-Lohn). */
-  onlyBerlinYmd?: string
-}): number {
-  const et = String(opts.employmentType ?? '').toLowerCase().trim()
-  if (et === 'aushilfe' || et === 'minijob' || et.includes('gering')) return 0
-  const mode = String(opts.emp.surcharge_mode ?? 'none').toLowerCase()
-  if (mode === 'none') return 0
+}): PayrollDaySupplementAudit {
+  const lines =
+    p.appliedBasis === 'schedule'
+      ? p.scheduleLines
+      : p.appliedBasis === 'time_tracking'
+        ? p.timeTrackingLines
+        : []
+  const dayTotalEuro =
+    p.appliedBasis === 'schedule'
+      ? p.scheduleTotalEuro
+      : p.appliedBasis === 'time_tracking'
+        ? p.timeTrackingTotalEuro
+        : 0
+  const linesSumEuro = Math.round(lines.reduce((s, l) => s + l.amountEuro, 0) * 100) / 100
+  const isPH = isGermanPublicHolidayYmd(p.date, p.federalState, p.holidayOverlay)
+  const isSpec = isSpecialHolidayYmd(p.date, p.holidayOverlay)
+  const tier = resolveHolidayPayrollTier(p.date, p.federalState, p.holidayOverlay)
+  const holName = isPH || isSpec ? publicHolidayNameDe(p.date, p.federalState, p.holidayOverlay) : ''
 
-  const wage = Number(opts.hourlyWage)
-  if (!Number.isFinite(wage) || wage <= 0) return 0
+  const formulaParts = lines.map(
+    (l) => `${l.hours.toFixed(2).replace('.', ',')} Std. × ${l.hourlyWage.toFixed(2).replace('.', ',')} € × ${l.percent} % = ${l.amountEuro.toFixed(2).replace('.', ',')} €`,
+  )
+  const notInOriginalSystem = dayTotalEuro > 0.001 && !ORIGINAL_SYSTEM_SUPPLEMENT_DATES.has(p.date)
 
-  const start = new Date(opts.startIso).getTime()
-  const end = new Date(opts.endIso).getTime()
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 0
-
-  const breakMs = Math.max(0, Number(opts.breakMinutes) || 0) * 60_000
-  const workSpan = end - start - breakMs
-  if (workSpan <= 0) return 0
-  const workEnd = start + workSpan
-
-  const STEP_MS = 5 * 60 * 1000
-  let supplement = 0
-  const ymdFilter = opts.onlyBerlinYmd?.trim()
-  const holOv = opts.holidayOverlay ?? null
-
-  for (let t = start; t < workEnd; t += STEP_MS) {
-    const sliceEnd = Math.min(t + STEP_MS, workEnd)
-    const hours = (sliceEnd - t) / 3_600_000
-    const mid = (t + sliceEnd) / 2
-    if (ymdFilter && berlinWallClock(mid).ymd !== ymdFilter) continue
-    const pct = maxPercentForInstant(opts.emp, mid, opts.federalState, holOv)
-    if (pct > 0) supplement += hours * wage * (pct / 100)
+  return {
+    date: p.date,
+    weekdayDe: p.weekdayDe,
+    workHoursUsed: p.workHoursUsed,
+    vacationHours: p.vacationHours,
+    hourlyWage: Math.round(p.hourlyWage * 100) / 100,
+    appliedBasis: p.appliedBasis,
+    scheduleBasisEuro: Math.round(p.scheduleTotalEuro * 100) / 100,
+    timeTrackingBasisEuro: Math.round(p.timeTrackingTotalEuro * 100) / 100,
+    isPublicHoliday: isPH,
+    isSpecialHoliday: isSpec,
+    holidayNameDe: holName,
+    holidayType: tier,
+    lines,
+    dayTotalEuro: Math.round(dayTotalEuro * 100) / 100,
+    linesSumEuro,
+    notInOriginalSystem,
+    formulaSummary: formulaParts.length ? formulaParts.join(' · ') : '—',
   }
-  return Math.round(supplement * 100) / 100
 }

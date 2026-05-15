@@ -98,7 +98,12 @@ export function HolidaysPage() {
         <ul className="mt-3 max-h-72 space-y-1 overflow-y-auto text-sm text-[var(--text-muted)]">
           {statutory.map((h) => (
             <li key={h.id} className="flex justify-between gap-2 border-b border-white/5 py-1">
-              <span>{h.name}</span>
+              <span>
+                {h.name}
+                {h.type === 'special' ? (
+                  <span className="ml-2 text-xs text-amber-200/90">B-Feiertag (150 %)</span>
+                ) : null}
+              </span>
               <span className="tabular-nums text-[var(--text-faint)]">{h.date}</span>
             </li>
           ))}
