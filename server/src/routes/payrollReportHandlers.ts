@@ -13,7 +13,7 @@ import {
   calculatePayrollTimeTrackingReport,
 } from '../services/payrollReportService.js'
 
-const PAYROLL_TIMEOUT_MS = 20_000
+const PAYROLL_TIMEOUT_MS = 45_000
 
 function parseBoolQuery(v: unknown): boolean {
   if (v === '1' || v === 'true') return true

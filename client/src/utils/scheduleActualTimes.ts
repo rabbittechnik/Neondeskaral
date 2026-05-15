@@ -82,13 +82,13 @@ export function resolveStampStatusForShift(
   if (!completed.length) return null
 
   const matched = completed.filter((e) => overlapsShift(e, block))
-  const list = matched.length ? matched : completed
+  if (!matched.length) return null
 
   let start: string | null = null
   let end: string | null = null
   let pendingApproval = false
   let source: TimeEntrySource | undefined
-  for (const e of list) {
+  for (const e of matched) {
     const s = entryStartHm(e)
     const en = entryEndHm(e)
     if (s && (!start || s < start)) start = s

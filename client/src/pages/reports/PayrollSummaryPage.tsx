@@ -261,14 +261,24 @@ export function PayrollSummaryPage() {
       from,
       to,
       employmentType: employmentFilter,
+      includeDetails: '0',
     }
     if (employeeIdFilter.trim()) q.employeeIds = employeeIdFilter.trim()
-    const res = await apiGet<ReportPayload>('/reports/payroll-combined', q, { signal: ac.signal })
+    const res = await apiGet<ReportPayload>('/reports/payroll-combined', q, {
+      signal: ac.signal,
+      timeoutMs: 60_000,
+    })
     window.clearInterval(tick)
     if (ac.signal.aborted) return
     if (!res.ok) {
       setData(null)
-      setError(res.error)
+      const hint =
+        res.error.includes('Zeitüberschreitung') || res.error.includes('timeout')
+          ? 'Die Berechnung dauert länger als erwartet — bitte Zeitraum verkürzen oder erneut versuchen.'
+          : null
+      setError(
+        [res.error, hint, `Station: ${stationId}`, `Zeitraum: ${from} – ${to}`].filter(Boolean).join(' · '),
+      )
     } else {
       setData(res.data)
       setSelected(new Set())

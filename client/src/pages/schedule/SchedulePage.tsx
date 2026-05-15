@@ -80,6 +80,7 @@ export function SchedulePage() {
   const [publishOpen, setPublishOpen] = useState(false)
   const [weekPublication, setWeekPublication] = useState<WeekPublicationApi | null>(null)
   const [weekPubLoading, setWeekPubLoading] = useState(false)
+  const [weekPubError, setWeekPubError] = useState<string | null>(null)
 
   const viewportDensity = useViewportScheduleDensity()
 
@@ -400,13 +401,18 @@ export function SchedulePage() {
   const loadWeekPublication = useCallback(async () => {
     if (!stationId) return
     setWeekPubLoading(true)
+    setWeekPubError(null)
     const res = await apiGet<{ publication: WeekPublicationApi }>('/shifts/week-publication', {
       stationId,
       weekMonday: weekStartIso,
     })
     setWeekPubLoading(false)
-    if (res.ok && res.data?.publication) setWeekPublication(res.data.publication)
-    else setWeekPublication(null)
+    if (res.ok && res.data?.publication) {
+      setWeekPublication(res.data.publication)
+      return
+    }
+    setWeekPubError(res.ok === false ? res.error : 'Wochenstatus konnte nicht geladen werden.')
+    setWeekPublication((prev) => prev ?? null)
   }, [stationId, weekStartIso])
 
   useEffect(() => {
@@ -496,6 +502,11 @@ export function SchedulePage() {
               hasUnpublishedChanges={weekPublication?.hasUnpublishedChanges ?? false}
               loading={weekPubLoading}
             />
+            {weekPubError ? (
+              <span className="text-xs text-amber-200/90" title={weekPubError}>
+                Wochenstatus nicht geladen
+              </span>
+            ) : null}
           </div>
         </div>
         <ScheduleViewTabs active={view} onChange={setView} />

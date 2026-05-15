@@ -30,6 +30,7 @@ import {
   netHoursByBerlinYmdInRange,
   netMinutesByBerlinYmdFromUtc,
   shiftMinutesByBerlinYmd,
+  shiftNetMinutesFromPlan,
   berlinYmdFromMs,
 } from '../utils/berlinCalendarWorkHours.js'
 import { berlinWallClockToUtcMs, formatTimeHmBerlin } from '../utils/europeBerlinWallTime.js'
@@ -820,11 +821,10 @@ export function calculatePayrollScheduleReport(
     for (const s of myShifts) {
       if (!s.date || !s.startTime || !s.endTime) continue
       if (s.date < fromDate || s.date > toDate) continue
-      const { startIso, endIso } = shiftToIsoEndpoints(s.date, s.startTime, s.endTime)
-      const m = netHoursByBerlinYmdInRange(startIso, endIso, s.breakMinutes ?? 0, fromDate, toDate)
-      for (const [ymd, hx] of m) {
-        workByYmd.set(ymd, (workByYmd.get(ymd) ?? 0) + hx)
-      }
+      const netMin = shiftNetMinutesFromPlan(s.date, s.startTime, s.endTime, s.breakMinutes ?? 0)
+      if (netMin <= 0) continue
+      const hx = minutesToHours2(netMin)
+      workByYmd.set(s.date, (workByYmd.get(s.date) ?? 0) + hx)
     }
 
     const money = computePayrollMoneyBlock({
@@ -1763,6 +1763,25 @@ export function calculatePayrollCombinedReport(
     let unplannedWorkDayCount = 0
     let extraUnplannedMinutes = 0
 
+    if (!includeDetails) {
+      for (const s of myShifts) {
+        if (!s.date || !s.startTime || !s.endTime) continue
+        if (s.date < fromDate || s.date > toDate) continue
+        supplementsTotal += computeScheduleShiftSupplementEuros({
+          emp: empFields,
+          hourlyWage: Math.max(0, wageForSupplements),
+          shiftDate: s.date,
+          startTime: s.startTime,
+          endTime: s.endTime,
+          breakMinutes: s.breakMinutes ?? 0,
+          federalState,
+          holidayOverlay,
+          stationRules: stationSurchargeRules,
+        })
+      }
+      supplementsTotal = Math.round(supplementsTotal * 100) / 100
+    }
+
     const sortedYmd = [...new Set([...byYmd.keys(), ...vacByYmdAll.keys()])].sort()
     for (const ymd of sortedYmd) {
       const pack = ensurePack(ymd)
@@ -1886,7 +1905,7 @@ export function calculatePayrollCombinedReport(
       }
 
       let daySup = 0
-      if (!hasOpen) {
+      if (!hasOpen && includeDetails) {
         const useScheduleSupplements = trMin <= 0 && shMin > 0
 
         if (useScheduleSupplements) {
