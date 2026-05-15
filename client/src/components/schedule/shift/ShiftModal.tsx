@@ -390,7 +390,7 @@ export function ShiftModal({
       <ConfirmDialog
         open={deleteOpen}
         title="Schicht löschen"
-        message="Möchtest du diese Schicht wirklich löschen?"
+        message="Diese Schicht wirklich löschen?"
         confirmLabel="Löschen"
         cancelLabel="Abbrechen"
         variant="danger"

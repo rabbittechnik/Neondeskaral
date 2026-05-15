@@ -201,10 +201,16 @@ export type ResolvedShiftBlock = {
   actualStart?: string
   actualEnd?: string
   actualPendingApproval?: boolean
-  /** Nur Ist ohne geplanten Dienst */
+  /** Nur Ist ohne geplanten Dienst (nicht im Organisations-Schichtplan) */
   istOnly?: boolean
-  /** Aktive Stempelung (Ende = „läuft“) */
+  /** @deprecated Nur für Auswertungen – im Plan nicht als Balken nutzen */
   actualRunning?: boolean
+  /** Kleines Badge am geplanten Balken (nur Stempel-Status, kein zweiter Balken) */
+  stampStatus?: 'running' | 'clocked_in' | 'deviation' | 'pending_approval'
+  /** Nur Tooltip / Detail – Plan bleibt in start/end */
+  stampActualStart?: string
+  stampActualEnd?: string | null
+  stampSource?: string
 }
 
 export function scheduleShiftToResolved(

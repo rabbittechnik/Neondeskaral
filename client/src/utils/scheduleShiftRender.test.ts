@@ -28,8 +28,8 @@ function entry(partial: Partial<TimeEntry>): TimeEntry {
     id: 'te-1',
     employeeId: 'emp-1',
     stationId: 'st-1',
-    startAt: '2026-05-11T04:00:00.000Z',
-    endAt: '2026-05-11T12:00:00.000Z',
+    startAt: '2026-05-11T05:00:00.000Z',
+    endAt: '2026-05-11T13:00:00.000Z',
     breakMinutes: 0,
     status: 'completed',
     source: 'tablet',
@@ -46,21 +46,19 @@ describe('scheduleShiftRender', () => {
     expect(isPlaceholderTimeRange('06:00', '14:00')).toBe(false)
   })
 
-  it('filtert Ist-only-Ghost mit Platzhalterzeiten', () => {
+  it('filtert Ist-only-Balken aus dem Schichtplan', () => {
     const ghost = block({
       istOnly: true,
-      start: '00:00',
-      end: '08:00',
-      actualStart: '00:00',
-      actualEnd: '08:00',
+      start: '14:00',
+      end: '21:15',
       workAreaCode: 'Ist',
     })
     expect(isRenderableScheduleBlock(ghost)).toBe(false)
     expect(filterRenderableScheduleBlocks([ghost])).toHaveLength(0)
   })
 
-  it('behält geplante Schicht ohne Ist', () => {
-    const planned = block({ start: '06:00', end: '14:00' })
+  it('behält geplante Schicht', () => {
+    const planned = block({ start: '14:00', end: '21:15' })
     expect(isRenderableScheduleBlock(planned)).toBe(true)
   })
 
@@ -75,7 +73,7 @@ describe('scheduleShiftRender', () => {
     expect(cleaned.actualEnd).toBeUndefined()
   })
 
-  it('lehnt System-Eintrag ohne Schicht und Platzhalter ab', () => {
+  it('lehnt System-Eintrag ohne Schicht ab', () => {
     const e = entry({
       source: 'system',
       shiftId: undefined,

@@ -1,5 +1,5 @@
 import type { ResolvedShiftBlock } from '../data/mockSchedule'
-import type { TimeEntry } from '../types/timeTracking'
+import type { TimeEntry, TimeEntrySource } from '../types/timeTracking'
 import {
   entryEndHm,
   entryStartHm,
@@ -9,8 +9,9 @@ import {
   isRenderableTimeEntry,
   isValidHm,
   parseHmMinutes,
-  sanitizeBlockActualTimes,
 } from './scheduleShiftRender'
+
+const DEVIATION_MINUTES = 5
 
 function parseHm(t: string): number {
   return parseHmMinutes(t)
@@ -32,18 +33,33 @@ function overlapsShift(e: TimeEntry, block: ResolvedShiftBlock): boolean {
   return es < se && ee > ss
 }
 
-export type ShiftActualTimes = {
-  actualStart: string
-  actualEnd: string
-  pendingApproval: boolean
-  actualRunning?: boolean
+function sourceLabel(source: TimeEntrySource | undefined): string {
+  switch (source) {
+    case 'tablet':
+    case 'cash_register_card_terminal':
+      return 'Tablet'
+    case 'employee_mobile_app':
+      return 'Mitarbeiter-App'
+    case 'manual':
+      return 'Manuell'
+    default:
+      return source ? String(source) : '—'
+  }
 }
 
-export function resolveActualTimesForShift(
+export type ShiftStampOverlay = {
+  stampStatus: ResolvedShiftBlock['stampStatus']
+  stampActualStart: string
+  stampActualEnd: string | null
+  stampSource: string
+}
+
+/** Stempel-Status für geplanten Balken (ohne Planzeiten zu ändern). */
+export function resolveStampStatusForShift(
   block: ResolvedShiftBlock,
   entries: TimeEntry[],
-): ShiftActualTimes | null {
-  if (!block.employeeId || block.open || block.requirementGap) return null
+): ShiftStampOverlay | null {
+  if (!block.employeeId || block.open || block.requirementGap || block.istOnly) return null
 
   const dayEntries = entries.filter(
     (e) => e.employeeId === block.employeeId && entryOnDate(e, block.dateISO) && isRenderableTimeEntry(e),
@@ -55,10 +71,10 @@ export function resolveActualTimesForShift(
     const start = entryStartHm(running)
     if (!isValidHm(start)) return null
     return {
-      actualStart: start,
-      actualEnd: '',
-      pendingApproval: running.approvalStatus !== 'approved',
-      actualRunning: true,
+      stampStatus: 'running',
+      stampActualStart: start,
+      stampActualEnd: null,
+      stampSource: sourceLabel(running.source),
     }
   }
 
@@ -71,123 +87,66 @@ export function resolveActualTimesForShift(
   let start: string | null = null
   let end: string | null = null
   let pendingApproval = false
+  let source: TimeEntrySource | undefined
   for (const e of list) {
     const s = entryStartHm(e)
     const en = entryEndHm(e)
     if (s && (!start || s < start)) start = s
     if (en && (!end || en > end)) end = en
     if (e.approvalStatus !== 'approved') pendingApproval = true
+    source = e.source
   }
   if (!isRealHmRange(start, end)) return null
-  return { actualStart: start!, actualEnd: end!, pendingApproval }
+
+  const planStart = parseHm(block.start)
+  const planEnd = parseHm(block.end)
+  const stampStart = parseHm(start!)
+  const stampEnd = parseHm(end!)
+  const deviation =
+    Math.abs(stampStart - planStart) > DEVIATION_MINUTES ||
+    Math.abs(stampEnd - planEnd) > DEVIATION_MINUTES
+
+  let stampStatus: NonNullable<ResolvedShiftBlock['stampStatus']>
+  if (pendingApproval) stampStatus = 'pending_approval'
+  else if (deviation) stampStatus = 'deviation'
+  else stampStatus = 'clocked_in'
+
+  return {
+    stampStatus,
+    stampActualStart: start!,
+    stampActualEnd: end,
+    stampSource: sourceLabel(source),
+  }
 }
 
-export function enrichBlocksWithActualTimes(
+/** Organisations-Schichtplan: nur Plan-Balken, optional Stempel-Badge. */
+export function enrichBlocksWithStampStatus(
   blocks: ResolvedShiftBlock[],
   entries: TimeEntry[],
 ): ResolvedShiftBlock[] {
   return blocks.map((block) => {
-    const actual = resolveActualTimesForShift(block, entries)
-    if (!actual) return sanitizeBlockActualTimes(block)
-    if (actual.actualRunning) {
-      return sanitizeBlockActualTimes({
-        ...block,
-        actualStart: actual.actualStart,
-        actualEnd: undefined,
-        actualPendingApproval: actual.pendingApproval,
-        actualRunning: true,
-      })
+    if (block.open || block.requirementGap || block.istOnly) return block
+    const stamp = resolveStampStatusForShift(block, entries)
+    if (!stamp) {
+      const { actualStart, actualEnd, actualPendingApproval, actualRunning, stampStatus, stampActualStart, stampActualEnd, stampSource, ...rest } =
+        block
+      void actualStart
+      void actualEnd
+      void actualPendingApproval
+      void actualRunning
+      void stampStatus
+      void stampActualStart
+      void stampActualEnd
+      void stampSource
+      return rest
     }
-    return sanitizeBlockActualTimes({
-      ...block,
-      actualStart: actual.actualStart,
-      actualEnd: actual.actualEnd,
-      actualPendingApproval: actual.pendingApproval,
-    })
+    const { actualStart, actualEnd, actualPendingApproval, actualRunning, ...rest } = block
+    void actualStart
+    void actualEnd
+    void actualPendingApproval
+    void actualRunning
+    return { ...rest, ...stamp }
   })
 }
 
-function entryCoveredByShiftBlock(entry: TimeEntry, blocks: ResolvedShiftBlock[]): boolean {
-  return blocks.some((b) => b.employeeId === entry.employeeId && overlapsShift(entry, b))
-}
-
-/** Ist-only Balken für Arbeit ohne geplanten Dienst (nur echte Stempelungen). */
-export function buildIstOnlyBlocksForWeek(
-  entries: TimeEntry[],
-  weekDates: string[],
-  plannedBlocks: ResolvedShiftBlock[],
-  employeesById: Map<string, { displayName: string; color?: string }>,
-): ResolvedShiftBlock[] {
-  const out: ResolvedShiftBlock[] = []
-  const seen = new Set<string>()
-
-  for (const dateISO of weekDates) {
-    const dayEntries = entries.filter(
-      (e) => entryOnDate(e, dateISO) && isRenderableTimeEntry(e),
-    )
-    for (const e of dayEntries) {
-      if (entryCoveredByShiftBlock(e, plannedBlocks)) continue
-
-      const dayIndex = weekDates.indexOf(dateISO)
-      if (dayIndex < 0) continue
-
-      const emp = employeesById.get(e.employeeId)
-
-      if (e.status === 'running') {
-        const start = entryStartHm(e)
-        if (!isValidHm(start)) continue
-        const dedupe = `run:${e.employeeId}:${dateISO}:${start}`
-        if (seen.has(dedupe)) continue
-        seen.add(dedupe)
-        out.push({
-          id: `ist-run-${e.id}-${dateISO}`,
-          employeeId: e.employeeId,
-          dayIndex: dayIndex as ResolvedShiftBlock['dayIndex'],
-          type: 'regular',
-          start,
-          end: start,
-          workAreaCode: 'Ist',
-          dateISO,
-          status: 'Veröffentlicht',
-          employeeDisplayName: emp?.displayName,
-          employeeColor: emp?.color,
-          istOnly: true,
-          actualStart: start,
-          actualRunning: true,
-          actualPendingApproval: e.approvalStatus !== 'approved',
-        })
-        continue
-      }
-
-      const startRaw = entryStartHm(e)
-      const endRaw = entryEndHm(e)
-      if (!isRealHmRange(startRaw, endRaw)) continue
-      const start = startRaw
-      const end = endRaw!
-      const dedupe = `${e.employeeId}:${dateISO}:${start}-${end}`
-      if (seen.has(dedupe)) continue
-      seen.add(dedupe)
-
-      out.push({
-        id: `ist-${e.id}-${dateISO}`,
-        employeeId: e.employeeId,
-        dayIndex: dayIndex as ResolvedShiftBlock['dayIndex'],
-        type: 'regular',
-        start,
-        end,
-        workAreaCode: 'Ist',
-        dateISO,
-        status: 'Veröffentlicht',
-        employeeDisplayName: emp?.displayName,
-        employeeColor: emp?.color,
-        istOnly: true,
-        actualStart: start,
-        actualEnd: end,
-        actualPendingApproval: e.approvalStatus !== 'approved',
-      })
-    }
-  }
-  return out
-}
-
-export { filterRenderableScheduleBlocks, sanitizeBlockActualTimes, isPlaceholderTimeRange }
+export { filterRenderableScheduleBlocks, isPlaceholderTimeRange }

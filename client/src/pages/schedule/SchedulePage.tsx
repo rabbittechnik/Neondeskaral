@@ -51,8 +51,7 @@ import { computeTimelineRangeFromWeekBlocks } from '../../utils/scheduleTimeline
 import { useViewportScheduleDensity } from '../../hooks/useViewportScheduleDensity'
 import { useTimeTracking } from '../../context/time-tracking-context'
 import {
-  buildIstOnlyBlocksForWeek,
-  enrichBlocksWithActualTimes,
+  enrichBlocksWithStampStatus,
   filterRenderableScheduleBlocks,
 } from '../../utils/scheduleActualTimes'
 import { apiGet, apiSend } from '../../services/api'
@@ -168,13 +167,7 @@ export function SchedulePage() {
     [allBlocks, requirementGapBlocks],
   )
 
-  const weekDates = useMemo(() => {
-    const dates: string[] = []
-    for (let i = 0; i < 7; i++) dates.push(toISODate(addDays(weekMonday, i)))
-    return dates
-  }, [weekMonday])
-
-  /** Wochenraster: nur echte Dienste + offene Schichten (kein „Frei“). */
+  /** Wochenraster: nur geplante Schichten + offene Schichten (kein „Frei“, kein Ist-Balken). */
   const gridBlocks = useMemo(() => {
     let list = allBlocks.filter(
       (b) => b.type !== 'frei' && (b.open || Boolean(b.employeeId)),
@@ -185,23 +178,11 @@ export function SchedulePage() {
     if (employeeFilter !== 'all') {
       list = list.filter((b) => b.open || b.employeeId === employeeFilter)
     }
-    list = enrichBlocksWithActualTimes(list, timeEntries)
-    const istOnly = buildIstOnlyBlocksForWeek(
-      timeEntries,
-      weekDates,
-      list,
-      new Map(
-        employees.map((e) => [e.id, { displayName: e.displayName, color: e.color }]),
-      ),
-    )
-    let istFiltered = istOnly
-    if (employeeFilter !== 'all') {
-      istFiltered = istOnly.filter((b) => b.employeeId === employeeFilter)
-    }
+    list = enrichBlocksWithStampStatus(list, timeEntries)
     const gaps =
       workAreaFilter === 'all' || workAreaFilter === 'K' ? requirementGapBlocks : []
-    return filterRenderableScheduleBlocks([...list, ...istFiltered, ...gaps])
-  }, [allBlocks, workAreaFilter, employeeFilter, requirementGapBlocks, timeEntries, weekDates, employees])
+    return filterRenderableScheduleBlocks([...list, ...gaps])
+  }, [allBlocks, workAreaFilter, employeeFilter, requirementGapBlocks, timeEntries])
 
   const weeklyHoursBreakdownById = useMemo(
     () =>
@@ -346,6 +327,7 @@ export function SchedulePage() {
   }
 
   const openEdit = (block: ResolvedShiftBlock) => {
+    if (block.istOnly || block.requirementGap) return
     const s = shifts.find((x) => x.id === block.id)
     if (!s) return
     setModalMode('edit')

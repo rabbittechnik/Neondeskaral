@@ -46,7 +46,8 @@
   color: var(--schedule-ist-bar-text-muted) !important;
 }
 
-[data-theme='light'] .schedule-shift-bar-badge {
+[data-theme='light'] .schedule-shift-bar-badge,
+[data-theme='light'] .schedule-stamp-badge {
   border-color: var(--border-soft) !important;
   background: var(--badge-bg) !important;
   color: var(--text-main) !important;

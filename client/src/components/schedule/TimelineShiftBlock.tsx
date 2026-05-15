@@ -28,6 +28,21 @@ type Props = {
 
 const textShadowStrong = '0 1px 2px rgba(0,0,0,0.85), 0 0 10px rgba(0,0,0,0.35)'
 
+function stampBadgeLabel(status: ResolvedShiftBlock['stampStatus']): string | null {
+  switch (status) {
+    case 'running':
+      return 'läuft'
+    case 'clocked_in':
+      return 'eingestempelt'
+    case 'deviation':
+      return 'abweichend'
+    case 'pending_approval':
+      return 'Prüfung'
+    default:
+      return null
+  }
+}
+
 export function TimelineShiftBlock({
   item,
   headerOffsetPx,
@@ -42,13 +57,8 @@ export function TimelineShiftBlock({
 }: Props) {
   const { block, row, leftPercent, widthPercent, seamBefore = false, seamAfter = false } = item
   const preview = shiftEdit?.previewByShiftId.get(block.id)
-  const isRunning = Boolean(block.actualRunning && block.actualStart)
-  const hasActual =
-    !block.istOnly && Boolean(block.actualStart && (block.actualEnd || isRunning))
   const barStart = preview?.start ?? block.start
   const barEnd = preview?.end ?? block.end
-  const istStart = hasActual || block.istOnly ? (block.actualStart ?? barStart) : barStart
-  const istEnd = isRunning ? null : hasActual ? block.actualEnd! : barEnd
   const area = layout.useWorkAreaShortCode
     ? block.workAreaCode || workAreaLabel(block.workAreaCode) || ''
     : workAreaLabel(block.workAreaCode) || block.workAreaCode || ''
@@ -68,22 +78,29 @@ export function TimelineShiftBlock({
   const rR = seamAfter ? 'rounded-r-none' : 'rounded-r-lg'
   const displayName = veryNarrow || narrow ? shortenPersonNameForShiftBar(employeeName) : employeeName
   const areaLabel = area.trim()
+  const badge = stampBadgeLabel(block.stampStatus)
   const dateDe = (() => {
     const ymd = block.dateISO
     const [y, m, d] = ymd.split('-')
     return d && m && y ? `${d}.${m}.${y}` : ymd
   })()
+  const stampedEndLabel =
+    block.stampStatus === 'running' || !block.stampActualEnd
+      ? 'läuft'
+      : block.stampActualEnd
   const detailTitle = buildShiftBarTooltipLines({
     employeeName,
-    start: istStart,
-    end: istEnd ?? (isRunning ? 'läuft' : istStart),
-    plannedStart: hasActual ? barStart : undefined,
-    plannedEnd: hasActual ? barEnd : undefined,
+    start: barStart,
+    end: barEnd,
+    plannedStart: block.stampActualStart ? barStart : undefined,
+    plannedEnd: block.stampActualStart ? barEnd : undefined,
+    stampedStart: block.stampActualStart,
+    stampedEnd: block.stampActualStart ? stampedEndLabel : undefined,
+    stampSource: block.stampSource,
     areaLabel,
     shiftTypeLabel: typeDef.label,
     status: block.status,
     dateLabel: `Datum: ${dateDe}`,
-    pendingApproval: block.actualPendingApproval,
   })
 
   const edit = shiftEdit?.canEdit
@@ -173,9 +190,7 @@ export function TimelineShiftBlock({
           ['--accent-glow' as string]: glow,
           ['--accent-glow-soft' as string]: glowSoft,
         }}
-        className={`group absolute inset-0 z-[8] flex ${block.istOnly ? 'schedule-shift-bar--ist-only flex-col justify-center' : 'items-center'} overflow-hidden border px-2 py-[3px] text-left text-white transition-[box-shadow,filter,transform,opacity] duration-150 hover:z-[12] hover:brightness-[1.05] hover:shadow-[0_0_20px_var(--accent-glow),0_0_34px_var(--accent-glow-soft),inset_0_1px_0_rgba(255,255,255,0.38)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/60 active:scale-[0.99] ${rL} ${rR} ${
-          block.istOnly ? 'border-dashed border-cyan-200/50 bg-cyan-900/55' : ''
-        } ${
+        className={`group absolute inset-0 z-[8] flex items-center overflow-hidden border px-2 py-[3px] text-left text-white transition-[box-shadow,filter,transform,opacity] duration-150 hover:z-[12] hover:brightness-[1.05] hover:shadow-[0_0_20px_var(--accent-glow),0_0_34px_var(--accent-glow-soft),inset_0_1px_0_rgba(255,255,255,0.38)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/60 active:scale-[0.99] ${rL} ${rR} ${
           seamBefore ? 'border-l-0' : ''
         } ${seamAfter ? 'border-r-0' : ''} ${preview ? 'opacity-90' : ''} ${
           block.conflict ? 'ring-1 ring-orange-400 ring-offset-1 ring-offset-[var(--bg-card)]' : ''
@@ -196,25 +211,23 @@ export function TimelineShiftBlock({
         >
           <span className="min-w-0 truncate font-semibold">{displayName}</span>
           <span className="shrink-0 text-white/70">·</span>
-          <span className={`schedule-shift-bar-muted shrink-0 tabular-nums text-white/95 ${layout.shiftMetaClass}`}>
-            {block.istOnly || hasActual ? 'Ist: ' : ''}
-            {istStart}
-            {isRunning ? '–läuft' : `–${istEnd}`}
+          <span className={`shrink-0 tabular-nums text-white/95 ${layout.shiftMetaClass}`}>
+            {barStart}–{barEnd}
           </span>
-          {hasActual && !veryNarrow ? (
-            <span className={`min-w-0 truncate text-white/75 ${layout.shiftMetaClass}`}>
-              geplant {barStart}–{barEnd}
-            </span>
-          ) : null}
-          {block.actualPendingApproval && !isRunning && !veryNarrow ? (
-            <span className={`schedule-pending-tag shrink-0 text-amber-100/95 ${layout.shiftMetaClass}`}>
-              · offen
-            </span>
-          ) : null}
           {!veryNarrow && areaLabel ? (
             <>
               <span className="shrink-0 text-white/70">·</span>
               <span className={`min-w-0 truncate text-white/95 ${layout.shiftMetaClass}`}>{areaLabel}</span>
+            </>
+          ) : null}
+          {badge && !veryNarrow ? (
+            <>
+              <span className="shrink-0 text-white/70">·</span>
+              <span
+                className={`schedule-stamp-badge shrink-0 rounded border border-white/30 bg-black/30 px-1 py-px font-semibold uppercase tracking-wide text-white/95 ${layout.shiftMetaClass}`}
+              >
+                {badge}
+              </span>
             </>
           ) : null}
           {layout.showShiftTypeBadge ? (

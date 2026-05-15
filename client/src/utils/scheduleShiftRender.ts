@@ -128,13 +128,7 @@ export function sanitizeBlockActualTimes(block: ResolvedShiftBlock): ResolvedShi
 export function isRenderableScheduleBlock(block: ResolvedShiftBlock): boolean {
   if (block.requirementGap) return true
 
-  if (block.istOnly) {
-    if (!block.employeeId) return false
-    if (block.actualRunning) return isValidHm(block.actualStart) && !isPlaceholderHm(block.actualStart)
-    const start = block.actualStart ?? block.start
-    const end = block.actualEnd ?? block.end
-    return isRealHmRange(start, end)
-  }
+  if (block.istOnly) return false
 
   if (block.open) {
     return isValidHm(block.start) && isValidHm(block.end) && !isPlaceholderTimeRange(block.start, block.end)
