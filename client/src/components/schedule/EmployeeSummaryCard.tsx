@@ -92,8 +92,8 @@ export function EmployeeSummaryCard({
       ? 'mt-1 flex flex-col gap-0.5 tabular-nums sm:flex-row sm:flex-wrap sm:gap-x-2'
       : 'mt-1.5 flex flex-wrap gap-x-2 gap-y-0.5 tabular-nums'
   const wLineCls = cramped
-    ? 'schedule-employee-hours text-[8px] font-medium text-cyan-200/90 sm:text-[9px]'
-    : 'schedule-employee-hours text-[9px] font-medium text-cyan-200/90 sm:text-[10px]'
+    ? 'schedule-employee-hours text-[8px] font-semibold sm:text-[9px]'
+    : 'schedule-employee-hours text-[9px] font-semibold sm:text-[10px]'
   const mLineCls = cramped ? 'text-[8px] text-[var(--text-faint)] sm:text-[9px]' : 'text-[9px] text-[var(--text-faint)] sm:text-[10px]'
   const badgeWrapCls = cramped ? 'mt-1' : tight ? 'mt-1 sm:mt-1.5' : 'mt-1.5'
 
@@ -130,11 +130,11 @@ export function EmployeeSummaryCard({
       title={title}
       onClick={onClick}
       onPointerDownCapture={onPointerDownCapture}
-      className={`group relative flex ${fluid ? '' : 'shrink-0 snap-start'} ${widthClass} flex-col overflow-hidden rounded-[var(--radius-sm)] border text-left transition
+      className={`schedule-employee-card group relative flex ${fluid ? '' : 'shrink-0 snap-start'} ${widthClass} flex-col overflow-hidden rounded-[var(--radius-sm)] border text-left transition
         ${
           selected
-            ? 'border-cyan-400/55 bg-[var(--bg-elevated)] shadow-[0_0_28px_rgba(34,211,238,0.22),0_0_1px_rgba(34,211,238,0.5)]'
-            : 'border-[var(--border-subtle)] bg-[var(--bg-card)]/90 shadow-[var(--shadow-card)] hover:border-cyan-400/30 hover:shadow-[0_0_20px_rgba(34,211,238,0.12)]'
+            ? 'schedule-employee-card--selected border-[var(--border-strong)] bg-[var(--bg-elevated)] shadow-[var(--shadow-card)]'
+            : 'border-[var(--border-soft)] bg-[var(--bg-card)] shadow-[var(--shadow-card)] hover:border-[var(--border-strong)] hover:bg-[var(--bg-card-hover)]'
         }
       `}
     >

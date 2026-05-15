@@ -88,7 +88,7 @@ export function Topbar() {
               aria-expanded={stationOpen}
               aria-haspopup="listbox"
             >
-              <MapPin className="h-4 w-4 shrink-0 text-cyan-300" aria-hidden />
+              <MapPin className="h-4 w-4 shrink-0 text-[var(--accent-text)]" aria-hidden />
               <span className="min-w-0 flex-1 truncate font-medium">{stationLabel}</span>
               <ChevronDown className="h-4 w-4 shrink-0 opacity-60" aria-hidden />
             </button>
@@ -103,7 +103,7 @@ export function Topbar() {
                       type="button"
                       className={`flex w-full px-3 py-2 text-left text-sm hover:bg-white/5 ${
                         s.id === selectedStation?.id
-                          ? 'text-cyan-200'
+                          ? 'font-medium text-[var(--accent-text)]'
                           : 'text-[var(--text-muted)]'
                       }`}
                       onClick={() => {
@@ -120,7 +120,7 @@ export function Topbar() {
           </>
         ) : (
           <div className="flex max-w-[min(220px,32vw)] items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border-subtle)]/60 bg-[var(--bg-card)]/50 px-2.5 py-2 text-sm text-[var(--text-muted)] min-[1400px]:max-w-[280px] md:px-3">
-            <MapPin className="h-4 w-4 shrink-0 text-cyan-300/80" aria-hidden />
+            <MapPin className="h-4 w-4 shrink-0 text-[var(--accent-text)]" aria-hidden />
             <span className="min-w-0 truncate font-medium text-[var(--text-main)]">{stationLabel}</span>
           </div>
         )}

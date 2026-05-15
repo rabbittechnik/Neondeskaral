@@ -8,6 +8,7 @@ import type { Database } from 'better-sqlite3'
 import type { GermanState } from '../data/germanHolidays2026.js'
 import { GERMAN_HOLIDAYS_2026, holidayAppliesToState } from '../data/germanHolidays2026.js'
 import type { EmployeeSurchargeFields } from './payrollSurchargeService.js'
+import type { StationPayrollSurchargeRules } from '../types/stationPayrollSurchargeRules.js'
 import type { AbsenceRow } from './absenceService.js'
 import type { EmployeeRow } from './employeeService.js'
 import type { TimeEntryRow } from './timeTrackingService.js'
@@ -410,6 +411,56 @@ function optPositivePct(row: Record<string, unknown>, k: string): number | null 
   const n = Number(v)
   if (!Number.isFinite(n) || n <= 0) return null
   return n
+}
+
+/** Zuschläge nur bei Modus „individuell“ oder „steuerfrei“ (nicht bei bloßem Beschäftigungsstatus). */
+export function employeeReceivesPayrollSurcharges(row: Record<string, unknown>): boolean {
+  const mode = String(row.surcharge_mode ?? 'none')
+    .toLowerCase()
+    .trim()
+  return mode === 'individual' || mode === 'tax_free'
+}
+
+/**
+ * Stundenlohn-Basis für Zuschlagsformel (Std. × €/Std. × %).
+ * Monatsgehalt: aus Monatsgehalt ÷ Monatsstunden (bzw. Wochenstunden × 52/12), sonst Profil-Stundenlohn / Mindestlohn.
+ */
+export function resolveHourlyWageForSupplements(
+  db: Database,
+  R: Record<string, unknown>,
+  fromDate: string,
+): number {
+  const rawHourly = rNum(R, 'hourly_wage', 0)
+  if (rawHourly > 0) return rawHourly
+
+  if (isMonthlyWageRecipient(R)) {
+    const monthlySalary = rNum(R, 'monthly_salary', 0)
+    let monthlyHours = rNum(R, 'monthly_hours', 0)
+    if (monthlyHours <= 0) {
+      const weeklyHours = rNum(R, 'weekly_hours', 0)
+      if (weeklyHours > 0) monthlyHours = Math.round(weeklyHours * (52 / 12) * 100) / 100
+    }
+    if (monthlySalary > 0 && monthlyHours > 0) {
+      return Math.round((monthlySalary / monthlyHours) * 10000) / 10000
+    }
+  }
+
+  const employmentType = String(R.employment_type ?? '')
+  if (employmentTypeSubjectToStatutoryMinimum(employmentType)) {
+    return getEffectiveHourlyRate(db, employmentType, rawHourly, fromDate)
+  }
+  return 0
+}
+
+/** Schichtplan-Zuschläge, wenn Planstunden > 0 und (kein Stempel oder Station bevorzugt Plan). */
+export function shouldUseScheduleSupplementsForDay(
+  shMin: number,
+  trMin: number,
+  stationRules: StationPayrollSurchargeRules,
+): boolean {
+  if (shMin <= 0) return false
+  if (stationRules.supplementsPreferSchedule) return true
+  return trMin <= 0
 }
 
 export function surchargeFieldsFromEmployee(row: Record<string, unknown>): EmployeeSurchargeFields {
@@ -815,6 +866,35 @@ export function buildPayrollValidationReport(
         message: 'Abweichung Schichtplan vs. Zeiterfassung (freigegeben)',
         detail: `Plan ${planH} Std. · Zeiterfassung ${trH} Std.`,
       })
+    }
+
+    if (employeeReceivesPayrollSurcharges(R) && (planH > 0 || trH > 0)) {
+      const supWage = resolveHourlyWageForSupplements(db, R, fromDate)
+      if (supWage <= 0) {
+        issues.push({
+          severity: 'warning',
+          code: 'missing_supplement_hourly_basis',
+          employeeId: id,
+          employeeName: name,
+          message:
+            'Zuschlagsmodus aktiv, aber keine Stundenlohn-Basis (Stundenlohn oder Monatsgehalt ÷ Monatsstunden) — Zuschläge werden 0 €',
+          detail: monthly
+            ? `Monatsgehalt ${rNum(R, 'monthly_salary', 0)} €, Monatsstunden ${rNum(R, 'monthly_hours', 0)}`
+            : `Stundenlohn ${raw} €`,
+        })
+      }
+    } else if (!employeeReceivesPayrollSurcharges(R) && (planH > 0 || trH > 0)) {
+      const mode = String(R.surcharge_mode ?? 'none')
+      if (mode === 'none' && (et === 'vollzeit' || et === 'teilzeit')) {
+        issues.push({
+          severity: 'warning',
+          code: 'surcharge_mode_none',
+          employeeId: id,
+          employeeName: name,
+          message:
+            'Keine Zuschläge im Profil (Modus „Keine Zuschläge“) — Feiertags-/Sonntagsarbeit wird nicht vergütet',
+        })
+      }
     }
   }
 

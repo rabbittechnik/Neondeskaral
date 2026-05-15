@@ -21,7 +21,6 @@ import { buildStationHolidayOverlay } from './stationExtraHolidayService.js'
 import { loadStationPayrollSurchargeRules } from './stationPayrollSurchargeRulesService.js'
 import type { StationPayrollSurchargeRules } from '../types/stationPayrollSurchargeRules.js'
 import type { StationHolidayOverlay } from '../types/stationHolidayOverlay.js'
-import { employmentTypeSubjectToStatutoryMinimum, getEffectiveHourlyRate } from './statutoryMinWageService.js'
 import { listShifts } from './shiftService.js'
 import {
   eachYmdInRangeInclusive,
@@ -54,6 +53,8 @@ import {
   shiftNetHoursFromPlan,
   shiftToIsoEndpoints,
   surchargeFieldsFromEmployee,
+  resolveHourlyWageForSupplements,
+  shouldUseScheduleSupplementsForDay,
 } from './payrollCalculationService.js'
 import { normalizeAbsenceDbType } from '../utils/vacationImpactCalculator.js'
 import { earlyLeaveReasonLabelDe } from '../constants/earlyLeaveCheckout.js'
@@ -492,10 +493,8 @@ export function calculatePayrollTimeTrackingReport(
     const rawHourly = rNum(R, 'hourly_wage', 0)
     const monthlyRecipient = isMonthlyWageRecipient(R)
     const employmentType = String(emp.employment_type ?? '')
-    const subject = employmentTypeSubjectToStatutoryMinimum(employmentType)
 
-    const wageForSupplements =
-      monthlyRecipient ? rawHourly : subject ? getEffectiveHourlyRate(db, employmentType, rawHourly, fromDate) : rawHourly
+    const wageForSupplements = resolveHourlyWageForSupplements(db, R, fromDate)
 
     let totalHours = 0
     let supplementsTotal = 0
@@ -760,10 +759,8 @@ export function calculatePayrollScheduleReport(
     const rawHourly = rNum(R, 'hourly_wage', 0)
     const monthlyRecipient = isMonthlyWageRecipient(R)
     const employmentType = String(emp.employment_type ?? '')
-    const subject = employmentTypeSubjectToStatutoryMinimum(employmentType)
 
-    const wageForSupplements =
-      monthlyRecipient ? rawHourly : subject ? getEffectiveHourlyRate(db, employmentType, rawHourly, fromDate) : rawHourly
+    const wageForSupplements = resolveHourlyWageForSupplements(db, R, fromDate)
 
     let totalHours = 0
     let supplementsTotal = 0
@@ -1068,6 +1065,81 @@ function computeDaySupplementSides(p: {
     timeTrackingTotalEuro: Math.round(timeTrackingTotalEuro * 100) / 100,
     timeTrackingLines: mergeSupplementLines(timeBatches),
   }
+}
+
+function computeCombinedDaySupplementEuros(p: {
+  ymd: string
+  hasOpen: boolean
+  shMin: number
+  trMin: number
+  source: PayrollCombinedDaySource
+  vhMin: number
+  usedMin: number
+  myShifts: Array<{ date?: string; startTime?: string; endTime?: string; breakMinutes?: number }>
+  myEntries: TimeEntryRow[]
+  entryCorrMap: Map<string, TimeEntryCorrectionRow>
+  empFields: EmployeeSurchargeFields
+  employmentType: string
+  wageForSupplements: number
+  federalState: GermanState
+  holidayOverlay: StationHolidayOverlay
+  stationRules: StationPayrollSurchargeRules
+  fromDate: string
+  toDate: string
+}): number {
+  if (p.hasOpen) return 0
+  if (p.shMin <= 0 && p.trMin <= 0) return 0
+  if (p.usedMin > 0 && p.shMin <= 0 && p.trMin <= 0 && p.vhMin >= p.usedMin) return 0
+
+  const useSchedule = shouldUseScheduleSupplementsForDay(p.shMin, p.trMin, p.stationRules)
+  const wage = Math.max(0, p.wageForSupplements)
+  let daySup = 0
+
+  if (useSchedule) {
+    for (const s of p.myShifts) {
+      if (!s.date || !s.startTime || !s.endTime) continue
+      const { startIso, endIso } = shiftToIsoEndpoints(s.date, s.startTime, s.endTime)
+      const m = netHoursByBerlinYmdInRange(startIso, endIso, s.breakMinutes ?? 0, p.fromDate, p.toDate)
+      if (!m.has(p.ymd) || (m.get(p.ymd) ?? 0) <= 0) continue
+      daySup += computeScheduleShiftSupplementEuros({
+        emp: p.empFields,
+        hourlyWage: wage,
+        shiftDate: s.date,
+        startTime: s.startTime,
+        endTime: s.endTime,
+        breakMinutes: s.breakMinutes ?? 0,
+        federalState: p.federalState,
+        holidayOverlay: p.holidayOverlay,
+        stationRules: p.stationRules,
+        onlyBerlinYmd: p.ymd,
+      })
+    }
+  } else if (
+    p.source === 'time_tracking' ||
+    p.source === 'time_tracking_extra' ||
+    (p.trMin > 0 && p.shMin <= 0)
+  ) {
+    for (const te of p.myEntries) {
+      const t = effectiveTimeEntryForPayroll(te, p.entryCorrMap)
+      if (!t.start_at || !t.end_at) continue
+      const m = netHoursByBerlinYmdInRange(t.start_at, t.end_at, t.break_minutes ?? 0, p.fromDate, p.toDate)
+      if (!m.has(p.ymd) || (m.get(p.ymd) ?? 0) <= 0) continue
+      daySup += computeSupplementEurosForTimeEntry({
+        employmentType: p.employmentType,
+        emp: p.empFields,
+        hourlyWage: wage,
+        startIso: t.start_at,
+        endIso: t.end_at,
+        breakMinutes: t.break_minutes ?? 0,
+        federalState: p.federalState,
+        holidayOverlay: p.holidayOverlay,
+        stationRules: p.stationRules,
+        onlyBerlinYmd: p.ymd,
+      })
+    }
+  }
+
+  return Math.round(daySup * 100) / 100
 }
 
 function weekdayShortFlags(ymd: string): { sat: boolean; sun: boolean } {
@@ -1607,10 +1679,8 @@ export function calculatePayrollCombinedReport(
     const rawHourly = rNum(R, 'hourly_wage', 0)
     const monthlyRecipient = isMonthlyWageRecipient(R)
     const employmentType = String(emp.employment_type ?? '')
-    const subject = employmentTypeSubjectToStatutoryMinimum(employmentType)
 
-    const wageForSupplements =
-      monthlyRecipient ? rawHourly : subject ? getEffectiveHourlyRate(db, employmentType, rawHourly, fromDate) : rawHourly
+    const wageForSupplements = resolveHourlyWageForSupplements(db, R, fromDate)
 
     const empFields = surchargeFieldsFromEmployee(R)
     const myShifts = shiftsByEmployee.get(employeeId) ?? []
@@ -1773,25 +1843,6 @@ export function calculatePayrollCombinedReport(
     let unplannedWorkDayCount = 0
     let extraUnplannedMinutes = 0
 
-    if (!includeDetails) {
-      for (const s of myShifts) {
-        if (!s.date || !s.startTime || !s.endTime) continue
-        if (s.date < fromDate || s.date > toDate) continue
-        supplementsTotal += computeScheduleShiftSupplementEuros({
-          emp: empFields,
-          hourlyWage: Math.max(0, wageForSupplements),
-          shiftDate: s.date,
-          startTime: s.startTime,
-          endTime: s.endTime,
-          breakMinutes: s.breakMinutes ?? 0,
-          federalState,
-          holidayOverlay,
-          stationRules: stationSurchargeRules,
-        })
-      }
-      supplementsTotal = Math.round(supplementsTotal * 100) / 100
-    }
-
     const sortedYmd = [...new Set([...byYmd.keys(), ...vacByYmdAll.keys()])].sort()
     for (const ymd of sortedYmd) {
       const pack = ensurePack(ymd)
@@ -1914,63 +1965,38 @@ export function calculatePayrollCombinedReport(
         if (highlight === 'neutral' || highlight === 'green') highlight = 'orange'
       }
 
-      let daySup = 0
-      if (!hasOpen && includeDetails) {
-        const useScheduleSupplements = trMin <= 0 && shMin > 0
-
-        if (useScheduleSupplements) {
-          for (const s of myShifts) {
-            if (!s.date || !s.startTime || !s.endTime) continue
-            const { startIso, endIso } = shiftToIsoEndpoints(s.date, s.startTime, s.endTime)
-            const m = netHoursByBerlinYmdInRange(startIso, endIso, s.breakMinutes ?? 0, fromDate, toDate)
-            if (!m.has(ymd) || (m.get(ymd) ?? 0) <= 0) continue
-            daySup += computeScheduleShiftSupplementEuros({
-              emp: empFields,
-              hourlyWage: Math.max(0, wageForSupplements),
-              shiftDate: s.date,
-              startTime: s.startTime,
-              endTime: s.endTime,
-              breakMinutes: s.breakMinutes ?? 0,
-              federalState,
-              holidayOverlay,
-              stationRules: stationSurchargeRules,
-              onlyBerlinYmd: ymd,
-            })
-          }
-        } else if (source === 'time_tracking' || source === 'time_tracking_extra') {
-          for (const te of myEntries) {
-            const t = effectiveTimeEntryForPayroll(te, entryCorrMap)
-            if (!t.start_at || !t.end_at) continue
-            const m = netHoursByBerlinYmdInRange(t.start_at, t.end_at, t.break_minutes ?? 0, fromDate, toDate)
-            if (!m.has(ymd) || (m.get(ymd) ?? 0) <= 0) continue
-            daySup += computeSupplementEurosForTimeEntry({
-              employmentType,
-              emp: empFields,
-              hourlyWage: Math.max(0, wageForSupplements),
-              startIso: t.start_at,
-              endIso: t.end_at,
-              breakMinutes: t.break_minutes ?? 0,
-              federalState,
-              holidayOverlay,
-              stationRules: stationSurchargeRules,
-              onlyBerlinYmd: ymd,
-            })
-          }
-        }
-      }
-
-      daySup = Math.round(daySup * 100) / 100
+      const daySup = computeCombinedDaySupplementEuros({
+        ymd,
+        hasOpen,
+        shMin,
+        trMin,
+        source,
+        vhMin,
+        usedMin,
+        myShifts,
+        myEntries,
+        entryCorrMap,
+        empFields,
+        employmentType,
+        wageForSupplements,
+        federalState,
+        holidayOverlay,
+        stationRules: stationSurchargeRules,
+        fromDate,
+        toDate,
+      })
       supplementsTotal += daySup
 
       const diffDay = minutesToHours2(usedMin - shMin)
       const isHol = isGermanPublicHolidayYmd(ymd, federalState, holidayOverlay)
 
+      const useSchedSup = shouldUseScheduleSupplementsForDay(shMin, trMin, stationSurchargeRules)
       const appliedBasis: 'schedule' | 'time_tracking' | 'none' = hasOpen
         ? 'none'
-        : trMin > 0
-          ? 'time_tracking'
-          : source === 'schedule_fallback' && shMin > 0
-            ? 'schedule'
+        : useSchedSup && shMin > 0
+          ? 'schedule'
+          : trMin > 0
+            ? 'time_tracking'
             : 'none'
 
       let supplementDebug: PayrollDaySupplementAudit | undefined

@@ -47,7 +47,7 @@ export function ScheduleEmployeeSummaryBar({
     <section className="min-w-0 max-w-full rounded-[var(--radius-md)] border border-cyan-500/15 bg-[var(--bg-card)]/75 shadow-[0_0_40px_rgba(34,211,238,0.06),var(--shadow-card)] backdrop-blur-md">
       <div className="flex min-w-0 items-center justify-between gap-2 border-b border-[var(--border-subtle)] px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
-          <Users className="h-4 w-4 shrink-0 text-cyan-300/90" aria-hidden />
+          <Users className="h-4 w-4 shrink-0 text-[var(--accent-text)]" aria-hidden />
           <div className="min-w-0">
             <h2 className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">
               Mitarbeiter

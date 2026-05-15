@@ -22,7 +22,17 @@
 }
 
 [data-theme='light'] .schedule-employee-hours {
-  color: var(--accent-text) !important;
+  color: var(--accent-text-strong) !important;
+  font-weight: 600;
+}
+
+[data-theme='light'] .schedule-employee-card {
+  background: var(--bg-card) !important;
+  border-color: var(--border-soft) !important;
+}
+
+[data-theme='light'] .schedule-employee-card:hover {
+  background: var(--bg-card-hover) !important;
 }
 
 [data-theme='light'] .schedule-timeline-track {

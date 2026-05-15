@@ -190,7 +190,7 @@ export function TimelineShiftBlock({
           ['--accent-glow' as string]: glow,
           ['--accent-glow-soft' as string]: glowSoft,
         }}
-        className={`group absolute inset-0 z-[8] flex items-center overflow-hidden border px-2 py-[3px] text-left text-white transition-[box-shadow,filter,transform,opacity] duration-150 hover:z-[12] hover:brightness-[1.05] hover:shadow-[0_0_20px_var(--accent-glow),0_0_34px_var(--accent-glow-soft),inset_0_1px_0_rgba(255,255,255,0.38)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/60 active:scale-[0.99] ${rL} ${rR} ${
+        className={`schedule-shift-bar-colored group absolute inset-0 z-[8] flex items-center overflow-hidden border px-2 py-[3px] text-left text-white transition-[box-shadow,filter,transform,opacity] duration-150 hover:z-[12] hover:brightness-[1.05] hover:shadow-[0_0_20px_var(--accent-glow),0_0_34px_var(--accent-glow-soft),inset_0_1px_0_rgba(255,255,255,0.38)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/60 active:scale-[0.99] ${rL} ${rR} ${
           seamBefore ? 'border-l-0' : ''
         } ${seamAfter ? 'border-r-0' : ''} ${preview ? 'opacity-90' : ''} ${
           block.conflict ? 'ring-1 ring-orange-400 ring-offset-1 ring-offset-[var(--bg-card)]' : ''

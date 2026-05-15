@@ -1,0 +1,207 @@
+/**
+ * Light-Mode-Kontrast: Dark-only Tailwind-Farben auf Theme-Variablen mappen.
+ * Dark Mode bleibt unverändert (Selektoren nur unter [data-theme='light']).
+ */
+
+[data-theme='light'] .text-cyan-200,
+[data-theme='light'] .text-cyan-50,
+[data-theme='light'] .text-cyan-100,
+[data-theme='light'] .text-cyan-100\/85,
+[data-theme='light'] .text-cyan-100\/90,
+[data-theme='light'] .text-cyan-200\/80,
+[data-theme='light'] .text-cyan-200\/85,
+[data-theme='light'] .text-cyan-300\/80,
+[data-theme='light'] .text-cyan-300\/95,
+[data-theme='light'] .hover\:text-cyan-200:hover {
+  color: var(--accent-text) !important;
+}
+
+[data-theme='light'] .text-emerald-50,
+[data-theme='light'] .text-emerald-100,
+[data-theme='light'] .text-emerald-100\/90 {
+  color: #047857 !important;
+}
+
+[data-theme='light'] .text-amber-50,
+[data-theme='light'] .text-amber-100,
+[data-theme='light'] .text-amber-50\/95 {
+  color: #92400e !important;
+}
+
+[data-theme='light'] .text-orange-100 {
+  color: #9a3412 !important;
+}
+
+[data-theme='light'] .text-rose-100,
+[data-theme='light'] .text-rose-50\/95 {
+  color: #9f1239 !important;
+}
+
+[data-theme='light'] .text-violet-100,
+[data-theme='light'] .text-violet-50 {
+  color: #5b21b6 !important;
+}
+
+[data-theme='light'] .text-red-300,
+[data-theme='light'] .text-red-200 {
+  color: var(--accent-danger) !important;
+}
+
+[data-theme='light'] .text-white,
+[data-theme='light'] .text-white\/70,
+[data-theme='light'] .text-white\/75,
+[data-theme='light'] .text-white\/95 {
+  color: var(--text-main) !important;
+}
+
+/* Nur innerhalb farbiger Schichtbalken: weiße Schrift beibehalten */
+[data-theme='light'] .schedule-shift-bar-colored .text-white,
+[data-theme='light'] .schedule-shift-bar-colored .text-white\/70,
+[data-theme='light'] .schedule-shift-bar-colored .text-white\/75,
+[data-theme='light'] .schedule-shift-bar-colored .text-white\/95 {
+  color: #ffffff !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55) !important;
+}
+
+[data-theme='light'] .bg-white\/10,
+[data-theme='light'] .bg-white\/\[0\.03\] {
+  background-color: var(--surface-hover) !important;
+}
+
+[data-theme='light'] .bg-cyan-500\/5,
+[data-theme='light'] .bg-cyan-500\/10,
+[data-theme='light'] .bg-cyan-500\/12,
+[data-theme='light'] .bg-cyan-500\/15,
+[data-theme='light'] .bg-cyan-500\/20 {
+  background-color: var(--badge-info-bg) !important;
+}
+
+[data-theme='light'] .bg-emerald-500\/10,
+[data-theme='light'] .bg-emerald-500\/15,
+[data-theme='light'] .bg-emerald-500\/25 {
+  background-color: var(--badge-success-bg) !important;
+}
+
+[data-theme='light'] .bg-amber-500\/10,
+[data-theme='light'] .bg-amber-500\/12,
+[data-theme='light'] .bg-amber-500\/15 {
+  background-color: var(--badge-warn-bg) !important;
+}
+
+[data-theme='light'] .bg-orange-500\/8,
+[data-theme='light'] .bg-orange-500\/12,
+[data-theme='light'] .bg-orange-500\/90 {
+  background-color: #ea580c !important;
+}
+
+[data-theme='light'] .border-cyan-400\/25,
+[data-theme='light'] .border-cyan-400\/30,
+[data-theme='light'] .border-cyan-400\/35,
+[data-theme='light'] .border-cyan-400\/40,
+[data-theme='light'] .border-cyan-400\/45,
+[data-theme='light'] .border-cyan-400\/50,
+[data-theme='light'] .border-cyan-400\/55,
+[data-theme='light'] .border-cyan-400\/60,
+[data-theme='light'] .border-cyan-500\/15,
+[data-theme='light'] .border-cyan-500\/20 {
+  border-color: var(--border-strong) !important;
+}
+
+[data-theme='light'] .border-emerald-400\/50,
+[data-theme='light'] .border-emerald-300\/70 {
+  border-color: #059669 !important;
+}
+
+[data-theme='light'] .border-amber-400\/45,
+[data-theme='light'] .border-amber-400\/50,
+[data-theme='light'] .border-orange-400\/45 {
+  border-color: #d97706 !important;
+}
+
+[data-theme='light'] .border-emerald-400\/30 {
+  border-color: #10b981 !important;
+}
+
+[data-theme='light'] .shadow-\[0_0_16px_rgba\(249\,115\,22\,0\.12\)\],
+[data-theme='light'] .shadow-\[0_0_14px_rgba\(234\,179\,8\,0\.1\)\],
+[data-theme='light'] .shadow-\[0_0_20px_rgba\(52\,211\,153\,0\.25\)\],
+[data-theme='light'] .shadow-\[0_0_28px_rgba\(34\,211\,238\,0\.35\)\],
+[data-theme='light'] .shadow-\[0_0_16px_rgba\(34\,211\,238\,0\.15\)\] {
+  box-shadow: var(--shadow-card) !important;
+}
+
+/* TÜV-Hinweisbanner */
+[data-theme='light'] .tuv-reminder--done {
+  border-color: #86efac !important;
+  background: #ecfdf5 !important;
+  color: #166534 !important;
+}
+
+[data-theme='light'] .tuv-reminder--missing {
+  border-color: #fdba74 !important;
+  background: linear-gradient(90deg, #fff7ed 0%, #ffedd5 100%) !important;
+  box-shadow: 0 1px 3px rgba(124, 45, 18, 0.08) !important;
+}
+
+[data-theme='light'] .tuv-reminder--missing .tuv-reminder-title {
+  color: #7c2d12 !important;
+}
+
+[data-theme='light'] .tuv-reminder--in-progress {
+  border-color: #fcd34d !important;
+  background: #fffbeb !important;
+  box-shadow: 0 1px 3px rgba(120, 53, 15, 0.08) !important;
+}
+
+[data-theme='light'] .tuv-reminder--in-progress .tuv-reminder-title {
+  color: #78350f !important;
+}
+
+[data-theme='light'] .tuv-reminder-btn--solid {
+  background: #ea580c !important;
+  color: #ffffff !important;
+  border: 1px solid #c2410c !important;
+}
+
+[data-theme='light'] .tuv-reminder-btn--solid:hover {
+  background: #c2410c !important;
+}
+
+[data-theme='light'] .tuv-reminder-btn--outline {
+  background: #f59e0b !important;
+  color: #ffffff !important;
+  border: 1px solid #d97706 !important;
+}
+
+[data-theme='light'] .tuv-reminder-btn--outline:hover {
+  background: #d97706 !important;
+}
+
+/* Schichtplan-Assistent */
+[data-theme='light'] .schedule-assistant-btn {
+  border-color: #0f766e !important;
+  background: linear-gradient(90deg, #0f766e 0%, #0369a1 100%) !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(15, 118, 110, 0.25) !important;
+}
+
+[data-theme='light'] .schedule-assistant-btn:hover {
+  background: linear-gradient(90deg, #115e59 0%, #075985 100%) !important;
+  border-color: #0d9488 !important;
+}
+
+[data-theme='light'] .schedule-assistant-btn svg {
+  color: #e0f2fe !important;
+}
+
+/* Mitarbeiterkarte aktiv */
+[data-theme='light'] .schedule-employee-card--selected {
+  border-color: var(--accent-primary) !important;
+  box-shadow: 0 0 0 1px rgba(15, 118, 110, 0.25) !important;
+}
+
+[data-theme='light'] input::placeholder,
+[data-theme='light'] textarea::placeholder {
+  color: #64748b !important;
+  opacity: 1;
+}

@@ -62,6 +62,17 @@
   --accent-text: #67e8f9;
   --accent-text-strong: #a5f3fc;
 
+  --btn-primary-bg: rgba(34, 211, 238, 0.2);
+  --btn-primary-text: #a5f3fc;
+  --btn-primary-border: rgba(34, 211, 238, 0.5);
+  --btn-primary-hover-bg: rgba(34, 211, 238, 0.3);
+  --btn-danger-bg: rgba(239, 68, 68, 0.1);
+  --btn-danger-text: #fca5a5;
+  --btn-danger-border: rgba(248, 113, 113, 0.4);
+  --btn-danger-hover-bg: rgba(239, 68, 68, 0.2);
+  --btn-disabled-bg: rgba(255, 255, 255, 0.06);
+  --btn-disabled-text: #64748b;
+
   --glow-cyan: 0 0 24px rgba(34, 211, 238, 0.35);
   --glow-lime: 0 0 24px rgba(163, 230, 53, 0.3);
   --glow-pink: 0 0 24px rgba(244, 114, 182, 0.3);
@@ -160,11 +171,22 @@
   --accent-warning: #ea580c;
   --accent-success: #059669;
 
-  --accent-primary: var(--accent-cyan);
+  --accent-primary: #0f766e;
   --accent-secondary: var(--accent-lime);
-  --accent-soft: rgba(14, 165, 233, 0.12);
-  --accent-text: #0369a1;
-  --accent-text-strong: #0c4a6e;
+  --accent-soft: rgba(15, 118, 110, 0.1);
+  --accent-text: #0f766e;
+  --accent-text-strong: #115e59;
+
+  --btn-primary-bg: #0f766e;
+  --btn-primary-text: #ffffff;
+  --btn-primary-border: #0d9488;
+  --btn-primary-hover-bg: #115e59;
+  --btn-danger-bg: #fef2f2;
+  --btn-danger-text: #b91c1c;
+  --btn-danger-border: #fecaca;
+  --btn-danger-hover-bg: #fee2e2;
+  --btn-disabled-bg: #e5e7eb;
+  --btn-disabled-text: #64748b;
 
   --glow-cyan: none;
   --glow-lime: none;
