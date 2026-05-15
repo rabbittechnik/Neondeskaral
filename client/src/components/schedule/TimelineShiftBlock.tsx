@@ -42,8 +42,12 @@ export function TimelineShiftBlock({
 }: Props) {
   const { block, row, leftPercent, widthPercent, seamBefore = false, seamAfter = false } = item
   const preview = shiftEdit?.previewByShiftId.get(block.id)
-  const displayStart = preview?.start ?? block.start
-  const displayEnd = preview?.end ?? block.end
+  const hasActual =
+    !block.istOnly && Boolean(block.actualStart && block.actualEnd)
+  const barStart = preview?.start ?? block.start
+  const barEnd = preview?.end ?? block.end
+  const istStart = hasActual ? block.actualStart! : barStart
+  const istEnd = hasActual ? block.actualEnd! : barEnd
   const area = layout.useWorkAreaShortCode
     ? block.workAreaCode || workAreaLabel(block.workAreaCode) || ''
     : workAreaLabel(block.workAreaCode) || block.workAreaCode || ''
@@ -70,12 +74,15 @@ export function TimelineShiftBlock({
   })()
   const detailTitle = buildShiftBarTooltipLines({
     employeeName,
-    start: displayStart,
-    end: displayEnd,
+    start: istStart,
+    end: istEnd,
+    plannedStart: hasActual ? barStart : undefined,
+    plannedEnd: hasActual ? barEnd : undefined,
     areaLabel,
     shiftTypeLabel: typeDef.label,
     status: block.status,
     dateLabel: `Datum: ${dateDe}`,
+    pendingApproval: block.actualPendingApproval,
   })
 
   const edit = shiftEdit?.canEdit
@@ -165,7 +172,9 @@ export function TimelineShiftBlock({
           ['--accent-glow' as string]: glow,
           ['--accent-glow-soft' as string]: glowSoft,
         }}
-        className={`group absolute inset-0 z-[8] flex items-center overflow-hidden border px-2 py-[3px] text-left text-white transition-[box-shadow,filter,transform,opacity] duration-150 hover:z-[12] hover:brightness-[1.05] hover:shadow-[0_0_20px_var(--accent-glow),0_0_34px_var(--accent-glow-soft),inset_0_1px_0_rgba(255,255,255,0.38)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/60 active:scale-[0.99] ${rL} ${rR} ${
+        className={`group absolute inset-0 z-[8] flex ${block.istOnly ? 'flex-col justify-center' : 'items-center'} overflow-hidden border px-2 py-[3px] text-left text-white transition-[box-shadow,filter,transform,opacity] duration-150 hover:z-[12] hover:brightness-[1.05] hover:shadow-[0_0_20px_var(--accent-glow),0_0_34px_var(--accent-glow-soft),inset_0_1px_0_rgba(255,255,255,0.38)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/60 active:scale-[0.99] ${rL} ${rR} ${
+          block.istOnly ? 'border-dashed border-cyan-200/50 bg-cyan-900/55' : ''
+        } ${
           seamBefore ? 'border-l-0' : ''
         } ${seamAfter ? 'border-r-0' : ''} ${preview ? 'opacity-90' : ''} ${
           block.conflict ? 'ring-1 ring-orange-400 ring-offset-1 ring-offset-[var(--bg-card)]' : ''
@@ -187,8 +196,17 @@ export function TimelineShiftBlock({
           <span className="min-w-0 truncate font-semibold">{displayName}</span>
           <span className="shrink-0 text-white/70">·</span>
           <span className={`shrink-0 tabular-nums text-white/95 ${layout.shiftMetaClass}`}>
-            {displayStart}–{displayEnd}
+            {block.istOnly ? 'Ist: ' : hasActual ? 'Ist: ' : ''}
+            {istStart}–{istEnd}
           </span>
+          {hasActual && !veryNarrow ? (
+            <span className={`min-w-0 truncate text-white/75 ${layout.shiftMetaClass}`}>
+              geplant {barStart}–{barEnd}
+            </span>
+          ) : null}
+          {block.actualPendingApproval && !veryNarrow ? (
+            <span className={`shrink-0 text-amber-100/95 ${layout.shiftMetaClass}`}>· offen</span>
+          ) : null}
           {!veryNarrow && areaLabel ? (
             <>
               <span className="shrink-0 text-white/70">·</span>

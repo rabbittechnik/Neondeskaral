@@ -22,10 +22,10 @@ export const PAYROLL_TH = 'px-4 py-3 text-xs font-medium uppercase tracking-wide
 export const PAYROLL_TH_NUM = `${PAYROLL_TH} text-right`
 export const PAYROLL_TD = 'px-4 py-2.5 align-middle whitespace-nowrap tabular-nums tracking-tight'
 export const PAYROLL_TD_NUM = `${PAYROLL_TD} text-right`
-export const PAYROLL_TD_EMPLOYEE = `${PAYROLL_TD} employee-col text-left font-medium text-cyan-300`
-export const PAYROLL_ROW = 'border-b border-[var(--border-subtle)]/80 hover:bg-white/[0.02]'
-export const PAYROLL_TFOOT = 'border-t-2 border-cyan-500/25 bg-[var(--bg-elevated)]/40'
-export const PAYROLL_THEAD_ROW = 'border-b border-[var(--border-subtle)] bg-[var(--bg-elevated)]/50 text-left'
+export const PAYROLL_TD_EMPLOYEE = `${PAYROLL_TD} employee-col text-left font-medium text-[var(--payroll-col-employee)]`
+export const PAYROLL_ROW = 'border-b border-[var(--border-subtle)]/80 hover:bg-[var(--table-row-hover)]'
+export const PAYROLL_TFOOT = 'border-t-2 border-cyan-500/25 bg-[var(--table-sticky-foot-bg)]'
+export const PAYROLL_THEAD_ROW = 'border-b border-[var(--border-subtle)] bg-[var(--table-head-bg)] text-left'
 
 export const PAYROLL_MIN_W = {
   checkbox: 40,
@@ -44,18 +44,18 @@ export const PAYROLL_MIN_W = {
 } as const
 
 export const PAYROLL_COL = {
-  employee: 'text-cyan-200/90',
-  plan: 'text-sky-200/90',
-  time: 'text-violet-200/90',
-  used: 'text-emerald-200/90',
+  employee: 'text-[var(--payroll-col-employee)]',
+  plan: 'text-[var(--payroll-col-plan)]',
+  time: 'text-[var(--payroll-col-time)]',
+  used: 'text-[var(--payroll-col-used)]',
   diff: 'text-amber-200/90',
   extra: 'text-orange-200/90',
   vacation: 'text-teal-200/90',
-  wage: 'text-sky-200/90',
+  wage: 'text-[var(--payroll-col-plan)]',
   base: 'text-slate-100/90',
   supplements: 'text-emerald-300/90',
   deduction: 'text-orange-200/80',
-  total: 'text-cyan-100',
+  total: 'text-[var(--payroll-col-total)]',
   muted: 'text-slate-300/90',
   warning: 'text-amber-200/90',
 } as const

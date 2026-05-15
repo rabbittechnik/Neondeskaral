@@ -49,6 +49,11 @@ import { useAuth } from '../../context/auth-context'
 import { formatShiftTimeRangeDE } from '../../utils/dateFormat'
 import { computeTimelineRangeFromWeekBlocks } from '../../utils/scheduleTimeline'
 import { useViewportScheduleDensity } from '../../hooks/useViewportScheduleDensity'
+import { useTimeTracking } from '../../context/time-tracking-context'
+import {
+  buildIstOnlyBlocksForWeek,
+  enrichBlocksWithActualTimes,
+} from '../../utils/scheduleActualTimes'
 import { apiGet, apiSend } from '../../services/api'
 import type { ShiftDraft } from '../../components/schedule/shift/shiftConflicts'
 
@@ -59,6 +64,7 @@ export function SchedulePage() {
   const { employees } = useEmployees()
   const { shifts, setShifts, ensureWeekSeeded, loading: shiftsLoading, error: shiftsError, refetchRange } =
     useScheduleShifts()
+  const { timeEntries } = useTimeTracking()
 
   const [weekOffset, setWeekOffset] = useState(0)
   const [workAreaFilter, setWorkAreaFilter] = useState('all')
@@ -161,6 +167,12 @@ export function SchedulePage() {
     [allBlocks, requirementGapBlocks],
   )
 
+  const weekDates = useMemo(() => {
+    const dates: string[] = []
+    for (let i = 0; i < 7; i++) dates.push(toISODate(addDays(weekMonday, i)))
+    return dates
+  }, [weekMonday])
+
   /** Wochenraster: nur echte Dienste + offene Schichten (kein „Frei“). */
   const gridBlocks = useMemo(() => {
     let list = allBlocks.filter(
@@ -172,10 +184,23 @@ export function SchedulePage() {
     if (employeeFilter !== 'all') {
       list = list.filter((b) => b.open || b.employeeId === employeeFilter)
     }
+    list = enrichBlocksWithActualTimes(list, timeEntries)
+    const istOnly = buildIstOnlyBlocksForWeek(
+      timeEntries,
+      weekDates,
+      list,
+      new Map(
+        employees.map((e) => [e.id, { displayName: e.displayName, color: e.color }]),
+      ),
+    )
+    let istFiltered = istOnly
+    if (employeeFilter !== 'all') {
+      istFiltered = istOnly.filter((b) => b.employeeId === employeeFilter)
+    }
     const gaps =
       workAreaFilter === 'all' || workAreaFilter === 'K' ? requirementGapBlocks : []
-    return [...list, ...gaps]
-  }, [allBlocks, workAreaFilter, employeeFilter, requirementGapBlocks])
+    return [...list, ...istFiltered, ...gaps]
+  }, [allBlocks, workAreaFilter, employeeFilter, requirementGapBlocks, timeEntries, weekDates, employees])
 
   const weeklyHoursBreakdownById = useMemo(
     () =>

@@ -37,7 +37,7 @@ type DayHighlight = 'green' | 'yellow' | 'orange' | 'red' | 'neutral'
 type DayDetail = {
   date: string
   weekdayDe: string
-  scheduleShifts: { id: string; label: string; hours: number }[]
+  scheduleShifts: { id: string; label: string; hours: number; plannedStart?: string; plannedEnd?: string }[]
   scheduledHours: number
   plannedPaidVacationHours?: number
   plannedOtherPaidAbsenceHours?: number
@@ -47,6 +47,13 @@ type DayDetail = {
     endAt: string | null
     hours: number
     open: boolean
+    startTime?: string
+    endTime?: string
+    approvalStatus?: string
+    pendingApproval?: boolean
+    earlyLeaveReason?: string
+    earlyLeaveNote?: string
+    earlyLeaveMinutes?: number
     earlyLeaveDoc?: string
   }[]
   trackedHours: number
@@ -62,6 +69,13 @@ type DayDetail = {
   usedMinutes?: number
   plannedPaidVacationMinutes?: number
   plannedOtherPaidAbsenceMinutes?: number
+  plannedStart?: string | null
+  plannedEnd?: string | null
+  actualStart?: string | null
+  actualEnd?: string | null
+  usedStart?: string | null
+  usedEnd?: string | null
+  deviationReason?: string | null
   isPublicHoliday?: boolean
   holidayNameDe?: string
   supplementDebug?: DaySupplementAudit
@@ -164,6 +178,12 @@ function formatMinutesAndHours(m: number | undefined): string {
   const min = m ?? 0
   if (min <= 0) return '—'
   return `${formatMinutesDe(min)} · ${formatHoursDe(minutesToHours(min))}`
+}
+
+function formatHmRange(start?: string | null, end?: string | null): string {
+  if (!start && !end) return '—'
+  if (start && end) return `${start}–${end}`
+  return start ?? end ?? '—'
 }
 
 function sourceLabelDe(s: DaySource): string {
@@ -480,6 +500,7 @@ export function PayrollSummaryEmployeeDetailPage() {
                   <tr className={PAYROLL_THEAD_ROW}>
                     <th className={`${PAYROLL_TH} text-left`}>Datum</th>
                     <th className={payrollTh('plan')}>Plan</th>
+                    <th className={`${PAYROLL_TH} text-left`}>Zeiten</th>
                     <th className={payrollTh('time')}>Erfasst</th>
                     <th className={payrollTh('used')}>Verwendet</th>
                     <th className={payrollTh('diff')}>Diff.</th>
@@ -501,6 +522,15 @@ export function PayrollSummaryEmployeeDetailPage() {
                         ) : null}
                       </td>
                       <td className={payrollTd('plan')}>{formatMinutesAndHours(d.scheduledMinutes)}</td>
+                      <td className={`${PAYROLL_TD} text-left text-xs text-[var(--text-muted)]`}>
+                        <div className="space-y-0.5">
+                          <div>Plan: {formatHmRange(d.plannedStart, d.plannedEnd)}</div>
+                          <div>Gestempelt: {formatHmRange(d.actualStart, d.actualEnd)}</div>
+                          <div className="text-[var(--text-main)]">
+                            Verwendet: {formatHmRange(d.usedStart, d.usedEnd)}
+                          </div>
+                        </div>
+                      </td>
                       <td className={payrollTd('time')}>{formatMinutesAndHours(d.trackedMinutes)}</td>
                       <td className={payrollTd('used')}>{formatMinutesAndHours(d.usedMinutes)}</td>
                       <td className={payrollTd('diff')}>{formatDiffHoursDe(d.differenceHours)}</td>
@@ -562,9 +592,16 @@ export function PayrollSummaryEmployeeDetailPage() {
                     {open ? (
                       <div className="space-y-2 px-8 pb-3 text-xs">
                         <div className="tabular-nums text-[var(--text-muted)]">
+                          Plan {formatHmRange(d.plannedStart, d.plannedEnd)} · Gestempelt{' '}
+                          {formatHmRange(d.actualStart, d.actualEnd)} · Verwendet{' '}
+                          {formatHmRange(d.usedStart, d.usedEnd)}
+                          <br />
                           Minuten: Plan {formatMinutesDe(d.scheduledMinutes)} · Erfasst{' '}
                           {formatMinutesDe(d.trackedMinutes)} · Verwendet {formatMinutesDe(d.usedMinutes)}
                         </div>
+                        {d.deviationReason ? (
+                          <p className="text-amber-200/90">{d.deviationReason}</p>
+                        ) : null}
                         {d.scheduleShifts.length ? (
                           <div>
                             <div className="font-medium text-[var(--text-muted)]">Schichtplan</div>
@@ -589,7 +626,13 @@ export function PayrollSummaryEmployeeDetailPage() {
                                     <span className="text-rose-300">Laufend · Start {te.startAt}</span>
                                   ) : (
                                     <>
-                                      {te.startAt} – {te.endAt} · {formatHoursDe(te.hours)}
+                                      {te.startTime && te.endTime
+                                        ? `${te.startTime}–${te.endTime}`
+                                        : `${te.startAt} – ${te.endAt}`}{' '}
+                                      · {formatHoursDe(te.hours)}
+                                      {te.pendingApproval ? (
+                                        <span className="text-amber-200/90"> · Freigabe ausstehend</span>
+                                      ) : null}
                                     </>
                                   )}
                                 </li>

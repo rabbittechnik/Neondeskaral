@@ -12,7 +12,7 @@
     background: linear-gradient(
       145deg,
       var(--holiday-red-soft) 0%,
-      rgba(13, 27, 42, 0.92) 42%,
+      var(--holiday-gradient-mid) 42%,
       var(--bg-card) 100%
     );
   }
@@ -23,7 +23,7 @@
     background: linear-gradient(
       145deg,
       var(--holiday-other-soft) 0%,
-      rgba(13, 27, 42, 0.88) 50%,
+      var(--holiday-gradient-mid-soft) 50%,
       var(--bg-card) 100%
     );
   }
@@ -41,7 +41,7 @@
     background: linear-gradient(
       180deg,
       rgba(255, 23, 68, 0.08) 0%,
-      rgba(0, 0, 0, 0.22) 100%
+      var(--holiday-timeline-end) 100%
     );
     border-color: var(--holiday-red-border) !important;
   }
@@ -50,23 +50,23 @@
     background: linear-gradient(
       180deg,
       var(--holiday-other-soft) 0%,
-      rgba(0, 0, 0, 0.18) 100%
+      var(--holiday-timeline-end) 100%
     );
     border-color: var(--holiday-other-border) !important;
   }
 
   .holiday-badge-strong {
     border: 1px solid var(--holiday-red-border);
-    background: rgba(255, 23, 68, 0.12);
-    color: #fecdd3;
-    box-shadow: 0 0 12px rgba(255, 23, 68, 0.35);
+    background: var(--holiday-red-soft);
+    color: var(--holiday-red-text);
+    box-shadow: var(--holiday-red-glow);
   }
 
   .holiday-badge-soft {
     border: 1px solid var(--holiday-other-border);
     background: var(--holiday-other-soft);
-    color: #ffedd5;
-    box-shadow: 0 0 10px var(--holiday-other-glow);
+    color: var(--holiday-other-text);
+    box-shadow: var(--holiday-other-glow);
   }
 
   .payroll-table-scroll {
@@ -116,20 +116,30 @@
     left: 0;
     z-index: 2;
     min-width: 170px;
-    background: #0d1b2a;
-    box-shadow: 4px 0 12px rgba(0, 0, 0, 0.35);
+    background: var(--table-sticky-bg);
+    box-shadow: 4px 0 12px rgba(0, 0, 0, 0.12);
   }
 
   .payroll-report-table tfoot td.employee-col,
   .payroll-summary-table tfoot td.employee-col {
     z-index: 3;
-    background: rgba(15, 23, 42, 0.95);
+    background: var(--table-sticky-foot-bg);
   }
 
   .payroll-report-table thead th.employee-col,
   .payroll-summary-table thead th.employee-col {
     z-index: 4;
-    background: rgba(30, 41, 59, 0.98);
+    background: var(--table-sticky-head-bg);
+  }
+
+  .payroll-report-table tbody tr:hover,
+  .payroll-summary-table tbody tr:hover {
+    background: var(--table-row-hover);
+  }
+
+  .payroll-report-table thead tr,
+  .payroll-summary-table thead tr {
+    background: var(--table-head-bg);
   }
 
   @media print {
@@ -147,6 +157,93 @@
     .payroll-report-table td.payroll-col-print-only {
       display: table-cell !important;
     }
+  }
+}
+
+@layer components {
+  /* Light mode: häufige Dark-only Tailwind-Klassen auf Theme-Variablen mappen */
+  [data-theme='light'] .hover\:bg-white\/5:hover,
+  [data-theme='light'] .hover\:bg-white\/10:hover,
+  [data-theme='light'] .hover\:bg-white\/\[0\.02\]:hover,
+  [data-theme='light'] .hover\:bg-white\/\[0\.04\]:hover {
+    background-color: var(--surface-hover) !important;
+  }
+
+  [data-theme='light'] .bg-black\/20,
+  [data-theme='light'] .bg-black\/25,
+  [data-theme='light'] .bg-black\/30,
+  [data-theme='light'] .bg-black\/40 {
+    background-color: var(--input-bg) !important;
+  }
+
+  [data-theme='light'] .bg-black\/60,
+  [data-theme='light'] .bg-black\/65,
+  [data-theme='light'] .bg-black\/70,
+  [data-theme='light'] .bg-black\/75 {
+    background-color: var(--overlay-backdrop) !important;
+  }
+
+  [data-theme='light'] .border-white\/5,
+  [data-theme='light'] .border-white\/10,
+  [data-theme='light'] .border-white\/15 {
+    border-color: var(--input-border) !important;
+  }
+
+  [data-theme='light'] .text-cyan-100,
+  [data-theme='light'] .text-cyan-200\/90,
+  [data-theme='light'] .text-cyan-200,
+  [data-theme='light'] .text-cyan-300,
+  [data-theme='light'] .text-cyan-300\/90,
+  [data-theme='light'] .text-cyan-300\/95 {
+    color: var(--accent-text) !important;
+  }
+
+  [data-theme='light'] .text-sky-200,
+  [data-theme='light'] .text-sky-200\/90 {
+    color: var(--payroll-col-plan) !important;
+  }
+
+  [data-theme='light'] .text-violet-200,
+  [data-theme='light'] .text-violet-200\/90 {
+    color: var(--payroll-col-time) !important;
+  }
+
+  [data-theme='light'] .text-emerald-200,
+  [data-theme='light'] .text-emerald-200\/90,
+  [data-theme='light'] .text-emerald-300,
+  [data-theme='light'] .text-emerald-300\/90 {
+    color: var(--payroll-col-used) !important;
+  }
+
+  [data-theme='light'] .text-amber-200,
+  [data-theme='light'] .text-amber-200\/90 {
+    color: #b45309 !important;
+  }
+
+  [data-theme='light'] .text-orange-200,
+  [data-theme='light'] .text-orange-200\/80,
+  [data-theme='light'] .text-orange-200\/90 {
+    color: #c2410c !important;
+  }
+
+  [data-theme='light'] .text-teal-200,
+  [data-theme='light'] .text-teal-200\/90 {
+    color: #0f766e !important;
+  }
+
+  [data-theme='light'] .text-slate-100,
+  [data-theme='light'] .text-slate-100\/90,
+  [data-theme='light'] .text-slate-300,
+  [data-theme='light'] .text-slate-300\/90 {
+    color: var(--text-main) !important;
+  }
+
+  [data-theme='light'] .text-red-300 {
+    color: var(--accent-danger) !important;
+  }
+
+  [data-theme='light'] .bg-white\/5 {
+    background-color: var(--surface-hover) !important;
   }
 }
 

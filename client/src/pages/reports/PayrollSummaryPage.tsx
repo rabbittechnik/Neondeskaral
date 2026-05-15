@@ -532,13 +532,13 @@ export function PayrollSummaryPage() {
     <div className="space-y-6 pb-10 print:pb-0">
       <PageHeader
         title="Lohnabrechnung Zusammenfassung"
-        description="Schichtplan und freigegebene Zeiterfassung pro Tag abgeglichen: kein automatisches Minus bei fehlender Stempelung, Zuschläge je verwendeter Datenquelle."
+        description="Freigegebene Stempelzeiten pro Kalendertag (Europe/Berlin); ohne Stempelung gilt der Schichtplan. Plan, Ist und verwendete Zeit bleiben in den Details nachvollziehbar."
       />
 
       <p className="rounded-lg border border-cyan-500/20 bg-cyan-500/10 px-3 py-2 text-sm text-cyan-100/95">
-        Pro Kalendertag (Europe/Berlin) wird max(Schichtplan, Zeiterfassung) verwendet. Kürzere Stempelungen ersetzen den
-        Plan nicht; längere Zeiten und Arbeit ohne Plan werden übernommen. Offene Zeiterfassungen (ohne Ende) werden rot
-        markiert.
+        Freigegebene Stempelzeiten ersetzen die Planzeit. Ohne Stempelung wird der Schichtplan verwendet. Noch nicht
+        freigegebene Zeiten sind in den Details sichtbar, fließen aber erst nach Freigabe in „verwendet“ ein. Offene
+        Zeiterfassungen (ohne Ende) werden rot markiert.
       </p>
 
       <div className="flex flex-col gap-4 print:hidden xl:flex-row xl:flex-wrap xl:items-start xl:justify-between">
@@ -711,8 +711,8 @@ export function PayrollSummaryPage() {
             showSummaryHints
           />
           <p className="mb-3 text-xs text-[var(--text-muted)]">
-            Manuelle Korrekturen pro Tag können später ergänzt werden. Farben: grün = Zeiterfassung übernommen / passt,
-            gelb = Schichtplan-Fallback, orange = ohne Plan gearbeitet, rot = offene Zeiterfassung.
+            Farben: grün = Ist übernommen / passt, gelb = Schichtplan-Fallback, orange = kürzeres Ist / ohne Plan /
+            Freigabe ausstehend, rot = offene Zeiterfassung oder fehlender Früh-Ende-Grund.
           </p>
           <div className="max-h-[70vh] space-y-2 overflow-y-auto">
             {detailRow.details.map((d) => {

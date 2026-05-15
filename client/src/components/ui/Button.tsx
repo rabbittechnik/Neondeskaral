@@ -3,7 +3,7 @@ import type { ButtonHTMLAttributes, ReactNode } from 'react'
 const variants = {
   primary:
     'bg-[var(--accent-cyan)]/20 text-[var(--accent-cyan)] border border-[var(--accent-cyan)]/50 hover:bg-[var(--accent-cyan)]/30 shadow-[var(--glow-cyan)]',
-  ghost: 'bg-transparent text-[var(--text-muted)] hover:bg-white/5 hover:text-[var(--text-main)]',
+  ghost: 'bg-transparent text-[var(--text-muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-main)]',
   outline:
     'bg-transparent border border-[var(--border-strong)] text-[var(--text-main)] hover:border-[var(--accent-cyan)]/50',
   danger:

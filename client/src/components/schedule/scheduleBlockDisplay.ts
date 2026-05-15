@@ -14,18 +14,24 @@ export function buildShiftBarTooltipLines(p: {
   employeeName: string
   start: string
   end: string
+  plannedStart?: string
+  plannedEnd?: string
   areaLabel: string
   shiftTypeLabel: string
   status?: string
   dateLabel?: string
+  pendingApproval?: boolean
 }): string {
   const lines = [
     p.employeeName,
     p.dateLabel,
-    `${p.start}–${p.end} Uhr`,
+    p.plannedStart && p.plannedEnd
+      ? `Ist: ${p.start}–${p.end} Uhr\nPlan: ${p.plannedStart}–${p.plannedEnd} Uhr`
+      : `${p.start}–${p.end} Uhr`,
     p.areaLabel ? `Arbeitsbereich: ${p.areaLabel}` : null,
     `Schichttyp: ${p.shiftTypeLabel}`,
     p.status ? `Status: ${p.status}` : null,
+    p.pendingApproval ? 'Freigabe: ausstehend' : null,
   ]
   return lines.filter((x) => x && String(x).trim()).join('\n')
 }

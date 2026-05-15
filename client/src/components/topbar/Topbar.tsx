@@ -13,6 +13,7 @@ import { useStation } from '../../context/station-context'
 import { useSidebar } from '../../store/sidebar-context'
 import { Avatar } from '../ui/Avatar'
 import { NotificationBell } from './NotificationBell'
+import { ThemeToggle } from './ThemeToggle'
 
 export function Topbar() {
   const { collapsed, toggleCollapsed, toggleMobile } = useSidebar()
@@ -138,6 +139,7 @@ export function Topbar() {
       </div>
 
       <div className="ml-auto flex items-center gap-1 md:gap-2">
+        <ThemeToggle />
         <NotificationBell />
 
         <div className="relative" ref={profileRef}>

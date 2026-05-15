@@ -68,6 +68,47 @@ function effectiveTimeEntryForPayroll(te: TimeEntryRow, corrMap: Map<string, Tim
   return { start_at: eff.startAt, end_at: eff.endAt ?? te.end_at, break_minutes: eff.breakMinutes }
 }
 
+/** Freigegebene Ist-Minuten pro Kalendertag (ohne Urlaub). */
+export function resolvePayrollWorkUsedMinutes(
+  shMin: number,
+  trMin: number,
+  hasOpen: boolean,
+): { usedMin: number; source: PayrollCombinedDaySource } {
+  if (hasOpen) {
+    if (shMin > 0) return { usedMin: shMin, source: 'schedule_fallback' }
+    if (trMin > 0) return { usedMin: trMin, source: 'time_tracking_extra' }
+    return { usedMin: 0, source: 'none' }
+  }
+  if (shMin <= 0 && trMin <= 0) return { usedMin: 0, source: 'none' }
+  if (shMin <= 0 && trMin > 0) return { usedMin: trMin, source: 'time_tracking_extra' }
+  if (trMin <= 0 && shMin > 0) return { usedMin: shMin, source: 'schedule_fallback' }
+  return { usedMin: trMin, source: 'time_tracking' }
+}
+
+function minHm(a: string | null | undefined, b: string | null | undefined): string | null {
+  if (!a) return b ?? null
+  if (!b) return a
+  return a <= b ? a : b
+}
+
+function maxHm(a: string | null | undefined, b: string | null | undefined): string | null {
+  if (!a) return b ?? null
+  if (!b) return a
+  return a >= b ? a : b
+}
+
+function mergeDayHmRanges(
+  ranges: { start: string; end: string }[],
+): { start: string | null; end: string | null } {
+  let start: string | null = null
+  let end: string | null = null
+  for (const r of ranges) {
+    start = minHm(start, r.start)
+    end = maxHm(end, r.end)
+  }
+  return { start, end }
+}
+
 export type { PayrollEmploymentFilter } from './payrollCalculationService.js'
 
 export type PayrollReportSource = 'time_tracking' | 'schedule_plan'
@@ -165,7 +206,13 @@ export type PayrollCombinedDaySource =
 
 export type PayrollCombinedDetailHighlight = 'green' | 'yellow' | 'orange' | 'red' | 'neutral'
 
-export type PayrollCombinedShiftDetail = { id: string; label: string; hours: number }
+export type PayrollCombinedShiftDetail = {
+  id: string
+  label: string
+  hours: number
+  plannedStart: string
+  plannedEnd: string
+}
 
 export type PayrollCombinedTimeDetail = {
   id: string
@@ -173,6 +220,13 @@ export type PayrollCombinedTimeDetail = {
   endAt: string | null
   hours: number
   open: boolean
+  startTime?: string
+  endTime?: string
+  approvalStatus?: string
+  pendingApproval?: boolean
+  earlyLeaveReason?: string
+  earlyLeaveNote?: string
+  earlyLeaveMinutes?: number
   /** Früher >30 Min. vs. Plan: dokumentierter Grund / fehlend (nur Anzeige). */
   earlyLeaveDoc?: 'documented' | 'missing'
 }
@@ -201,6 +255,13 @@ export type PayrollCombinedDayDetail = {
   usedMinutes: number
   plannedPaidVacationMinutes: number
   plannedOtherPaidAbsenceMinutes: number
+  plannedStart?: string | null
+  plannedEnd?: string | null
+  actualStart?: string | null
+  actualEnd?: string | null
+  usedStart?: string | null
+  usedEnd?: string | null
+  deviationReason?: string | null
   isPublicHoliday?: boolean
   holidayNameDe?: string
   /** Zuschlags-Debug: Aufschlüsselung je Tag (Vergleich Originalsystem). */
@@ -1330,8 +1391,8 @@ function parseEmployeeIdFilter(raw: string | undefined): Set<string> | null {
 }
 
 /**
- * Lohnabrechnung **Zusammenfassung**: pro Kalendertag (Europe/Berlin) max(Schichtplan, freigegebene Zeiterfassung),
- * Schichtplan als Fallback bei fehlender/kürzerer Stempelung, Zuschläge je Quelle (Plan vs. gestempelt).
+ * Lohnabrechnung **Zusammenfassung**: pro Kalendertag (Europe/Berlin) freigegebene Stempelzeit wenn vorhanden,
+ * sonst Schichtplan; Plan/Ist/verwendet bleiben in den Details nachvollziehbar.
  */
 export function calculatePayrollCombinedReport(
   db: Database,
@@ -1386,7 +1447,22 @@ export function calculatePayrollCombinedReport(
     )
     .all(stationId, toDate, fromDate) as TimeEntryRow[]
 
-  const entryCorrMap = loadLatestCorrectionsMapForIds(db, approvedEntries.map((e) => e.id))
+  const pendingCompletedEntries = db
+    .prepare(
+      `SELECT te.* FROM time_entries te
+       WHERE te.station_id = ?
+         AND te.status = 'completed'
+         AND (te.approval_status IS NULL OR trim(te.approval_status) = '' OR te.approval_status NOT IN ('approved', 'rejected'))
+         AND te.end_at IS NOT NULL AND trim(te.end_at) != ''
+         AND date(te.start_at) <= date(?)
+         AND date(te.end_at) >= date(?)`,
+    )
+    .all(stationId, toDate, fromDate) as TimeEntryRow[]
+
+  const entryCorrMap = loadLatestCorrectionsMapForIds(
+    db,
+    [...approvedEntries, ...pendingCompletedEntries].map((e) => e.id),
+  )
 
   const pendingEntries = db
     .prepare(
@@ -1454,6 +1530,13 @@ export function calculatePayrollCombinedReport(
     entriesByEmployee.set(te.employee_id, list)
   }
 
+  const pendingByEmployee = new Map<string, TimeEntryRow[]>()
+  for (const te of pendingCompletedEntries) {
+    const list = pendingByEmployee.get(te.employee_id) ?? []
+    list.push(te)
+    pendingByEmployee.set(te.employee_id, list)
+  }
+
   const openByEmployee = new Map<string, TimeEntryRow[]>()
   for (const te of openRunning) {
     const list = openByEmployee.get(te.employee_id) ?? []
@@ -1485,6 +1568,7 @@ export function calculatePayrollCombinedReport(
     const empFields = surchargeFieldsFromEmployee(R)
     const myShifts = shiftsByEmployee.get(employeeId) ?? []
     const myEntries = entriesByEmployee.get(employeeId) ?? []
+    const myPendingEntries = pendingByEmployee.get(employeeId) ?? []
     const myOpen = openByEmployee.get(employeeId) ?? []
 
     const byYmd = new Map<string, YmdPack>()
@@ -1498,12 +1582,55 @@ export function calculatePayrollCombinedReport(
       if (!s.date || !s.startTime || !s.endTime) continue
       if (s.date < fromDate || s.date > toDate) continue
       const m = shiftMinutesByBerlinYmd(s.date, s.startTime, s.endTime, s.breakMinutes ?? 0, fromDate, toDate)
-      const label = `${String(s.startTime).slice(0, 5)}–${String(s.endTime).slice(0, 5)}`
+      const plannedStart = String(s.startTime).slice(0, 5)
+      const plannedEnd = String(s.endTime).slice(0, 5)
+      const label = `${plannedStart}–${plannedEnd}`
       for (const [ymd, netMin] of m) {
         if (netMin <= 0) continue
         const p = ensurePack(ymd)
         p.shMinutes += netMin
-        p.shifts.push({ id: s.id, label, hours: minutesToHours2(netMin) })
+        p.shifts.push({ id: s.id, label, hours: minutesToHours2(netMin), plannedStart, plannedEnd })
+      }
+    }
+
+    const pushTimeEntryDetail = (
+      te: TimeEntryRow,
+      ymd: string,
+      netMin: number,
+      t: { start_at: string; end_at: string | null; break_minutes: number },
+      opts: { open: boolean; pendingApproval: boolean },
+    ) => {
+      const p = ensurePack(ymd)
+      const startTime = t.start_at ? formatTimeHmBerlin(new Date(t.start_at).getTime()) : undefined
+      const endTime =
+        t.end_at && !opts.open ? formatTimeHmBerlin(new Date(t.end_at).getTime()) : undefined
+      const earlyMin = te.end_deviation_type === 'early' ? Number(te.end_deviation_minutes ?? 0) : 0
+      if (!p.entries.some((e) => e.id === te.id && e.open === opts.open)) {
+        p.entries.push({
+          id: te.id,
+          startAt: t.start_at,
+          endAt: t.end_at,
+          hours: minutesToHours2(netMin),
+          open: opts.open,
+          startTime,
+          endTime,
+          approvalStatus: opts.pendingApproval
+            ? 'pending'
+            : String(te.approval_status ?? 'approved'),
+          pendingApproval: opts.pendingApproval,
+          earlyLeaveReason: te.early_leave_reason ? String(te.early_leave_reason) : undefined,
+          earlyLeaveNote: te.early_leave_note ? String(te.early_leave_note) : undefined,
+          earlyLeaveMinutes: earlyMin > 0 ? earlyMin : undefined,
+          earlyLeaveDoc:
+            !opts.pendingApproval &&
+            te.end_deviation_type === 'early' &&
+            typeof te.end_deviation_minutes === 'number' &&
+            te.end_deviation_minutes > 30
+              ? te.early_leave_reason
+                ? ('documented' as const)
+                : ('missing' as const)
+              : undefined,
+        })
       }
     }
 
@@ -1521,21 +1648,23 @@ export function calculatePayrollCombinedReport(
         if (netMin <= 0) continue
         const p = ensurePack(ymd)
         p.trMinutes += netMin
-        p.entries.push({
-          id: te.id,
-          startAt: t.start_at,
-          endAt: t.end_at,
-          hours: minutesToHours2(netMin),
-          open: false,
-          earlyLeaveDoc:
-            te.end_deviation_type === 'early' &&
-            typeof te.end_deviation_minutes === 'number' &&
-            te.end_deviation_minutes > 30
-              ? te.early_leave_reason
-                ? ('documented' as const)
-                : ('missing' as const)
-              : undefined,
-        })
+        pushTimeEntryDetail(te, ymd, netMin, t, { open: false, pendingApproval: false })
+      }
+    }
+
+    for (const te of myPendingEntries) {
+      const t = effectiveTimeEntryForPayroll(te, entryCorrMap)
+      if (!t.start_at || !t.end_at) continue
+      const m = netMinutesByBerlinYmdFromUtc(
+        new Date(t.start_at).getTime(),
+        new Date(t.end_at).getTime(),
+        t.break_minutes ?? 0,
+        fromDate,
+        toDate,
+      )
+      for (const [ymd, netMin] of m) {
+        if (netMin <= 0) continue
+        pushTimeEntryDetail(te, ymd, netMin, t, { open: false, pendingApproval: true })
       }
     }
 
@@ -1549,15 +1678,13 @@ export function calculatePayrollCombinedReport(
       for (const ymd of eachYmdInRangeInclusive(spanStart, toDate)) {
         const p = ensurePack(ymd)
         p.openConflict = true
-        if (!p.entries.some((e) => e.id === te.id && e.open)) {
-          p.entries.push({
-            id: te.id,
-            startAt: te.start_at,
-            endAt: null,
-            hours: 0,
-            open: true,
-          })
-        }
+        pushTimeEntryDetail(
+          te,
+          ymd,
+          0,
+          { start_at: te.start_at, end_at: null, break_minutes: te.break_minutes ?? 0 },
+          { open: true, pendingApproval: false },
+        )
       }
     }
 
@@ -1614,37 +1741,13 @@ export function calculatePayrollCombinedReport(
       if (vhMin > 0 && shMin <= 0 && trMin <= 0) scheduleMinutesTotal += vhMin
       timeTrackingMinutesTotal += trMin
 
-      let usedMin = 0
-      let source: PayrollCombinedDaySource = 'none'
       const hasOpen = pack.openConflict
+      const hasPendingOnly =
+        !hasOpen &&
+        trMin <= 0 &&
+        pack.entries.some((e) => e.pendingApproval && !e.open)
 
-      if (!hasOpen) {
-        if (shMin <= 0 && trMin <= 0) {
-          usedMin = 0
-          source = 'none'
-        } else if (shMin <= 0 && trMin > 0) {
-          usedMin = trMin
-          source = 'time_tracking_extra'
-        } else if (trMin <= 0 && shMin > 0) {
-          usedMin = shMin
-          source = 'schedule_fallback'
-        } else if (trMin < shMin) {
-          usedMin = shMin
-          source = 'schedule_fallback'
-        } else if (trMin > shMin) {
-          usedMin = trMin
-          source = 'time_tracking'
-        } else {
-          usedMin = trMin
-          source = 'time_tracking'
-        }
-      } else {
-        usedMin = Math.max(shMin, trMin)
-        if (trMin > shMin) source = 'time_tracking'
-        else if (shMin > 0) source = 'schedule_fallback'
-        else if (trMin > 0) source = 'time_tracking_extra'
-        else source = 'none'
-      }
+      let { usedMin, source } = resolvePayrollWorkUsedMinutes(shMin, trMin, hasOpen)
 
       if (!hasOpen && vhMin > 0) {
         if (shMin <= 0 && trMin <= 0) {
@@ -1655,9 +1758,33 @@ export function calculatePayrollCombinedReport(
         }
       }
 
+      const plannedRange = mergeDayHmRanges(
+        pack.shifts.map((s) => ({ start: s.plannedStart, end: s.plannedEnd })),
+      )
+      const approvedEntryRanges = pack.entries
+        .filter((e) => !e.open && !e.pendingApproval && e.startTime && e.endTime)
+        .map((e) => ({ start: e.startTime!, end: e.endTime! }))
+      const actualRange = mergeDayHmRanges(approvedEntryRanges)
+      const plannedStart = plannedRange.start
+      const plannedEnd = plannedRange.end
+      const actualStart = actualRange.start
+      const actualEnd = actualRange.end
+      const usedStart = trMin > 0 && !hasOpen ? actualStart : plannedStart
+      const usedEnd = trMin > 0 && !hasOpen ? actualEnd : plannedEnd
+
+      let deviationReason: string | null = null
+      for (const e of pack.entries) {
+        if (e.open || e.pendingApproval || !e.earlyLeaveReason) continue
+        if ((e.earlyLeaveMinutes ?? 0) <= 30) continue
+        const lab = earlyLeaveReasonLabelDe(e.earlyLeaveReason)
+        const extra = e.earlyLeaveNote ? ` (${e.earlyLeaveNote.trim()})` : ''
+        deviationReason = `Früher beendet – Grund: ${lab}${extra}`
+        break
+      }
+
       usedMinutesTotal += usedMin
       extraUnplannedMinutes += Math.max(0, trMin - shMin)
-      if (shMin > 0 && trMin <= 0 && !hasOpen) missingTimeEntriesDayCount += 1
+      if (shMin > 0 && trMin <= 0 && !hasOpen && !hasPendingOnly) missingTimeEntriesDayCount += 1
       if (shMin <= 0 && trMin > 0) unplannedWorkDayCount += 1
 
       let note = ''
@@ -1666,33 +1793,24 @@ export function calculatePayrollCombinedReport(
         note =
           'Offene laufende Zeiterfassung – bitte prüfen. Zuschläge an diesem Tag nicht automatisch ermittelt.'
         highlight = 'red'
+      } else if (hasPendingOnly) {
+        note =
+          'Zeiterfassung vorhanden, aber noch nicht freigegeben – für die Abrechnung wird vorerst der Schichtplan verwendet.'
+        highlight = 'orange'
       } else if (source === 'schedule_fallback' && tr <= 0 && sh > 0) {
-        note = 'Keine Zeiterfassung vorhanden – Schichtplanzeit verwendet.'
+        note = 'Keine freigegebene Zeiterfassung – Schichtplanzeit verwendet.'
         highlight = 'yellow'
-      } else if (source === 'schedule_fallback' && tr > 0 && tr < sh) {
+      } else if (source === 'time_tracking' && tr > 0 && tr < sh) {
         const documented = pack.entries.some((e) => e.earlyLeaveDoc === 'documented')
         const missingDoc = pack.entries.some((e) => e.earlyLeaveDoc === 'missing')
-        if (documented) {
-          const parts: string[] = []
-          for (const te of myEntries) {
-            if (te.end_deviation_type !== 'early' || (te.end_deviation_minutes ?? 0) <= 30) continue
-            if (!te.early_leave_reason) continue
-            const m = te.end_deviation_minutes ?? 0
-            const lab = earlyLeaveReasonLabelDe(String(te.early_leave_reason))
-            const note = te.early_leave_note ? String(te.early_leave_note).trim() : ''
-            parts.push(`${m} Min. früher – ${lab}${note ? ` (${note})` : ''}`)
-          }
-          note =
-            parts.length > 0
-              ? `Zeiterfassung kürzer als Schichtplan – Schichtplanzeit wird für den Lohn noch verwendet. Früheres Ende mit Grund: ${parts.join(' · ')} — bitte Plan- vs. Ist-Zeit manuell prüfen.`
-              : 'Zeiterfassung kürzer als Schichtplan – Schichtplanzeit verwendet; früheres Ende mit dokumentiertem Grund.'
-          highlight = 'orange'
+        if (deviationReason) {
+          note = `${deviationReason} — Istzeit für Lohn verwendet (${actualStart ?? '—'}–${actualEnd ?? '—'}).`
+          highlight = documented ? 'orange' : 'red'
         } else if (missingDoc) {
-          note =
-            'Zeiterfassung kürzer als Schichtplan – Schichtplanzeit verwendet. Früheres Ende ohne dokumentierten Grund (oder unvollständig) — Prüfen erforderlich.'
+          note = `Zeiterfassung kürzer als Schichtplan – Istzeit verwendet. Früheres Ende ohne dokumentierten Grund — Prüfen erforderlich.`
           highlight = 'red'
         } else {
-          note = 'Zeiterfassung kürzer als Schichtplan – Schichtplanzeit verwendet.'
+          note = 'Zeiterfassung kürzer als Schichtplan – Istzeit für Lohn verwendet.'
           highlight = 'yellow'
         }
       } else if (source === 'time_tracking_extra') {
@@ -1727,10 +1845,7 @@ export function calculatePayrollCombinedReport(
 
       let daySup = 0
       if (!hasOpen) {
-        const useScheduleSupplements =
-          stationSurchargeRules.supplementsPreferSchedule && shMin > 0
-            ? true
-            : source === 'schedule_fallback'
+        const useScheduleSupplements = trMin <= 0 && shMin > 0
 
         if (useScheduleSupplements) {
           for (const s of myShifts) {
@@ -1781,13 +1896,11 @@ export function calculatePayrollCombinedReport(
 
       const appliedBasis: 'schedule' | 'time_tracking' | 'none' = hasOpen
         ? 'none'
-        : stationSurchargeRules.supplementsPreferSchedule && shMin > 0
-          ? 'schedule'
-          : source === 'schedule_fallback'
+        : trMin > 0
+          ? 'time_tracking'
+          : source === 'schedule_fallback' && shMin > 0
             ? 'schedule'
-            : source === 'time_tracking' || source === 'time_tracking_extra'
-              ? 'time_tracking'
-              : 'none'
+            : 'none'
 
       const sides = computeDaySupplementSides({
         ymd,
@@ -1844,6 +1957,13 @@ export function calculatePayrollCombinedReport(
         usedMinutes: usedMin,
         plannedPaidVacationMinutes: vhVacMin,
         plannedOtherPaidAbsenceMinutes: vhOtherMin,
+        plannedStart,
+        plannedEnd,
+        actualStart,
+        actualEnd,
+        usedStart,
+        usedEnd,
+        deviationReason,
         isPublicHoliday: isHol,
         holidayNameDe: isHol ? publicHolidayNameDe(ymd, federalState, holidayOverlay) : undefined,
         supplementDebug,
@@ -2062,9 +2182,14 @@ export function calculatePayrollForEmployeeRange(
   hints.push('Berechnung: Minuten-genau aus Start/Ende minus Pause; Anzeige mit 2 Nachkommastellen.')
 
   for (const d of employee.details) {
-    const expectedMin = d.scheduledMinutes || d.plannedPaidVacationMinutes + d.plannedOtherPaidAbsenceMinutes
-    if (expectedMin > 0 && Math.abs(d.usedMinutes - Math.max(d.scheduledMinutes, d.trackedMinutes, d.plannedPaidVacationMinutes + d.plannedOtherPaidAbsenceMinutes)) > 1) {
-      hints.push(`${d.date}: verwendete Minuten (${d.usedMinutes}) weichen von Plan/Erfasst/Urlaub ab – Regel prüfen.`)
+    const vacMin = d.plannedPaidVacationMinutes + d.plannedOtherPaidAbsenceMinutes
+    let expectedMin = 0
+    if (d.trackedMinutes > 0) expectedMin = d.trackedMinutes
+    else if (d.scheduledMinutes > 0) expectedMin = d.scheduledMinutes
+    if (vacMin > 0 && d.scheduledMinutes <= 0 && d.trackedMinutes <= 0) expectedMin = vacMin
+    else if (vacMin > 0) expectedMin = Math.max(expectedMin, vacMin)
+    if (expectedMin > 0 && Math.abs(d.usedMinutes - expectedMin) > 1) {
+      hints.push(`${d.date}: verwendete Minuten (${d.usedMinutes}) weichen von der erwarteten Regel ab – prüfen.`)
     }
   }
 

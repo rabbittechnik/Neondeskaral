@@ -13,6 +13,18 @@
       rel="stylesheet"
     />
     <title>Rabbit-Technik Station</title>
+    <script>
+      ;(function () {
+        try {
+          var k = 'rabbit_station_theme'
+          var t = localStorage.getItem(k)
+          var theme = t === 'light' || t === 'dark' ? t : 'dark'
+          document.documentElement.setAttribute('data-theme', theme)
+          var meta = document.querySelector('meta[name="theme-color"]')
+          if (meta) meta.setAttribute('content', theme === 'light' ? '#eaf1f8' : '#0a1628')
+        } catch (e) {}
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

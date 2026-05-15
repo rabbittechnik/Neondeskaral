@@ -197,6 +197,12 @@ export type ResolvedShiftBlock = {
   requirementGap?: boolean
   /** Nur Teil der Soll-Zeit offen (Rest durch andere Schichten abgedeckt). */
   requirementGapPartial?: boolean
+  /** Freigegebene oder offene Stempelzeit (Anzeige, Plan bleibt in start/end). */
+  actualStart?: string
+  actualEnd?: string
+  actualPendingApproval?: boolean
+  /** Nur Ist ohne geplanten Dienst */
+  istOnly?: boolean
 }
 
 export function scheduleShiftToResolved(
