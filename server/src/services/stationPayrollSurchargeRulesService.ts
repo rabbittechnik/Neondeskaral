@@ -12,6 +12,7 @@ type StationRulesRow = {
   sunday_surcharge_enabled: number | null
   payroll_supplements_prefer_schedule: number | null
   default_special_holiday_percent: number | null
+  payroll_only_sunday_holiday_supplements: number | null
 }
 
 function flag(v: number | null | undefined, defaultOn: boolean): boolean {
@@ -44,6 +45,10 @@ export function rulesFromStationRow(
     sundaySurchargeEnabled: flag(row.sunday_surcharge_enabled, preset.sundaySurchargeEnabled),
     supplementsPreferSchedule: flag(row.payroll_supplements_prefer_schedule, preset.supplementsPreferSchedule),
     defaultSpecialHolidayPercent: numOr(row.default_special_holiday_percent, preset.defaultSpecialHolidayPercent),
+    onlySundayAndHolidaySupplements: flag(
+      row.payroll_only_sunday_holiday_supplements,
+      preset.onlySundayAndHolidaySupplements,
+    ),
   }
 }
 
@@ -52,7 +57,8 @@ export function loadStationPayrollSurchargeRules(db: Database, stationId: string
     .prepare(
       `SELECT normal_weekday_night_bonus_enabled, normal_weekday_evening_bonus_enabled,
               saturday_surcharge_enabled, sunday_surcharge_enabled,
-              payroll_supplements_prefer_schedule, default_special_holiday_percent
+              payroll_supplements_prefer_schedule, default_special_holiday_percent,
+              payroll_only_sunday_holiday_supplements
        FROM stations WHERE id = ?`,
     )
     .get(stationId) as StationRulesRow | undefined

@@ -231,6 +231,8 @@ function allowNightTimeBonusOnInstant(
   overlay: StationHolidayOverlay | null | undefined,
   rules: StationPayrollSurchargeRules,
 ): boolean {
+  if (rules.onlySundayAndHolidaySupplements) return false
+
   const isHol =
     isGermanPublicHolidayYmd(ymd, state, overlay) ||
     isSpecialHolidayYmd(ymd, overlay, hour, minute)
@@ -243,6 +245,7 @@ function allowNightTimeBonusOnInstant(
 }
 
 function allowSaturdayBonus(weekday0Sun: number, rules: StationPayrollSurchargeRules): boolean {
+  if (rules.onlySundayAndHolidaySupplements) return false
   if (weekday0Sun !== 6) return true
   return rules.saturdaySurchargeEnabled
 }
@@ -435,80 +438,18 @@ function accumulateScheduleShiftSupplement(
     const sliceEnd = Math.min(t + STEP_MS, workEnd)
     const hours = (sliceEnd - t) / 3_600_000
     const mid = (t + sliceEnd) / 2
-    const { ymd, hour, minute, weekday0Sun } = berlinWallClock(mid)
+    const { ymd } = berlinWallClock(mid)
     if (ymdFilter && ymd !== ymdFilter) continue
-    const mod = toMinuteOfDay(hour, minute)
-    const satPct = numOr0(opts.emp.saturday_surcharge_percent)
-    const sunPct = numOr0(opts.emp.sunday_surcharge_percent)
-    const nightPct = numOr0(opts.emp.night_surcharge_percent)
-    const n04 = numOr0(opts.emp.night_0_4_surcharge_percent)
-    const n04Sun = numOr0(opts.emp.night_0_4_after_sunday_percent)
-    const n04Hol = numOr0(opts.emp.night_0_4_after_holiday_percent)
-    const n04Spec = numOr0(opts.emp.night_0_4_after_special_holiday_percent)
-    const isPublicHol = isGermanPublicHolidayYmd(ymd, opts.federalState, holOv)
-    const isCustomSpecialAllDay = holOv?.specialAllDayDates.has(ymd) ?? false
-    const isSpecialMoment = isSpecialHolidayCalendarMoment(ymd, hour, minute) || isCustomSpecialAllDay
-    const isDec31Afternoon = ymd.endsWith('-12-31') && hour >= 14
 
-    if (weekday0Sun === 6 && satPct > 0 && allowSaturdayBonus(weekday0Sun, rules)) {
-      const a = hours * wage * (satPct / 100)
-      buckets.saturday.hours += hours
-      buckets.saturday.amount += a
-      buckets.saturday.percent = satPct
-      supplement += a
-    }
-    if (weekday0Sun === 0 && sunPct > 0 && allowSundayBonus(weekday0Sun, rules)) {
-      const a = hours * wage * (sunPct / 100)
-      buckets.sunday.hours += hours
-      buckets.sunday.amount += a
-      buckets.sunday.percent = sunPct
-      supplement += a
-    }
-
-    const holSlice = resolveHolidaySlicePercent(isSpecialMoment, isPublicHol, opts.emp, rules)
-    if (holSlice.percent > 0 && holSlice.kind) {
-      const a = hours * wage * (holSlice.percent / 100)
-      buckets[holSlice.kind].hours += hours
-      buckets[holSlice.kind].amount += a
-      buckets[holSlice.kind].percent = holSlice.percent
-      supplement += a
-    }
-
-    const ns = parseHm(opts.emp.night_surcharge_start)
-    const ne = parseHm(opts.emp.night_surcharge_end)
-    if (
-      ns &&
-      ne &&
-      nightPct > 0 &&
-      allowNightTimeBonusOnInstant(weekday0Sun, ymd, hour, minute, opts.federalState, holOv, rules)
-    ) {
-      const startM = toMinuteOfDay(ns.h, ns.m)
-      const endM = toMinuteOfDay(ne.h, ne.m)
-      if (minuteInSpan(mod, startM, endM)) {
-        const a = hours * wage * (nightPct / 100)
-        buckets.night.hours += hours
-        buckets.night.amount += a
-        buckets.night.percent = nightPct
-        supplement += a
-      }
-    }
-
-    if (
-      hour >= 0 &&
-      hour < 4 &&
-      n04 > 0 &&
-      allowNightTimeBonusOnInstant(weekday0Sun, ymd, hour, minute, opts.federalState, holOv, rules)
-    ) {
-      let p = n04
-      if (weekday0Sun === 0 && n04Sun > p) p = n04Sun
-      if (isPublicHol && n04Hol > p) p = n04Hol
-      if (isDec31Afternoon && n04Spec > p) p = n04Spec
-      const a = hours * wage * (p / 100)
-      buckets.night04.hours += hours
-      buckets.night04.amount += a
-      buckets.night04.percent = p
-      supplement += a
-    }
+    const pct = maxPercentForInstant(opts.emp, mid, opts.federalState, holOv, rules)
+    if (pct <= 0) continue
+    const { kind } = dominantSurchargeKindForInstant(opts.emp, mid, opts.federalState, holOv, rules)
+    if (!kind) continue
+    const a = hours * wage * (pct / 100)
+    buckets[kind].hours += hours
+    buckets[kind].amount += a
+    buckets[kind].percent = Math.max(buckets[kind].percent, pct)
+    supplement += a
   }
 
   return { supplement: Math.round(supplement * 100) / 100, buckets }

@@ -14,6 +14,11 @@ export type StationPayrollSurchargeRules = {
   supplementsPreferSchedule: boolean
   /** Fallback % für gesetzliche B-Feiertage, wenn im Profil kein bes.-Feiertag-% gesetzt ist. */
   defaultSpecialHolidayPercent: number
+  /**
+   * Nur Sonntags- und Feiertagszuschläge (Aral Bodelshausen).
+   * Kein Nacht-, Früh-, Spät-, Samstags- oder 0–4-Uhr-Zuschlag — auch nicht aus dem Mitarbeiterprofil.
+   */
+  onlySundayAndHolidaySupplements: boolean
 }
 
 export const DEFAULT_STATION_PAYROLL_SURCHARGE_RULES: StationPayrollSurchargeRules = {
@@ -23,14 +28,35 @@ export const DEFAULT_STATION_PAYROLL_SURCHARGE_RULES: StationPayrollSurchargeRul
   sundaySurchargeEnabled: true,
   supplementsPreferSchedule: false,
   defaultSpecialHolidayPercent: 150,
+  onlySundayAndHolidaySupplements: false,
 }
 
-/** Aral Bodelshausen: nur Feiertagszuschläge (125 % / 150 %), keine Früh-/Spät-/Nachtzuschläge an Werktagen. */
+/** Aral Bodelshausen: nur Sonntags- und Feiertagszuschläge — keine Nacht-/Früh-/Spät-/Samstagszuschläge. */
 export const ARAL_BODELSHAUSEN_PAYROLL_SURCHARGE_RULES: StationPayrollSurchargeRules = {
   normalWeekdayNightBonusEnabled: false,
   normalWeekdayEveningBonusEnabled: false,
   saturdaySurchargeEnabled: false,
-  sundaySurchargeEnabled: false,
+  sundaySurchargeEnabled: true,
   supplementsPreferSchedule: true,
   defaultSpecialHolidayPercent: 150,
+  onlySundayAndHolidaySupplements: true,
+}
+
+export function stationSurchargePolicySummaryDe(rules: StationPayrollSurchargeRules): string[] {
+  if (rules.onlySundayAndHolidaySupplements) {
+    return [
+      'Zuschläge nur an Sonntagen und gesetzlichen Feiertagen.',
+      'Nachtzuschläge: deaktiviert',
+      'Früh-/Spätzuschläge (z. B. ab 20:00 oder vor 06:00): deaktiviert',
+      'Samstagszuschläge: deaktiviert',
+      'Normale Werktage (Mo–Sa ohne Feiertag): kein Zuschlag — auch bei Start 05:30 oder Ende nach 20:00',
+    ]
+  }
+  const lines: string[] = []
+  if (!rules.normalWeekdayNightBonusEnabled && !rules.normalWeekdayEveningBonusEnabled) {
+    lines.push('Nacht-/Spätzuschläge an normalen Werktagen: deaktiviert')
+  }
+  if (!rules.saturdaySurchargeEnabled) lines.push('Samstagszuschläge: deaktiviert')
+  if (!rules.sundaySurchargeEnabled) lines.push('Sonntagszuschläge: deaktiviert')
+  return lines
 }

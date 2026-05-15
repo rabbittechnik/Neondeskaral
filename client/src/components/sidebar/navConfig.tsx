@@ -112,6 +112,11 @@ export const navEntries: NavEntry[] = [
         label: 'Lohnabrechnung Zusammenfassung',
         anyPermission: ['payroll.view', 'reports.payroll'],
       },
+      {
+        to: '/reports/payroll-audit',
+        label: 'Lohnprüfung',
+        anyPermission: ['payroll.view', 'reports.payroll'],
+      },
       { to: '/reports/tasks', label: 'Aufgaben' },
       {
         to: '/reports/absences',

@@ -78,6 +78,9 @@ const TaskReportsPage = lazy(() =>
 const AbsenceReportsPage = lazy(() =>
   import('../pages/reports/AbsenceReportsPage').then((m) => ({ default: m.AbsenceReportsPage })),
 )
+const PayrollAuditPage = lazy(() =>
+  import('../pages/reports/PayrollAuditPage').then((m) => ({ default: m.PayrollAuditPage })),
+)
 
 function LazyReport({ children }: { children: ReactNode }) {
   return <Suspense fallback={<RouteLoading />}>{children}</Suspense>
@@ -356,6 +359,15 @@ export const router = createBrowserRouter([
           </LazyReport>
         ),
         handle: { title: 'Lohnabrechnung Zusammenfassung' },
+      },
+      {
+        path: 'reports/payroll-audit',
+        element: (
+          <LazyReport>
+            <PayrollAuditPage />
+          </LazyReport>
+        ),
+        handle: { title: 'Lohnprüfung' },
       },
       {
         path: 'reports/payroll-summary/employee/:employeeId',

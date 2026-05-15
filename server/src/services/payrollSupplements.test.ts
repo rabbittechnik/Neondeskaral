@@ -60,6 +60,20 @@ describe('computeScheduleShiftSupplementEuros', () => {
     surcharge_calculation_mode: 'higher',
   }
 
+  it('pays no supplement on normal weekday early shift (05:30 start)', () => {
+    const sup = computeScheduleShiftSupplementEuros({
+      emp: mathiasLike,
+      hourlyWage: 15,
+      shiftDate: '2026-05-13',
+      startTime: '05:30',
+      endTime: '14:15',
+      breakMinutes: 0,
+      federalState: 'BW',
+      stationRules: ARAL_BODELSHAUSEN_PAYROLL_SURCHARGE_RULES,
+    })
+    expect(sup).toBe(0)
+  })
+
   it('pays holiday surcharge on 2026-05-01 (Tag der Arbeit)', () => {
     const sup = computeScheduleShiftSupplementEuros({
       emp: mathiasLike,

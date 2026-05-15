@@ -201,6 +201,7 @@ export function runMigrations(db: Database.Database) {
   ensureStationExtendedModules2026(db)
   ensureStationBreakPolicyColumnsAndZeroBodelshausenBreaks(db)
   ensureStationPayrollSurchargeRuleColumns(db)
+  ensureBodelshausenSundayHolidaySurchargePolicy(db)
   ensureTimeEntryCorrections2026(db)
   ensureWeeklySchedulePublicationsTable(db)
 }
@@ -1736,18 +1737,6 @@ function ensureStationPayrollSurchargeRuleColumns(db: Database.Database) {
   ).run(ts)
 
   db.prepare(
-    `UPDATE stations SET
-      normal_weekday_night_bonus_enabled = 0,
-      normal_weekday_evening_bonus_enabled = 0,
-      saturday_surcharge_enabled = 0,
-      sunday_surcharge_enabled = 0,
-      payroll_supplements_prefer_schedule = 1,
-      default_special_holiday_percent = 150,
-      updated_at = ?
-    WHERE id = 'aral-bodelshausen'`,
-  ).run(ts)
-
-  db.prepare(
     `UPDATE employees SET
       special_holiday_surcharge_percent = 150,
       holiday_surcharge_percent = COALESCE(holiday_surcharge_percent, 125),
@@ -1755,6 +1744,27 @@ function ensureStationPayrollSurchargeRuleColumns(db: Database.Database) {
     WHERE station_id = 'aral-bodelshausen'
       AND (special_holiday_surcharge_percent IS NULL OR special_holiday_surcharge_percent <= 0)
       AND surcharge_mode IN ('individual', 'tax_free')`,
+  ).run(ts)
+}
+
+/** Aral Bodelshausen: Sonntagszuschläge aktiv, nur Sonntag/Feiertag (kein Nacht/Früh/Spät). */
+function ensureBodelshausenSundayHolidaySurchargePolicy(db: Database.Database) {
+  const cols = new Set((db.prepare(`PRAGMA table_info(stations)`).all() as { name: string }[]).map((c) => c.name))
+  if (!cols.has('payroll_only_sunday_holiday_supplements')) {
+    db.exec(`ALTER TABLE stations ADD COLUMN payroll_only_sunday_holiday_supplements INTEGER`)
+  }
+  const ts = nowIso()
+  db.prepare(
+    `UPDATE stations SET
+      normal_weekday_night_bonus_enabled = 0,
+      normal_weekday_evening_bonus_enabled = 0,
+      saturday_surcharge_enabled = 0,
+      sunday_surcharge_enabled = 1,
+      payroll_supplements_prefer_schedule = 1,
+      default_special_holiday_percent = 150,
+      payroll_only_sunday_holiday_supplements = 1,
+      updated_at = ?
+    WHERE id = 'aral-bodelshausen'`,
   ).run(ts)
 }
 

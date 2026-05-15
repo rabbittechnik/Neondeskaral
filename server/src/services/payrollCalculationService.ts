@@ -8,7 +8,6 @@ import type { Database } from 'better-sqlite3'
 import type { GermanState } from '../data/germanHolidays2026.js'
 import { GERMAN_HOLIDAYS_2026, holidayAppliesToState } from '../data/germanHolidays2026.js'
 import type { EmployeeSurchargeFields } from './payrollSurchargeService.js'
-import type { StationPayrollSurchargeRules } from '../types/stationPayrollSurchargeRules.js'
 import type { AbsenceRow } from './absenceService.js'
 import type { EmployeeRow } from './employeeService.js'
 import type { TimeEntryRow } from './timeTrackingService.js'
@@ -33,6 +32,18 @@ import {
 import { isAbsenceStatusApprovedForPayrollDb } from '../utils/absencePayrollStatus.js'
 import { todayIso } from '../utils/timestamps.js'
 import { listShifts } from './shiftService.js'
+import { loadStationPayrollSurchargeRules } from './stationPayrollSurchargeRulesService.js'
+import {
+  DEFAULT_STATION_PAYROLL_SURCHARGE_RULES,
+  stationSurchargePolicySummaryDe,
+  type StationPayrollSurchargeRules,
+} from '../types/stationPayrollSurchargeRules.js'
+import {
+  computeScheduleShiftSupplementEuros,
+  isGermanPublicHolidayYmd,
+} from './payrollSurchargeService.js'
+import { buildStationHolidayOverlay } from './stationExtraHolidayService.js'
+import { berlinWallClockToUtcMs } from '../utils/europeBerlinWallTime.js'
 
 function isPublicHolidayYmd(ymd: string, state: GermanState): boolean {
   return GERMAN_HOLIDAYS_2026.some((h) => h.date === ymd && holidayAppliesToState(h, state))
@@ -728,11 +739,33 @@ export type PayrollValidationIssue = {
   detail?: string
 }
 
+export type PayrollValidationReport = {
+  stationId: string
+  stationName: string
+  federalState: string
+  fromDate: string
+  toDate: string
+  stationPolicy: {
+    rules: StationPayrollSurchargeRules
+    summaryLinesDe: string[]
+  }
+  issues: PayrollValidationIssue[]
+}
+
+function berlinWeekday0Sun(ymd: string): number {
+  const ms = berlinWallClockToUtcMs(ymd, '12:00')
+  const wdStr = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'Europe/Berlin' }).format(
+    new Date(ms),
+  )
+  const wdMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }
+  return wdMap[wdStr] ?? 0
+}
+
 /** Interner Prüfreport vor Monatsabschluss (keine Datenänderung). */
 export function buildPayrollValidationReport(
   db: Database,
   opts: { stationId: string; fromDate: string; toDate: string; employmentFilter?: string },
-): { stationId: string; fromDate: string; toDate: string; issues: PayrollValidationIssue[] } {
+): PayrollValidationReport {
   const stationId = opts.stationId.trim()
   const fromDate = opts.fromDate.trim()
   const toDate = opts.toDate.trim()
@@ -750,10 +783,23 @@ export function buildPayrollValidationReport(
       employeeName: '',
       message: 'Station nicht gefunden',
     })
-    return { stationId, fromDate, toDate, issues }
+    return {
+      stationId,
+      stationName: '',
+      federalState: '',
+      fromDate,
+      toDate,
+      stationPolicy: {
+        rules: { ...DEFAULT_STATION_PAYROLL_SURCHARGE_RULES },
+        summaryLinesDe: [],
+      },
+      issues,
+    }
   }
 
   const federalState = String(station.federal_state ?? 'BW').toUpperCase() as GermanState
+  const stationRules = loadStationPayrollSurchargeRules(db, stationId)
+  const holidayOverlay = buildStationHolidayOverlay(db, stationId)
   const todayYmd = todayIso()
 
   const employees = db
@@ -784,7 +830,10 @@ export function buildPayrollValidationReport(
     })
   }
 
+  const empById = new Map(filtered.map((e) => [e.id, e]))
   const shiftList = listShifts(db, { stationId, from: fromDate, to: toDate })
+  const shiftsPerEmpDay = new Map<string, number>()
+
   for (const s of shiftList) {
     if (!s.employeeId && String(s.shiftType ?? '').toLowerCase().trim() !== 'frei') {
       issues.push({
@@ -795,7 +844,113 @@ export function buildPayrollValidationReport(
         message: 'Schicht ohne Mitarbeiter',
         detail: `${s.date} ${s.startTime}–${s.endTime}`,
       })
+      continue
     }
+    if (!s.employeeId || !s.date || !s.startTime || !s.endTime) continue
+    if (String(s.shiftType ?? '').toLowerCase().trim() === 'frei') continue
+
+    const dayKey = `${s.employeeId}|${s.date}`
+    shiftsPerEmpDay.set(dayKey, (shiftsPerEmpDay.get(dayKey) ?? 0) + 1)
+
+    const netH = shiftNetHoursFromPlan(s.date, s.startTime, s.endTime, s.breakMinutes ?? 0)
+    if (netH > 10) {
+      const emp = empById.get(s.employeeId)
+      issues.push({
+        severity: 'warning',
+        code: 'shift_over_10h',
+        employeeId: s.employeeId,
+        employeeName: String(emp?.display_name ?? s.employeeId),
+        message: 'Schicht länger als 10 Stunden (Plan)',
+        detail: `${s.date} ${s.startTime}–${s.endTime} (${netH.toFixed(2)} Std.)`,
+      })
+    }
+
+    const emp = empById.get(s.employeeId)
+    if (!emp) continue
+    const R = emp as Record<string, unknown>
+    if (!employeeReceivesPayrollSurcharges(R)) continue
+
+    const wage = resolveHourlyWageForSupplements(db, R, fromDate)
+    const wd0 = berlinWeekday0Sun(s.date)
+    const isSun = wd0 === 0
+    const isHol = isGermanPublicHolidayYmd(s.date, federalState, holidayOverlay)
+    const sup = computeScheduleShiftSupplementEuros({
+      emp: surchargeFieldsFromEmployee(R),
+      hourlyWage: wage,
+      shiftDate: s.date,
+      startTime: s.startTime,
+      endTime: s.endTime,
+      breakMinutes: s.breakMinutes ?? 0,
+      federalState,
+      holidayOverlay,
+      stationRules,
+    })
+
+    if ((isSun || isHol) && netH > 0 && sup < 0.01) {
+      issues.push({
+        severity: 'warning',
+        code: 'sunday_holiday_zero_supplement',
+        employeeId: s.employeeId,
+        employeeName: String(emp.display_name ?? s.employeeId),
+        message: 'Sonntags-/Feiertagsarbeit ohne Zuschlag — Profil oder Stundenlohn-Basis prüfen',
+        detail: `${s.date} ${s.startTime}–${s.endTime}`,
+      })
+    }
+    if (!isSun && !isHol && sup > 0.02) {
+      issues.push({
+        severity: 'error',
+        code: 'unexpected_weekday_supplement',
+        employeeId: s.employeeId,
+        employeeName: String(emp.display_name ?? s.employeeId),
+        message:
+          'Zuschlag an normalem Werktag — für diese Station nur Sonntag/Feiertag erlaubt (kein Nacht/Früh/Spät)',
+        detail: `${s.date} ${s.startTime}–${s.endTime} · ${sup.toFixed(2)} €`,
+      })
+    }
+  }
+
+  for (const [key, count] of shiftsPerEmpDay) {
+    if (count < 2) continue
+    const [employeeId, date] = key.split('|')
+    const emp = empById.get(employeeId ?? '')
+    issues.push({
+      severity: 'warning',
+      code: 'duplicate_shifts_same_day',
+      employeeId: employeeId ?? '',
+      employeeName: String(emp?.display_name ?? employeeId ?? ''),
+      message: 'Mehrere geplante Schichten am selben Tag',
+      detail: `${date} (${count} Schichten)`,
+    })
+  }
+
+  const lateStamp = db
+    .prepare(
+      `SELECT te.*, e.display_name AS en FROM time_entries te
+       LEFT JOIN employees e ON e.id = te.employee_id
+       WHERE te.station_id = ? AND te.status = 'completed' AND te.approval_status = 'approved'
+         AND te.end_at IS NOT NULL AND trim(te.end_at) != ''
+         AND date(te.start_at) >= date(?) AND date(te.start_at) <= date(?)`,
+    )
+    .all(stationId, fromDate, toDate) as (TimeEntryRow & { en?: string | null })[]
+
+  for (const te of lateStamp) {
+    const endHm = new Intl.DateTimeFormat('de-DE', {
+      timeZone: 'Europe/Berlin',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(new Date(te.end_at!))
+    const [eh, em] = endHm.split(':').map(Number)
+    if ((eh ?? 0) < 22) continue
+    if ((eh ?? 0) === 22 && (em ?? 0) <= 45) continue
+    issues.push({
+      severity: 'warning',
+      code: 'late_clock_out',
+      employeeId: te.employee_id,
+      employeeName: String(te.en ?? '').trim() || te.employee_id,
+      message: 'Ausstempelung nach 22:45 Uhr — bitte prüfen',
+      detail: `Ende ${endHm} (${te.end_at})`,
+    })
   }
 
   const approvedH = db
@@ -898,5 +1053,16 @@ export function buildPayrollValidationReport(
     }
   }
 
-  return { stationId, fromDate, toDate, issues }
+  return {
+    stationId,
+    stationName: String(station.name ?? stationId),
+    federalState,
+    fromDate,
+    toDate,
+    stationPolicy: {
+      rules: stationRules,
+      summaryLinesDe: stationSurchargePolicySummaryDe(stationRules),
+    },
+    issues,
+  }
 }
