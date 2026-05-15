@@ -605,7 +605,7 @@ export function PayrollSummaryPage() {
         description="Freigegebene Stempelzeiten pro Kalendertag (Europe/Berlin); ohne Stempelung gilt der Schichtplan. Plan, Ist und verwendete Zeit bleiben in den Details nachvollziehbar."
       />
 
-      <p className="rounded-lg border border-cyan-500/20 bg-cyan-500/10 px-3 py-2 text-sm text-cyan-100/95">
+      <p className="ui-info-banner rounded-lg px-3 py-2 text-sm">
         Freigegebene Stempelzeiten ersetzen die Planzeit. Ohne Stempelung wird der Schichtplan verwendet. Noch nicht
         freigegebene Zeiten sind in den Details sichtbar, fließen aber erst nach Freigabe in „verwendet“ ein. Offene
         Zeiterfassungen (ohne Ende) werden rot markiert.

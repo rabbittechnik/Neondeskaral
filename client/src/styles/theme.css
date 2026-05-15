@@ -23,10 +23,43 @@
   --badge-bg: rgba(0, 0, 0, 0.25);
   --badge-info-bg: rgba(34, 211, 238, 0.15);
   --badge-info-text: #a5f3fc;
+  --badge-info-border: rgba(34, 211, 238, 0.35);
   --badge-warn-bg: rgba(251, 191, 36, 0.12);
   --badge-warn-text: #fde68a;
+  --badge-warn-border: rgba(251, 191, 36, 0.35);
   --badge-success-bg: rgba(52, 211, 153, 0.12);
   --badge-success-text: #6ee7b7;
+  --badge-success-border: rgba(52, 211, 153, 0.35);
+  --badge-danger-bg: rgba(248, 113, 113, 0.12);
+  --badge-danger-text: #fca5a5;
+  --badge-danger-border: rgba(248, 113, 113, 0.4);
+  --badge-lime-bg: rgba(163, 230, 53, 0.12);
+  --badge-lime-text: #d9f99d;
+  --badge-lime-border: rgba(163, 230, 53, 0.35);
+  --badge-pink-bg: rgba(244, 114, 182, 0.12);
+  --badge-pink-text: #fbcfe8;
+  --badge-pink-border: rgba(244, 114, 182, 0.35);
+
+  --info-banner-bg: rgba(34, 211, 238, 0.1);
+  --info-banner-text: #a5f3fc;
+  --info-banner-border: rgba(34, 211, 238, 0.28);
+
+  --attendance-bar-bg: linear-gradient(
+    90deg,
+    rgba(52, 211, 153, 0.14) 0%,
+    rgba(34, 211, 238, 0.1) 50%,
+    rgba(52, 211, 153, 0.14) 100%
+  );
+  --attendance-bar-border: rgba(52, 211, 153, 0.35);
+  --attendance-bar-title: #d1fae5;
+  --attendance-bar-accent: #a7f3d0;
+  --attendance-bar-muted: #6ee7b7;
+
+  --stat-icon-bg: rgba(0, 0, 0, 0.3);
+  --neon-border-cyan-color: rgba(34, 211, 238, 0.45);
+  --neon-border-lime-color: rgba(163, 230, 53, 0.45);
+  --neon-border-pink-color: rgba(244, 114, 182, 0.45);
+  --neon-border-amber-color: rgba(251, 191, 36, 0.45);
 
   --schedule-track-bg: rgba(0, 0, 0, 0.25);
   --schedule-ist-bar-bg: rgba(8, 47, 73, 0.55);
@@ -137,11 +170,39 @@
 
   --badge-bg: #e8f0f8;
   --badge-info-bg: #e0f2fe;
-  --badge-info-text: #0369a1;
+  --badge-info-text: #0c4a6e;
+  --badge-info-border: #7dd3fc;
   --badge-warn-bg: #ffedd5;
   --badge-warn-text: #9a3412;
+  --badge-warn-border: #fdba74;
   --badge-success-bg: #dcfce7;
-  --badge-success-text: #166534;
+  --badge-success-text: #14532d;
+  --badge-success-border: #86efac;
+  --badge-danger-bg: #ffe4e6;
+  --badge-danger-text: #9f1239;
+  --badge-danger-border: #fda4af;
+  --badge-lime-bg: #ecfccb;
+  --badge-lime-text: #3f6212;
+  --badge-lime-border: #bef264;
+  --badge-pink-bg: #fce7f3;
+  --badge-pink-text: #9d174d;
+  --badge-pink-border: #f9a8d4;
+
+  --info-banner-bg: #e0f7fa;
+  --info-banner-text: #0c4a6e;
+  --info-banner-border: #5eead4;
+
+  --attendance-bar-bg: linear-gradient(90deg, #ecfdf5 0%, #e0f2fe 48%, #ecfdf5 100%);
+  --attendance-bar-border: #6ee7b7;
+  --attendance-bar-title: #065f46;
+  --attendance-bar-accent: #047857;
+  --attendance-bar-muted: #0f766e;
+
+  --stat-icon-bg: #e2e8f0;
+  --neon-border-cyan-color: #0d9488;
+  --neon-border-lime-color: #65a30d;
+  --neon-border-pink-color: #db2777;
+  --neon-border-amber-color: #d97706;
 
   --schedule-track-bg: #e8eef5;
   --schedule-ist-bar-bg: #e0f2fe;

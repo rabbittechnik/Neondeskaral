@@ -205,3 +205,50 @@
   color: #64748b !important;
   opacity: 1;
 }
+
+[data-theme='light'] .text-cyan-100\/95,
+[data-theme='light'] .text-cyan-300 {
+  color: var(--accent-text) !important;
+}
+
+[data-theme='light'] .text-emerald-100\/95,
+[data-theme='light'] .text-emerald-200\/85,
+[data-theme='light'] .text-emerald-200\/90 {
+  color: var(--attendance-bar-title) !important;
+}
+
+[data-theme='light'] .text-lime-200 {
+  color: var(--badge-lime-text) !important;
+}
+
+[data-theme='light'] .text-amber-200\/90,
+[data-theme='light'] .text-amber-300 {
+  color: #b45309 !important;
+}
+
+[data-theme='light'] .bg-cyan-950\/80,
+[data-theme='light'] .bg-emerald-950\/70,
+[data-theme='light'] .bg-amber-950\/70 {
+  background-color: var(--badge-bg) !important;
+}
+
+[data-theme='light'] .border-emerald-400\/35 {
+  border-color: var(--attendance-bar-border) !important;
+}
+
+[data-theme='light'] .welcome-banner-bg {
+  opacity: 1 !important;
+  background-image: linear-gradient(105deg, #e0f2fe 0%, #ecfdf5 48%, #d1fae5 100%) !important;
+}
+
+[data-theme='light'] .welcome-banner-card {
+  border-color: var(--border-strong) !important;
+}
+
+[data-theme='light'] .dashboard-attendance-bar .inline-flex.rounded-full {
+  box-shadow: var(--shadow-card) !important;
+}
+
+[data-theme='light'] .hover\:bg-cyan-500\/20:hover {
+  background-color: var(--badge-info-bg) !important;
+}

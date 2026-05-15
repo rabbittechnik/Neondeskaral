@@ -383,7 +383,7 @@ export function PayrollSchedulePage() {
         description="Auswertung auf Basis geplanter Schichten, Urlaub und Profil-/Anpassungswerte · gleicher Server-Endpunkt wie Exporte"
       />
 
-      <p className="rounded-lg border border-cyan-500/20 bg-cyan-500/10 px-3 py-2 text-sm text-cyan-100/95">
+      <p className="ui-info-banner rounded-lg px-3 py-2 text-sm">
         „Stunden Gesamt“ umfasst geplante Schichten sowie genehmigten bezahlten Urlaub im Zeitraum (ohne Doppelzählung am
         selben Tag). Zeiterfassung fließt hier nicht ein. „Details“ öffnet die Tagesliste und weitere Spalten.
       </p>

@@ -396,7 +396,7 @@ export function PayrollTimePage() {
         description="Auswertung auf Basis freigegebener Zeiterfassung, Urlaub und Lohnfelder · getrennt von der Schichtplan-Lohnabrechnung"
       />
 
-      <p className="rounded-lg border border-cyan-500/20 bg-cyan-500/10 px-3 py-2 text-sm text-cyan-100/95">
+      <p className="ui-info-banner rounded-lg px-3 py-2 text-sm">
         „Stunden“ in der Tabelle = freigegebene Arbeitszeiten plus genehmigter bezahlter Urlaub (täglich ohne Doppelzählung mit Arbeit am selben Tag).
       </p>
 

@@ -55,7 +55,7 @@ export function StatCard({
               <div className="mt-1 text-[10px] leading-snug text-[var(--text-muted)]">{compactFooter}</div>
             ) : null}
           </div>
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-sm)] bg-black/30 text-[var(--text-main)] shadow-inner shadow-black/20">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--stat-icon-bg)] text-[var(--text-main)] shadow-inner shadow-black/20">
             {icon}
           </div>
         </div>
@@ -74,7 +74,7 @@ export function StatCard({
             <p className="text-sm text-[var(--text-muted)]">{title}</p>
             <p className="mt-1 text-3xl font-semibold tracking-tight text-[var(--text-main)]">{value}</p>
           </div>
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-sm)] bg-black/25 text-[var(--text-main)]">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--stat-icon-bg)] text-[var(--text-main)]">
             {icon}
           </div>
         </div>
@@ -91,7 +91,7 @@ export function StatCard({
           <p className="mt-1 text-2xl font-semibold tracking-tight text-[var(--text-main)]">{value}</p>
           {hint ? <div className="mt-1 text-xs text-[var(--text-faint)]">{hint}</div> : null}
         </div>
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-sm)] bg-black/25 text-[var(--text-main)]">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--stat-icon-bg)] text-[var(--text-main)]">
           {icon}
         </div>
       </div>

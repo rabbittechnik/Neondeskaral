@@ -288,23 +288,83 @@
 }
 
 @utility neon-border-cyan {
-  border: 1px solid rgba(34, 211, 238, 0.45);
+  border: 1px solid var(--neon-border-cyan-color);
   box-shadow: var(--glow-cyan);
 }
 
 @utility neon-border-lime {
-  border: 1px solid rgba(163, 230, 53, 0.45);
+  border: 1px solid var(--neon-border-lime-color);
   box-shadow: var(--glow-lime);
 }
 
 @utility neon-border-pink {
-  border: 1px solid rgba(244, 114, 182, 0.45);
+  border: 1px solid var(--neon-border-pink-color);
   box-shadow: var(--glow-pink);
 }
 
 @utility neon-border-amber {
-  border: 1px solid rgba(251, 191, 36, 0.45);
+  border: 1px solid var(--neon-border-amber-color);
   box-shadow: var(--glow-amber);
+}
+
+@layer components {
+  .ui-info-banner {
+    border: 1px solid var(--info-banner-border);
+    background: var(--info-banner-bg);
+    color: var(--info-banner-text);
+  }
+
+  .dashboard-attendance-bar {
+    border: 1px solid var(--attendance-bar-border);
+    background: var(--attendance-bar-bg);
+    box-shadow: var(--shadow-card);
+  }
+
+  .dashboard-attendance-bar__title {
+    color: var(--attendance-bar-title);
+  }
+
+  .dashboard-attendance-bar__accent {
+    color: var(--attendance-bar-accent);
+  }
+
+  .dashboard-attendance-bar__muted {
+    color: var(--attendance-bar-muted);
+  }
+
+  .attendance-source-chip {
+    border-width: 1px;
+    border-style: solid;
+    font-weight: 600;
+  }
+
+  .attendance-source-chip--tablet {
+    border-color: var(--badge-info-border);
+    background: var(--badge-info-bg);
+    color: var(--badge-info-text);
+  }
+
+  .attendance-source-chip--app {
+    border-color: var(--badge-success-border);
+    background: var(--badge-success-bg);
+    color: var(--badge-success-text);
+  }
+
+  .attendance-source-chip--manual {
+    border-color: var(--badge-warn-border);
+    background: var(--badge-warn-bg);
+    color: var(--badge-warn-text);
+  }
+
+  .attendance-source-chip--default {
+    border-color: var(--border-soft);
+    background: var(--badge-bg);
+    color: var(--text-muted);
+  }
+
+  .welcome-banner-card {
+    border-color: var(--border-strong);
+  }
 }
 
 @media print {

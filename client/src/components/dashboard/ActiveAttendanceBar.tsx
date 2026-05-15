@@ -11,15 +11,15 @@ import {
 
 function sourceBadge(source: string | undefined): { label: string; className: string } {
   if (source === 'tablet' || source === 'cash_register_card_terminal') {
-    return { label: 'TABLET', className: 'border-cyan-400/50 bg-cyan-950/80 text-cyan-100' }
+    return { label: 'TABLET', className: 'attendance-source-chip attendance-source-chip--tablet' }
   }
   if (source === 'employee_mobile_app') {
-    return { label: 'MITARBEITER-APP', className: 'border-emerald-400/45 bg-emerald-950/70 text-emerald-100' }
+    return { label: 'MITARBEITER-APP', className: 'attendance-source-chip attendance-source-chip--app' }
   }
   if (source === 'manual') {
-    return { label: 'MANUELL', className: 'border-amber-400/45 bg-amber-950/70 text-amber-100' }
+    return { label: 'MANUELL', className: 'attendance-source-chip attendance-source-chip--manual' }
   }
-  return { label: 'ZEIT', className: 'border-white/15 bg-black/40 text-slate-200' }
+  return { label: 'ZEIT', className: 'attendance-source-chip attendance-source-chip--default' }
 }
 
 function formatSinceClock(iso: string): string {
@@ -99,33 +99,33 @@ export function ActiveAttendanceBar({ className }: ActiveAttendanceBarProps) {
 
   return (
     <section
-      className={`w-full min-w-0 rounded-[var(--radius-md)] border border-emerald-400/30 bg-gradient-to-r from-emerald-500/[0.12] via-cyan-500/[0.08] to-emerald-500/[0.12] px-3 py-2 shadow-[0_0_20px_rgba(52,211,153,0.1),inset_0_1px_0_rgba(255,255,255,0.06)] ${className ?? ''}`}
+      className={`dashboard-attendance-bar w-full min-w-0 rounded-[var(--radius-md)] px-3 py-2 ${className ?? ''}`}
       aria-label="Aktuell eingestempelt"
     >
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5">
         {error ? (
           <p className="flex min-w-0 items-center gap-2 text-sm text-rose-300" title={error}>
-            <Users className="h-3.5 w-3.5 shrink-0 text-emerald-300" aria-hidden />
+            <Users className="h-3.5 w-3.5 shrink-0 dashboard-attendance-bar__accent" aria-hidden />
             <span>Aktuell eingestempelt konnte nicht geladen werden.</span>
           </p>
         ) : loading ? (
           <p className="flex min-w-0 items-center gap-2 text-sm text-[var(--text-muted)]">
-            <Users className="h-3.5 w-3.5 shrink-0 text-emerald-300" aria-hidden />
-            <span className="font-semibold text-emerald-100/95">Aktuell eingestempelt</span>
+            <Users className="h-3.5 w-3.5 shrink-0 dashboard-attendance-bar__accent" aria-hidden />
+            <span className="dashboard-attendance-bar__title font-semibold">Aktuell eingestempelt</span>
             <span className="text-[var(--text-muted)]">·</span>
             <span>Lade laufende Zeiten…</span>
           </p>
         ) : sorted.length === 0 ? (
           <p className="text-sm text-[var(--text-muted)]">
-            <Users className="mr-1.5 inline h-3.5 w-3.5 text-emerald-300 align-text-bottom" aria-hidden />
-            <span className="font-semibold text-emerald-100/95">Aktuell eingestempelt</span>
+            <Users className="mr-1.5 inline h-3.5 w-3.5 dashboard-attendance-bar__accent align-text-bottom" aria-hidden />
+            <span className="dashboard-attendance-bar__title font-semibold">Aktuell eingestempelt</span>
             <span className="text-[var(--text-faint)]"> · </span>
             Niemand eingestempelt.
           </p>
         ) : (
           <>
-            <div className="flex shrink-0 items-center gap-1.5 text-emerald-100/95">
-              <Users className="h-3.5 w-3.5 text-emerald-300" aria-hidden />
+            <div className="flex shrink-0 items-center gap-1.5 dashboard-attendance-bar__title">
+              <Users className="h-3.5 w-3.5 dashboard-attendance-bar__accent" aria-hidden />
               <span className="text-sm font-semibold tracking-tight">Aktuell eingestempelt</span>
             </div>
             <ul className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
@@ -141,9 +141,9 @@ export function ActiveAttendanceBar({ className }: ActiveAttendanceBarProps) {
                   <div className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-emerald-400/35 bg-[var(--bg-elevated)]/90 px-2.5 py-1 text-xs shadow-[0_0_12px_rgba(16,185,129,0.18)]">
                     <span className="truncate font-semibold text-[var(--text-main)]">{name}</span>
                     <span className="shrink-0 text-[var(--text-muted)]">·</span>
-                    <span className="shrink-0 tabular-nums text-emerald-200/90">seit {since}</span>
+                    <span className="shrink-0 tabular-nums dashboard-attendance-bar__accent">seit {since}</span>
                     <span className="shrink-0 text-[var(--text-muted)]">·</span>
-                    <span className="shrink-0 tabular-nums font-medium text-cyan-100/95">{dur}</span>
+                    <span className="shrink-0 tabular-nums font-medium dashboard-attendance-bar__muted">{dur}</span>
                     <span
                       className={`shrink-0 rounded px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide ${src.className}`}
                     >

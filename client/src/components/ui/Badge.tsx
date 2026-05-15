@@ -1,13 +1,13 @@
 import type { HTMLAttributes, ReactNode } from 'react'
 
 const tones = {
-  default: 'bg-white/5 text-[var(--text-muted)] border-white/10',
-  cyan: 'bg-cyan-500/15 text-cyan-200 border-cyan-400/30',
-  lime: 'bg-lime-500/15 text-lime-200 border-lime-400/30',
-  pink: 'bg-pink-500/15 text-pink-200 border-pink-400/30',
-  amber: 'bg-amber-500/15 text-amber-200 border-amber-400/30',
-  danger: 'bg-red-500/15 text-red-200 border-red-400/35',
-  success: 'bg-emerald-500/15 text-emerald-200 border-emerald-400/30',
+  default: 'bg-[var(--badge-bg)] text-[var(--text-muted)] border-[var(--border-soft)]',
+  cyan: 'bg-[var(--badge-info-bg)] text-[var(--badge-info-text)] border-[var(--badge-info-border)]',
+  lime: 'bg-[var(--badge-lime-bg)] text-[var(--badge-lime-text)] border-[var(--badge-lime-border)]',
+  pink: 'bg-[var(--badge-pink-bg)] text-[var(--badge-pink-text)] border-[var(--badge-pink-border)]',
+  amber: 'bg-[var(--badge-warn-bg)] text-[var(--badge-warn-text)] border-[var(--badge-warn-border)]',
+  danger: 'bg-[var(--badge-danger-bg)] text-[var(--badge-danger-text)] border-[var(--badge-danger-border)]',
+  success: 'bg-[var(--badge-success-bg)] text-[var(--badge-success-text)] border-[var(--badge-success-border)]',
 } as const
 
 type Tone = keyof typeof tones

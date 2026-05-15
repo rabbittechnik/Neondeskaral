@@ -10,10 +10,10 @@ export function WelcomeBanner() {
   return (
     <Card
       padding="none"
-      className="relative h-full min-h-[80px] max-h-[118px] overflow-hidden border-cyan-500/20"
+      className="welcome-banner-card relative h-full min-h-[80px] max-h-[118px] overflow-hidden border-cyan-500/20"
     >
       <div
-        className="absolute inset-0 bg-cover bg-center opacity-35"
+        className="welcome-banner-bg absolute inset-0 bg-cover bg-center opacity-35"
         style={{
           backgroundImage:
             'linear-gradient(105deg, rgba(5,9,20,0.92) 0%, rgba(5,9,20,0.55) 45%, rgba(5,9,20,0.85) 100%), url("https://images.unsplash.com/photo-1549923746-c502d488b3db?w=1200&q=60")',
