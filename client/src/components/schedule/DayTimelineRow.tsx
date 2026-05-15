@@ -173,7 +173,7 @@ export function DayTimelineRow({
               {weekday} {formatDayMonthDot(dayDate)}
             </h3>
             {isToday ? (
-              <span className="rounded-full border border-cyan-400/45 bg-cyan-500/15 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-cyan-200 sm:text-[10px]">
+              <span className="schedule-today-badge rounded-full border border-cyan-400/45 bg-cyan-500/15 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-cyan-200 sm:text-[10px]">
                 Heute
               </span>
             ) : null}
@@ -247,7 +247,7 @@ export function DayTimelineRow({
             />
             <div
               ref={trackRef}
-              className={`relative flex min-h-0 flex-1 flex-col rounded-b-lg border border-t-0 border-white/10 bg-black/25 ${trackHoliday}`}
+              className={`schedule-timeline-track relative flex min-h-0 flex-1 flex-col rounded-b-lg border border-t-0 border-white/10 bg-black/25 ${trackHoliday}`}
               style={{ minHeight: trackBodyHeightPx }}
             >
               {ticks.map((m) => {

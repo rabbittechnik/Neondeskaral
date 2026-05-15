@@ -28,7 +28,7 @@ export function ScheduleConflictCard({ conflicts, loadError }: Props) {
               key={c.id}
               className="rounded-[var(--radius-sm)] border border-orange-500/20 bg-orange-500/5 px-3 py-2 text-xs"
             >
-              <p className="font-medium text-orange-100">{c.message}</p>
+              <p className="schedule-conflict-title font-medium text-orange-100">{c.message}</p>
               <p className="mt-0.5 text-[var(--text-muted)]">{c.detail}</p>
             </li>
           ))}

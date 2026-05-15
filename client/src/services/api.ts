@@ -2,6 +2,9 @@
 
 import type { ScheduleAssistantApplyResult, ScheduleAssistantGenerateResult } from '../types/scheduleAssistant'
 import { getEmployeeAppDeviceHeaders } from '../pages/employee-app/employeeAppStorage'
+import { DEFAULT_FETCH_TIMEOUT_MS, fetchWithTimeout, isAbortError } from '../lib/fetchWithTimeout'
+
+export { DEFAULT_FETCH_TIMEOUT_MS }
 
 const rawBase = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? ''
 export const API_BASE = rawBase || 'http://localhost:3001/api'
@@ -80,9 +83,23 @@ function buildQuery(params?: Record<string, string | undefined>): string {
   return s ? `?${s}` : ''
 }
 
-export async function apiGet<T>(path: string, params?: Record<string, string | undefined>): Promise<ApiEnvelope<T>> {
+export async function apiGet<T>(
+  path: string,
+  params?: Record<string, string | undefined>,
+  init?: { signal?: AbortSignal; timeoutMs?: number },
+): Promise<ApiEnvelope<T>> {
   const url = `${API_BASE}${path.startsWith('/') ? path : `/${path}`}${buildQuery(params)}`
-  const res = await fetch(url, { headers: { ...authHeaders() } })
+  let res: Response
+  try {
+    res = await fetchWithTimeout(url, {
+      headers: { ...authHeaders() },
+      signal: init?.signal,
+      timeoutMs: init?.timeoutMs,
+    })
+  } catch (e) {
+    if (isAbortError(e)) return { ok: false, error: 'Zeitüberschreitung — Server antwortet nicht.' }
+    return { ok: false, error: e instanceof Error ? e.message : 'Netzwerkfehler' }
+  }
   if (res.status === 401) onUnauthorized()
   const json = (await res.json()) as ApiEnvelope<T> & { result?: string; employee?: unknown; timeEntry?: unknown }
   if (!res.ok && json && typeof json === 'object' && 'ok' in json && json.ok === false) {
@@ -99,13 +116,21 @@ export async function apiSend<T>(
   path: string,
   body?: unknown,
   params?: Record<string, string | undefined>,
+  init?: { timeoutMs?: number },
 ): Promise<ApiEnvelope<T>> {
   const url = `${API_BASE}${path.startsWith('/') ? path : `/${path}`}${buildQuery(params)}`
-  const res = await fetch(url, {
-    method,
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: method === 'DELETE' ? undefined : JSON.stringify(body ?? {}),
-  })
+  let res: Response
+  try {
+    res = await fetchWithTimeout(url, {
+      method,
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: method === 'DELETE' ? undefined : JSON.stringify(body ?? {}),
+      timeoutMs: init?.timeoutMs,
+    })
+  } catch (e) {
+    if (isAbortError(e)) return { ok: false, error: 'Zeitüberschreitung — Server antwortet nicht.' }
+    return { ok: false, error: e instanceof Error ? e.message : 'Netzwerkfehler' }
+  }
   if (res.status === 401) onUnauthorized()
   const json = (await res.json()) as ApiEnvelope<T>
   if (!res.ok && json && typeof json === 'object' && 'ok' in json && json.ok === false) {

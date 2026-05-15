@@ -21,7 +21,7 @@ export function ShiftLegend() {
       {items.map((t) => (
         <span
           key={t!.id}
-          className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[11px] text-[var(--text-muted)]"
+          className="schedule-legend-pill inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[11px] text-[var(--text-muted)]"
         >
           <span
             className={`h-2.5 w-2.5 shrink-0 rounded-sm border ${t!.cardClass}`}

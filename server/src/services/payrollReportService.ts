@@ -56,6 +56,7 @@ import {
 } from './payrollCalculationService.js'
 import { normalizeAbsenceDbType } from '../utils/vacationImpactCalculator.js'
 import { earlyLeaveReasonLabelDe } from '../constants/earlyLeaveCheckout.js'
+import { preloadMinimumWageRates } from './minimumWageCache.js'
 import {
   effectiveTimeBounds,
   loadLatestCorrectionsMapForIds,
@@ -383,12 +384,17 @@ export function calculatePayrollTimeTrackingReport(
     fromDate: string
     toDate: string
     employmentFilter?: string
+    employeeIds?: string
+    /** Detailzeilen pro Mitarbeiter (langsam) – Standard: false */
+    includeDetailLines?: boolean
   },
 ): PayrollTimeTrackingReport {
+  const includeDetailLines = opts.includeDetailLines === true
   const stationId = opts.stationId.trim()
   const fromDate = opts.fromDate.trim()
   const toDate = opts.toDate.trim()
   const employmentFilter = parseEmploymentFilter(opts.employmentFilter)
+  const employeeIdFilter = parseEmployeeIdFilter(opts.employeeIds)
 
   if (!stationId) throw new Error('stationId erforderlich')
   if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(toDate)) throw new Error('from/to als YYYY-MM-DD')
@@ -408,9 +414,12 @@ export function calculatePayrollTimeTrackingReport(
     .prepare(`SELECT * FROM employees WHERE station_id = ? ORDER BY display_name`)
     .all(stationId) as (EmployeeRow & Record<string, unknown>)[]
 
-  const filteredEmployees = employees.filter(
+  let filteredEmployees = employees.filter(
     (e) => !hideInPayroll(e) && matchesEmploymentFilter(e, employmentFilter, todayYmd),
   )
+  if (employeeIdFilter) {
+    filteredEmployees = filteredEmployees.filter((e) => employeeIdFilter.has(e.id))
+  }
 
   const approvedEntries = db
     .prepare(
@@ -557,20 +566,21 @@ export function calculatePayrollTimeTrackingReport(
 
     if (!includeRow) continue
 
-    const vacHpdDefaultTt = rNum(R, 'vacation_hours_per_day', NaN) || null
-    const timeTrackingDetailLines = buildTimeTrackingPayrollDetailLines({
-      db,
-      employeeId,
-      fromDate,
-      toDate,
-      federalState,
-      holidayOverlay,
-      employmentType,
-      employmentRole: String(R.employment_role ?? ''),
-      vacHpdDefault: vacHpdDefaultTt,
-      absences,
-      timeEntries: myEntries,
-    })
+    const timeTrackingDetailLines = includeDetailLines
+      ? buildTimeTrackingPayrollDetailLines({
+          db,
+          employeeId,
+          fromDate,
+          toDate,
+          federalState,
+          holidayOverlay,
+          employmentType,
+          employmentRole: String(R.employment_role ?? ''),
+          vacHpdDefault: rNum(R, 'vacation_hours_per_day', NaN) || null,
+          absences,
+          timeEntries: myEntries,
+        })
+      : undefined
 
     rows.push({
       employeeId,
@@ -655,12 +665,16 @@ export function calculatePayrollScheduleReport(
     fromDate: string
     toDate: string
     employmentFilter?: string
+    employeeIds?: string
+    includeDetailLines?: boolean
   },
 ): PayrollTimeTrackingReport {
+  const includeDetailLines = opts.includeDetailLines === true
   const stationId = opts.stationId.trim()
   const fromDate = opts.fromDate.trim()
   const toDate = opts.toDate.trim()
   const employmentFilter = parseEmploymentFilter(opts.employmentFilter)
+  const employeeIdFilter = parseEmployeeIdFilter(opts.employeeIds)
 
   if (!stationId) throw new Error('stationId erforderlich')
   if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(toDate)) throw new Error('from/to als YYYY-MM-DD')
@@ -680,9 +694,12 @@ export function calculatePayrollScheduleReport(
     .prepare(`SELECT * FROM employees WHERE station_id = ? ORDER BY display_name`)
     .all(stationId) as (EmployeeRow & Record<string, unknown>)[]
 
-  const filteredEmployees = employees.filter(
+  let filteredEmployees = employees.filter(
     (e) => !hideInPayroll(e) && matchesEmploymentFilter(e, employmentFilter, todayYmd),
   )
+  if (employeeIdFilter) {
+    filteredEmployees = filteredEmployees.filter((e) => employeeIdFilter.has(e.id))
+  }
 
   const shiftList = listShifts(db, { stationId, from: fromDate, to: toDate }).filter(
     (s) =>
@@ -857,20 +874,21 @@ export function calculatePayrollScheduleReport(
 
     if (!includeRow) continue
 
-    const vacHpdDefault = rNum(R, 'vacation_hours_per_day', NaN) || null
-    const scheduleLines = buildSchedulePayrollDetailLines({
-      employeeId,
-      fromDate,
-      toDate,
-      federalState,
-      holidayOverlay,
-      employmentType,
-      employmentRole: String(R.employment_role ?? ''),
-      vacHpdDefault,
-      myShifts,
-      absences,
-      workAreaNameById,
-    })
+    const scheduleLines = includeDetailLines
+      ? buildSchedulePayrollDetailLines({
+          employeeId,
+          fromDate,
+          toDate,
+          federalState,
+          holidayOverlay,
+          employmentType,
+          employmentRole: String(R.employment_role ?? ''),
+          vacHpdDefault: rNum(R, 'vacation_hours_per_day', NaN) || null,
+          myShifts,
+          absences,
+          workAreaNameById,
+        })
+      : undefined
 
     rows.push({
       employeeId,
@@ -1402,6 +1420,8 @@ export function calculatePayrollCombinedReport(
     toDate: string
     employmentFilter?: string
     employeeIds?: string
+    /** Tagesdetails + Supplement-Debug (langsam). Übersicht: false */
+    includeDetails?: boolean
   },
 ): PayrollCombinedReport {
   const stationId = opts.stationId.trim()
@@ -1409,18 +1429,25 @@ export function calculatePayrollCombinedReport(
   const toDate = opts.toDate.trim()
   const employmentFilter = parseEmploymentFilter(opts.employmentFilter)
   const employeeIdFilter = parseEmployeeIdFilter(opts.employeeIds)
+  const includeDetails = opts.includeDetails === true
+  const includeSupplementDebug = process.env.PAYROLL_SUPPLEMENT_DEBUG === '1'
+  const perfLog = process.env.PAYROLL_PERF_LOG !== '0'
 
   if (!stationId) throw new Error('stationId erforderlich')
   if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(toDate)) throw new Error('from/to als YYYY-MM-DD')
   if (fromDate > toDate) throw new Error('from darf nicht nach to liegen')
 
+  preloadMinimumWageRates(db)
+  if (perfLog) console.time('[Payroll] load employees')
   const station = db.prepare(`SELECT name, federal_state FROM stations WHERE id = ?`).get(stationId) as
     | { name: string; federal_state: string | null }
     | undefined
   if (!station) throw new Error('Station nicht gefunden')
 
   const federalState = String(station.federal_state ?? 'BW').toUpperCase() as GermanState
+  if (perfLog) console.time('[Payroll] load holidays')
   const holidayOverlay = buildStationHolidayOverlay(db, stationId)
+  if (perfLog) console.timeEnd('[Payroll] load holidays')
   const stationSurchargeRules = loadStationPayrollSurchargeRules(db, stationId)
   const todayYmd = todayIso()
 
@@ -1434,7 +1461,9 @@ export function calculatePayrollCombinedReport(
   if (employeeIdFilter) {
     filteredEmployees = filteredEmployees.filter((e) => employeeIdFilter.has(e.id))
   }
+  if (perfLog) console.timeEnd('[Payroll] load employees')
 
+  if (perfLog) console.time('[Payroll] load time entries')
   const approvedEntries = db
     .prepare(
       `SELECT te.* FROM time_entries te
@@ -1489,7 +1518,9 @@ export function calculatePayrollCombinedReport(
     .all(stationId, toDate) as TimeEntryRow[]
 
   const hasOpenRunningTimeEntries = openRunning.length > 0
+  if (perfLog) console.timeEnd('[Payroll] load time entries')
 
+  if (perfLog) console.time('[Payroll] load shifts')
   const shiftList = listShifts(db, { stationId, from: fromDate, to: toDate }).filter(
     (s) =>
       Boolean(s.employeeId) &&
@@ -1497,14 +1528,18 @@ export function calculatePayrollCombinedReport(
         .toLowerCase()
         .trim() !== 'frei',
   )
+  if (perfLog) console.timeEnd('[Payroll] load shifts')
 
+  if (perfLog) console.time('[Payroll] load absences')
   const absences = db
     .prepare(
       `SELECT * FROM absences WHERE station_id = ?
        AND start_date <= ? AND end_date >= ?`,
     )
     .all(stationId, toDate, fromDate) as AbsenceRow[]
+  if (perfLog) console.timeEnd('[Payroll] load absences')
 
+  if (perfLog) console.time('[Payroll] load wages')
   const adjustments = db
     .prepare(
       `SELECT employee_id, type, amount FROM payroll_adjustments
@@ -1514,6 +1549,7 @@ export function calculatePayrollCombinedReport(
 
   const adjByEmployee = accumulatePayrollAdjustments(adjustments)
   mergeChecklistCashIntoBuckets(db, stationId, fromDate, toDate, adjByEmployee)
+  if (perfLog) console.timeEnd('[Payroll] load wages')
 
   const shiftsByEmployee = new Map<string, typeof shiftList>()
   for (const s of shiftList) {
@@ -1554,6 +1590,7 @@ export function calculatePayrollCombinedReport(
 
   const rows: PayrollCombinedRow[] = []
 
+  if (perfLog) console.time('[Payroll] calculate')
   for (const emp of filteredEmployees) {
     const R = emp as Record<string, unknown>
     const employeeId = emp.id
@@ -1716,6 +1753,8 @@ export function calculatePayrollCombinedReport(
     }
 
     const details: PayrollCombinedDayDetail[] = []
+    const workByYmd = new Map<string, number>()
+    let employeeHasOpenConflict = false
     let supplementsTotal = 0
     let scheduleMinutesTotal = 0
     let timeTrackingMinutesTotal = 0
@@ -1783,6 +1822,9 @@ export function calculatePayrollCombinedReport(
       }
 
       usedMinutesTotal += usedMin
+      const usedH = minutesToHours2(usedMin)
+      if (usedH > 0) workByYmd.set(ymd, usedH)
+      if (hasOpen) employeeHasOpenConflict = true
       extraUnplannedMinutes += Math.max(0, trMin - shMin)
       if (shMin > 0 && trMin <= 0 && !hasOpen && !hasPendingOnly) missingTimeEntriesDayCount += 1
       if (shMin <= 0 && trMin > 0) unplannedWorkDayCount += 1
@@ -1902,41 +1944,43 @@ export function calculatePayrollCombinedReport(
             ? 'schedule'
             : 'none'
 
-      const sides = computeDaySupplementSides({
-        ymd,
-        myShifts,
-        myEntries,
-        entryCorrMap,
-        empFields,
-        employmentType,
-        wageForSupplements,
-        federalState,
-        holidayOverlay,
-        stationRules: stationSurchargeRules,
-        fromDate,
-        toDate,
-      })
+      let supplementDebug: PayrollDaySupplementAudit | undefined
+      if (includeDetails) {
+        if (includeSupplementDebug) {
+          const sides = computeDaySupplementSides({
+            ymd,
+            myShifts,
+            myEntries,
+            entryCorrMap,
+            empFields,
+            employmentType,
+            wageForSupplements,
+            federalState,
+            holidayOverlay,
+            stationRules: stationSurchargeRules,
+            fromDate,
+            toDate,
+          })
+          supplementDebug = buildPayrollDaySupplementAudit({
+            date: ymd,
+            weekdayDe: weekdayDeLongEuropeBerlin(ymd),
+            workHoursUsed: minutesToHours2(usedMin),
+            vacationHours: vh,
+            hourlyWage: Math.max(0, wageForSupplements),
+            appliedBasis,
+            scheduleLines: sides.scheduleLines,
+            timeTrackingLines: sides.timeTrackingLines,
+            scheduleTotalEuro: sides.scheduleTotalEuro,
+            timeTrackingTotalEuro: sides.timeTrackingTotalEuro,
+            federalState,
+            holidayOverlay,
+          })
+          if (supplementDebug.dayTotalEuro > 0) {
+            console.info('[PAYROLL_SUPPLEMENT_DEBUG]', JSON.stringify(supplementDebug))
+          }
+        }
 
-      const supplementDebug = buildPayrollDaySupplementAudit({
-        date: ymd,
-        weekdayDe: weekdayDeLongEuropeBerlin(ymd),
-        workHoursUsed: minutesToHours2(usedMin),
-        vacationHours: vh,
-        hourlyWage: Math.max(0, wageForSupplements),
-        appliedBasis,
-        scheduleLines: sides.scheduleLines,
-        timeTrackingLines: sides.timeTrackingLines,
-        scheduleTotalEuro: sides.scheduleTotalEuro,
-        timeTrackingTotalEuro: sides.timeTrackingTotalEuro,
-        federalState,
-        holidayOverlay,
-      })
-
-      if (process.env.PAYROLL_SUPPLEMENT_DEBUG === '1' && supplementDebug.dayTotalEuro > 0) {
-        console.info('[PAYROLL_SUPPLEMENT_DEBUG]', JSON.stringify(supplementDebug))
-      }
-
-      details.push({
+        details.push({
         date: ymd,
         weekdayDe: weekdayDeLongEuropeBerlin(ymd),
         scheduleShifts: pack.shifts,
@@ -1966,8 +2010,9 @@ export function calculatePayrollCombinedReport(
         deviationReason,
         isPublicHoliday: isHol,
         holidayNameDe: isHol ? publicHolidayNameDe(ymd, federalState, holidayOverlay) : undefined,
-        supplementDebug,
-      })
+        ...(supplementDebug ? { supplementDebug } : {}),
+        })
+      }
     }
 
     const scheduleHoursTotal = minutesToHours2(scheduleMinutesTotal)
@@ -1977,11 +2022,6 @@ export function calculatePayrollCombinedReport(
     supplementsTotal = Math.round(supplementsTotal * 100) / 100
 
     const differenceHours = minutesToHours2(usedMinutesTotal - scheduleMinutesTotal)
-
-    const workByYmd = new Map<string, number>()
-    for (const d of details) {
-      if (d.usedHours > 0) workByYmd.set(d.date, (workByYmd.get(d.date) ?? 0) + d.usedHours)
-    }
 
     const money = computePayrollMoneyBlock({
       db,
@@ -2033,7 +2073,7 @@ export function calculatePayrollCombinedReport(
       advance !== 0 ||
       scheduleHoursTotal > 0 ||
       timeTrackingHoursTotal > 0 ||
-      details.some((d) => d.hasConflict)
+      employeeHasOpenConflict
 
     if (!includeRow) continue
 
@@ -2064,7 +2104,7 @@ export function calculatePayrollCombinedReport(
       advance,
       total,
       ...(messages.length ? { messages } : {}),
-      details,
+      details: includeDetails ? details : [],
     })
   }
 
@@ -2111,6 +2151,25 @@ export function calculatePayrollCombinedReport(
     totals[key] = Math.round(totals[key] * 100) / 100
   })
 
+  if (perfLog) {
+    console.timeEnd('[Payroll] calculate')
+    console.info(
+      '[Payroll] counts',
+      JSON.stringify({
+        stationId,
+        from: fromDate,
+        to: toDate,
+        employeeCount: filteredEmployees.length,
+        shiftCount: shiftList.length,
+        timeEntryCount: approvedEntries.length + pendingCompletedEntries.length,
+        absenceCount: absences.length,
+        daysCount: eachYmdInRangeInclusive(fromDate, toDate).length,
+        resultRowsCount: rows.length,
+        includeDetails,
+      }),
+    )
+  }
+
   return {
     stationId,
     stationName: station.name,
@@ -2142,6 +2201,7 @@ export function calculatePayrollForEmployeeRange(
     toDate: opts.toDate,
     employmentFilter: 'all_with_exited',
     employeeIds: opts.employeeId,
+    includeDetails: true,
   })
   const employee = report.rows.find((r) => r.employeeId === opts.employeeId) ?? null
   if (!employee) return null
@@ -2348,11 +2408,19 @@ export function listPayrollTimeEntryDetails(
     }
   }
 
+  const employeeRows =
+    empSet.size > 0
+      ? (db
+          .prepare(
+            `SELECT * FROM employees WHERE station_id = ? AND id IN (${[...empSet].map(() => '?').join(',')})`,
+          )
+          .all(stationId, ...empSet) as (EmployeeRow & Record<string, unknown>)[])
+      : []
+  const empById = new Map(employeeRows.map((e) => [e.id, e]))
+
   const syntheticOut: PayrollTimeEntryDetailRow[] = []
   for (const eid of empSet) {
-    const emp = db.prepare(`SELECT * FROM employees WHERE id = ? AND station_id = ?`).get(eid, stationId) as
-      | (EmployeeRow & Record<string, unknown>)
-      | undefined
+    const emp = empById.get(eid)
     if (!emp) continue
     const R = emp as Record<string, unknown>
     const myT = entriesByEmp.get(eid) ?? []

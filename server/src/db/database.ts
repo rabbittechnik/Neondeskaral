@@ -22,6 +22,7 @@ export function getDb(): Database.Database {
 }
 
 export function initDatabase(): Database.Database {
+  const t0 = Date.now()
   const dbPath = getDbPath()
   const dir = path.dirname(dbPath)
   fs.mkdirSync(dir, { recursive: true })
@@ -54,6 +55,8 @@ export function initDatabase(): Database.Database {
       console.error('[auto-clock-out]:', e)
     }
   }, 90_000)
+  const ms = Date.now() - t0
+  console.info(`[startup] database init ${ms}ms (${dbPath})`)
   return db
 }
 

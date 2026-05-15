@@ -17,6 +17,7 @@ import {
   normalizeAbsenceDbType,
 } from '../utils/vacationImpactCalculator.js'
 import { isStableEmploymentForHolidayExclusion } from '../utils/vacationRequestCalculator.js'
+import { maxMinimumWageInRangeCached, preloadMinimumWageRates } from './minimumWageCache.js'
 import {
   employmentTypeSubjectToStatutoryMinimum,
   getEffectiveHourlyRate,
@@ -381,12 +382,8 @@ export function mergePaidAbsenceHoursMapsForPayroll(a: Map<string, number>, b: M
 }
 
 export function maxMinimumWageInRange(db: Database, fromYmd: string, toYmd: string): number {
-  let m = 0
-  for (const d of eachYmdInRangeInclusive(fromYmd, toYmd)) {
-    const v = getMinimumWageForDate(db, d)
-    if (v > m) m = v
-  }
-  return m
+  preloadMinimumWageRates(db)
+  return maxMinimumWageInRangeCached(db, fromYmd, toYmd)
 }
 
 export function festangestelltMinWageWarning(

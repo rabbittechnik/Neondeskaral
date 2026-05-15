@@ -13,10 +13,26 @@
 
   --text-main: #e8f0f8;
   --text-muted: #8ba3b8;
+  --text-soft: #6b8499;
   --text-faint: #5c7288;
 
   --border-subtle: rgba(56, 189, 248, 0.12);
   --border-strong: rgba(56, 189, 248, 0.22);
+  --border-soft: rgba(255, 255, 255, 0.1);
+
+  --badge-bg: rgba(0, 0, 0, 0.25);
+  --badge-info-bg: rgba(34, 211, 238, 0.15);
+  --badge-info-text: #a5f3fc;
+  --badge-warn-bg: rgba(251, 191, 36, 0.12);
+  --badge-warn-text: #fde68a;
+  --badge-success-bg: rgba(52, 211, 153, 0.12);
+  --badge-success-text: #6ee7b7;
+
+  --schedule-track-bg: rgba(0, 0, 0, 0.25);
+  --schedule-ist-bar-bg: rgba(8, 47, 73, 0.55);
+  --schedule-ist-bar-border: rgba(103, 232, 249, 0.5);
+  --schedule-ist-bar-text: #e0f2fe;
+  --schedule-ist-bar-text-muted: rgba(224, 242, 254, 0.75);
 
   --surface-hover: rgba(255, 255, 255, 0.05);
   --surface-active: rgba(255, 255, 255, 0.08);
@@ -100,11 +116,27 @@
   --bg-card-soft: #f1f5f9;
 
   --text-main: #0f172a;
-  --text-muted: #64748b;
+  --text-muted: #475569;
+  --text-soft: #64748b;
   --text-faint: #94a3b8;
 
   --border-subtle: rgba(14, 165, 233, 0.18);
   --border-strong: rgba(14, 165, 233, 0.28);
+  --border-soft: rgba(15, 23, 42, 0.12);
+
+  --badge-bg: #e8f0f8;
+  --badge-info-bg: #e0f2fe;
+  --badge-info-text: #0369a1;
+  --badge-warn-bg: #ffedd5;
+  --badge-warn-text: #9a3412;
+  --badge-success-bg: #dcfce7;
+  --badge-success-text: #166534;
+
+  --schedule-track-bg: #e8eef5;
+  --schedule-ist-bar-bg: #e0f2fe;
+  --schedule-ist-bar-border: rgba(2, 132, 199, 0.45);
+  --schedule-ist-bar-text: #0c4a6e;
+  --schedule-ist-bar-text-muted: #0369a1;
 
   --surface-hover: rgba(15, 23, 42, 0.06);
   --surface-active: rgba(14, 165, 233, 0.1);

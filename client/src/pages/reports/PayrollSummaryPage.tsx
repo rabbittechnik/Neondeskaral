@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useState } from 'react'
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { ChevronDown, ChevronRight, FileSpreadsheet, Printer } from 'lucide-react'
 import * as XLSX from 'xlsx'
@@ -236,12 +236,26 @@ export function PayrollSummaryPage() {
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
   const [detailEmployeeId, setDetailEmployeeId] = useState<string | null>(null)
+  const [detailDays, setDetailDays] = useState<DayDetail[]>([])
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [loadMessage, setLoadMessage] = useState('Lohnabrechnung wird berechnet…')
   const [expandedDays, setExpandedDays] = useState<Set<string>>(() => new Set())
+  const abortRef = useRef<AbortController | null>(null)
+  const detailAbortRef = useRef<AbortController | null>(null)
 
   const load = useCallback(async () => {
     if (!stationId || !canView) return
+    abortRef.current?.abort()
+    const ac = new AbortController()
+    abortRef.current = ac
     setLoading(true)
     setError(null)
+    setLoadMessage('Lohnabrechnung wird berechnet…')
+    const started = Date.now()
+    const tick = window.setInterval(() => {
+      const s = Math.round((Date.now() - started) / 1000)
+      setLoadMessage(`Lohnabrechnung wird berechnet… (${s} s)`)
+    }, 500)
     const q: Record<string, string> = {
       stationId,
       from,
@@ -249,7 +263,9 @@ export function PayrollSummaryPage() {
       employmentType: employmentFilter,
     }
     if (employeeIdFilter.trim()) q.employeeIds = employeeIdFilter.trim()
-    const res = await apiGet<ReportPayload>('/reports/payroll-combined', q)
+    const res = await apiGet<ReportPayload>('/reports/payroll-combined', q, { signal: ac.signal })
+    window.clearInterval(tick)
+    if (ac.signal.aborted) return
     if (!res.ok) {
       setData(null)
       setError(res.error)
@@ -257,13 +273,37 @@ export function PayrollSummaryPage() {
       setData(res.data)
       setSelected(new Set())
       setDetailEmployeeId(null)
+      setDetailDays([])
     }
     setLoading(false)
   }, [stationId, from, to, employmentFilter, employeeIdFilter, canView])
 
   useEffect(() => {
     void load()
+    return () => abortRef.current?.abort()
   }, [load])
+
+  useEffect(() => {
+    if (!detailEmployeeId || !stationId) {
+      setDetailDays([])
+      return
+    }
+    detailAbortRef.current?.abort()
+    const ac = new AbortController()
+    detailAbortRef.current = ac
+    setDetailLoading(true)
+    void (async () => {
+      const res = await apiGet<{ employee: ReportRow }>(
+        `/reports/payroll-combined/employee/${encodeURIComponent(detailEmployeeId)}`,
+        { stationId, from, to },
+        { signal: ac.signal },
+      )
+      if (ac.signal.aborted) return
+      setDetailDays(res.ok ? res.data.employee.details : [])
+      setDetailLoading(false)
+    })()
+    return () => ac.abort()
+  }, [detailEmployeeId, stationId, from, to])
 
   const toggleRow = (id: string) => {
     setSelected((prev) => {
@@ -390,7 +430,7 @@ export function PayrollSummaryPage() {
     return { head, body, foot }
   }, [rowsForExport, exportTotals])
 
-  const exportCsv = (includeDetails: boolean) => {
+  const exportCsv = async (includeDetails: boolean) => {
     const { head, body, foot } = buildSheetMatrix()
     const esc = (v: string | number) => {
       const s = String(v).replace(/"/g, '""')
@@ -401,10 +441,13 @@ export function PayrollSummaryPage() {
       ...body.map((row) => row.map(esc).join(';')),
       ...(foot ? [foot.map(esc).join(';')] : []),
     ]
-    if (includeDetails && rowsForExport.length) {
+    const exportRows = includeDetails
+      ? await fetchRowsWithDetails(rowsForExport.map((r) => r.employeeId))
+      : rowsForExport
+    if (includeDetails && exportRows.length) {
       lines.push('')
       lines.push(esc('Tagesdetails'))
-      for (const r of rowsForExport) {
+      for (const r of exportRows) {
         lines.push(esc(`--- ${r.employeeName} ---`))
         const dh = [
           'Datum',
@@ -449,12 +492,13 @@ export function PayrollSummaryPage() {
     URL.revokeObjectURL(a.href)
   }
 
-  const exportXlsx = () => {
+  const exportXlsx = async () => {
     const { head, body, foot } = buildSheetMatrix()
     const wb = XLSX.utils.book_new()
     const ws = XLSX.utils.aoa_to_sheet([head, ...body, ...(foot ? [foot] : [])])
     XLSX.utils.book_append_sheet(wb, ws, 'Übersicht')
-    if (rowsForExport.length) {
+    const exportRows = await fetchRowsWithDetails(rowsForExport.map((r) => r.employeeId))
+    if (exportRows.length) {
       const detailRows: (string | number)[][] = [
         [
           'Mitarbeiter',
@@ -471,7 +515,7 @@ export function PayrollSummaryPage() {
           'Zuschlag €',
         ],
       ]
-      for (const r of rowsForExport) {
+      for (const r of exportRows) {
         for (const d of r.details) {
           detailRows.push([
             r.employeeName,
@@ -495,6 +539,22 @@ export function PayrollSummaryPage() {
   }
 
   const detailRow = useMemo(() => data?.rows.find((r) => r.employeeId === detailEmployeeId) ?? null, [data, detailEmployeeId])
+
+  const fetchRowsWithDetails = useCallback(
+    async (employeeIds: string[]): Promise<ReportRow[]> => {
+      if (!stationId) return []
+      const res = await apiGet<ReportPayload>('/reports/payroll-combined', {
+        stationId,
+        from,
+        to,
+        employmentType: employmentFilter,
+        employeeIds: employeeIds.join(','),
+        includeDetails: '1',
+      })
+      return res.ok ? res.data.rows : []
+    },
+    [stationId, from, to, employmentFilter],
+  )
 
   const toggleDayExpand = (key: string) => {
     setExpandedDays((prev) => {
@@ -616,7 +676,7 @@ export function PayrollSummaryPage() {
           type="button"
           variant="outline"
           className="gap-2"
-          onClick={exportXlsx}
+          onClick={() => void exportXlsx()}
           disabled={!canExport || !rowsForExport.length}
           title={!canExport ? 'reports.export oder payroll.export erforderlich' : undefined}
         >
@@ -664,7 +724,7 @@ export function PayrollSummaryPage() {
           </div>
 
           {loading ? (
-            <p className="text-sm text-[var(--text-muted)]">Lade Daten…</p>
+            <p className="text-sm text-[var(--text-muted)]">{loadMessage}</p>
           ) : !data?.rows.length ? (
             <p className="text-sm text-[var(--text-muted)]">Keine Abrechnungsdaten im gewählten Zeitraum.</p>
           ) : (
@@ -715,7 +775,10 @@ export function PayrollSummaryPage() {
             Freigabe ausstehend, rot = offene Zeiterfassung oder fehlender Früh-Ende-Grund.
           </p>
           <div className="max-h-[70vh] space-y-2 overflow-y-auto">
-            {detailRow.details.map((d) => {
+            {detailLoading ? (
+              <p className="px-8 py-4 text-sm text-[var(--text-muted)]">Tagesdetails werden geladen…</p>
+            ) : null}
+            {detailDays.map((d) => {
               const dk = `${detailRow.employeeId}:${d.date}`
               const open = expandedDays.has(dk)
               return (

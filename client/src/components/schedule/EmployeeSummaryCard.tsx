@@ -92,8 +92,8 @@ export function EmployeeSummaryCard({
       ? 'mt-1 flex flex-col gap-0.5 tabular-nums sm:flex-row sm:flex-wrap sm:gap-x-2'
       : 'mt-1.5 flex flex-wrap gap-x-2 gap-y-0.5 tabular-nums'
   const wLineCls = cramped
-    ? 'text-[8px] font-medium text-cyan-200/90 sm:text-[9px]'
-    : 'text-[9px] font-medium text-cyan-200/90 sm:text-[10px]'
+    ? 'schedule-employee-hours text-[8px] font-medium text-cyan-200/90 sm:text-[9px]'
+    : 'schedule-employee-hours text-[9px] font-medium text-cyan-200/90 sm:text-[10px]'
   const mLineCls = cramped ? 'text-[8px] text-[var(--text-faint)] sm:text-[9px]' : 'text-[9px] text-[var(--text-faint)] sm:text-[10px]'
   const badgeWrapCls = cramped ? 'mt-1' : tight ? 'mt-1 sm:mt-1.5' : 'mt-1.5'
 

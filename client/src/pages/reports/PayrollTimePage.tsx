@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, FileSpreadsheet, Printer, Table2 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { PageHeader } from '../../components/ui/PageHeader'
@@ -146,16 +146,23 @@ export function PayrollTimePage() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailItems, setDetailItems] = useState<TimeDetailItem[]>([])
 
+  const abortRef = useRef<AbortController | null>(null)
+  const [loadMessage, setLoadMessage] = useState('Lohnabrechnung wird berechnet…')
+
   const load = useCallback(async () => {
     if (!stationId || !canView) return
+    abortRef.current?.abort()
+    const ac = new AbortController()
+    abortRef.current = ac
     setLoading(true)
     setError(null)
-    const res = await apiGet<ReportPayload>('/reports/payroll-time-tracking', {
-      stationId,
-      from,
-      to,
-      employmentType: employmentFilter,
-    })
+    setLoadMessage('Lohnabrechnung wird berechnet…')
+    const res = await apiGet<ReportPayload>(
+      '/reports/payroll-time-tracking',
+      { stationId, from, to, employmentType: employmentFilter },
+      { signal: ac.signal },
+    )
+    if (ac.signal.aborted) return
     if (!res.ok) {
       setData(null)
       setError(res.error)
@@ -168,6 +175,7 @@ export function PayrollTimePage() {
 
   useEffect(() => {
     void load()
+    return () => abortRef.current?.abort()
   }, [load])
 
   const openDetails = async (employeeId?: string) => {
@@ -483,7 +491,7 @@ export function PayrollTimePage() {
           </div>
 
           {loading ? (
-            <p className="text-sm text-[var(--text-muted)]">Lade Daten…</p>
+            <p className="text-sm text-[var(--text-muted)]">{loadMessage}</p>
           ) : !data?.rows.length ? (
             <p className="text-sm text-[var(--text-muted)]">Keine Abrechnungsdaten im gewählten Zeitraum.</p>
           ) : timeTableTotals ? (

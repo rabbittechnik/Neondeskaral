@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FileSpreadsheet, Printer, X } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { PageHeader } from '../../components/ui/PageHeader'
@@ -149,30 +149,62 @@ export function PayrollSchedulePage() {
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
   const [detailEmployeeId, setDetailEmployeeId] = useState<string | null>(null)
+  const [detailLines, setDetailLines] = useState<ScheduleDetailLine[]>([])
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [loadMessage, setLoadMessage] = useState('Lohnabrechnung wird berechnet…')
+  const abortRef = useRef<AbortController | null>(null)
 
   const load = useCallback(async () => {
     if (!stationId || !canView) return
+    abortRef.current?.abort()
+    const ac = new AbortController()
+    abortRef.current = ac
     setLoading(true)
     setError(null)
-    const res = await apiGet<ReportPayload>('/reports/payroll-schedule', {
-      stationId,
-      from,
-      to,
-      employmentType: employmentFilter,
-    })
+    setLoadMessage('Lohnabrechnung wird berechnet…')
+    const res = await apiGet<ReportPayload>(
+      '/reports/payroll-schedule',
+      { stationId, from, to, employmentType: employmentFilter },
+      { signal: ac.signal },
+    )
+    if (ac.signal.aborted) return
     if (!res.ok) {
       setData(null)
       setError(res.error)
     } else {
       setData(res.data)
       setSelected(new Set())
+      setDetailEmployeeId(null)
+      setDetailLines([])
     }
     setLoading(false)
   }, [stationId, from, to, employmentFilter, canView])
 
   useEffect(() => {
     void load()
+    return () => abortRef.current?.abort()
   }, [load])
+
+  useEffect(() => {
+    if (!detailEmployeeId || !stationId) {
+      setDetailLines([])
+      return
+    }
+    setDetailLoading(true)
+    void (async () => {
+      const res = await apiGet<ReportPayload>('/reports/payroll-schedule', {
+        stationId,
+        from,
+        to,
+        employmentType: employmentFilter,
+        includeDetailLines: '1',
+        employeeIds: detailEmployeeId,
+      })
+      const row = res.ok ? res.data.rows.find((r) => r.employeeId === detailEmployeeId) : undefined
+      setDetailLines(row?.scheduleLines ?? [])
+      setDetailLoading(false)
+    })()
+  }, [detailEmployeeId, stationId, from, to, employmentFilter])
 
   const toggleRow = (id: string) => {
     setSelected((prev) => {
@@ -448,7 +480,7 @@ export function PayrollSchedulePage() {
           </div>
 
           {loading ? (
-            <p className="text-sm text-[var(--text-muted)]">Lade Daten…</p>
+            <p className="text-sm text-[var(--text-muted)]">{loadMessage}</p>
           ) : !data?.rows.length ? (
             <p className="text-sm text-[var(--text-muted)]">
               Keine Abrechnungsdaten im gewählten Zeitraum (keine Schichten oder keine relevanten Buchungen).
@@ -514,7 +546,9 @@ export function PayrollSchedulePage() {
                 showEmployment
                 showAdvance
               />
-              {!detailRow.scheduleLines?.length ? (
+              {detailLoading ? (
+                <p className="text-sm text-[var(--text-muted)]">Schichtdetails werden geladen…</p>
+              ) : !detailLines.length ? (
                 <p className="text-sm text-[var(--text-muted)]">Keine Detailzeilen vom Server geliefert.</p>
               ) : (
                 <table className="w-full min-w-0 table-fixed border-collapse text-left text-[10px] sm:text-xs">
@@ -535,7 +569,7 @@ export function PayrollSchedulePage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {detailRow.scheduleLines.map((ln, idx) => (
+                    {detailLines.map((ln, idx) => (
                       <tr key={`${ln.date}-${ln.lineType}-${idx}`} className="border-b border-white/[0.06]">
                         <td className="py-1.5 pr-2 tabular-nums text-[var(--text-main)]">{formatYmdDe(ln.date)}</td>
                         <td className="py-1.5 pr-2 text-[var(--text-muted)]">{ln.weekdayDe}</td>

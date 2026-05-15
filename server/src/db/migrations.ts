@@ -659,6 +659,17 @@ function ensurePayrollAdjustmentsTable(db: Database.Database) {
   )`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_payroll_adj_station_date ON payroll_adjustments(station_id, date)`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_payroll_adj_employee ON payroll_adjustments(employee_id)`)
+
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_shifts_station_date ON shifts(station_id, date)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_shifts_employee_date ON shifts(employee_id, date)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_time_entries_station_start ON time_entries(station_id, start_at)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_time_entries_employee_start ON time_entries(employee_id, start_at)`)
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_time_entries_station_status ON time_entries(station_id, status, approval_status)`,
+  )
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_absences_station_range ON absences(station_id, start_date, end_date)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_absences_employee_range ON absences(employee_id, start_date, end_date)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_employees_station ON employees(station_id)`)
 }
 
 /** Früherer Seed: feste IDs mit „running“ — produktiv keine Demo-Eingestempelten. */

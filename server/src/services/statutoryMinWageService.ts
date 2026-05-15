@@ -1,20 +1,12 @@
 import type { Database } from 'better-sqlite3'
+import { getMinimumWageForDateCached, preloadMinimumWageRates } from './minimumWageCache.js'
 
 const FALLBACK_MIN_EUR = 13.9
 
-/** Gesetzlicher Mindestlohn (Stundenlohn) zum Kalendertag YYYY-MM-DD (neuester Eintrag mit valid_from ≤ Datum). */
+/** Gesetzlicher Mindestlohn (Stundenlohn) zum Kalendertag YYYY-MM-DD (gecachte Tabelle). */
 export function getMinimumWageForDate(db: Database, ymd: string): number {
-  const tbl = db
-    .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='minimum_wage_rates'`)
-    .get() as { name: string } | undefined
-  if (!tbl) return FALLBACK_MIN_EUR
-  const row = db
-    .prepare(
-      `SELECT hourly_rate FROM minimum_wage_rates WHERE valid_from <= ? ORDER BY valid_from DESC LIMIT 1`,
-    )
-    .get(ymd) as { hourly_rate: number } | undefined
-  const n = Number(row?.hourly_rate)
-  return Number.isFinite(n) && n > 0 ? n : FALLBACK_MIN_EUR
+  preloadMinimumWageRates(db)
+  return getMinimumWageForDateCached(db, ymd)
 }
 
 /** Erstes `valid_from` (aufsteigend), an dem der geltende Mindestlohn über dem eingetragenen Satz liegt (für Hinweistexte). */

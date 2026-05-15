@@ -1,4 +1,6 @@
+import { lazy, Suspense, type ReactNode } from 'react'
 import { createBrowserRouter, Navigate, Outlet, useParams } from 'react-router-dom'
+import { RouteLoading } from '../components/ui/RouteLoading'
 import { AppLayout } from '../layouts/AppLayout'
 import { TerminalLayout } from '../layouts/TerminalLayout'
 import { AuthLayout } from '../layouts/AuthLayout'
@@ -30,12 +32,6 @@ import { EmployeesPage } from '../pages/employees/EmployeesPage'
 import { HolidaysPage } from '../pages/holidays/HolidaysPage'
 import { ListsPage } from '../pages/lists/ListsPage'
 import { ModulesPage } from '../pages/modules/ModulesPage'
-import { AbsenceReportsPage } from '../pages/reports/AbsenceReportsPage'
-import { PayrollSchedulePage } from '../pages/reports/PayrollSchedulePage'
-import { PayrollSummaryPage } from '../pages/reports/PayrollSummaryPage'
-import { PayrollSummaryEmployeeDetailPage } from '../pages/reports/PayrollSummaryEmployeeDetailPage'
-import { PayrollTimePage } from '../pages/reports/PayrollTimePage'
-import { TaskReportsPage } from '../pages/reports/TaskReportsPage'
 import { SchedulePage } from '../pages/schedule/SchedulePage'
 import { AccessSettingsPage } from '../pages/settings/AccessSettingsPage'
 import { EmailSettingsPage } from '../pages/settings/EmailSettingsPage'
@@ -61,6 +57,31 @@ import { TimeApprovalsPage } from '../pages/time-approvals/TimeApprovalsPage'
 import { TuvReportsPage } from '../pages/tuv/TuvReportsPage'
 import { TuvReportEditorPage } from '../pages/tuv/TuvReportEditorPage'
 import { TabletTerminalProvider } from '../context/tablet-terminal-context'
+
+const PayrollTimePage = lazy(() =>
+  import('../pages/reports/PayrollTimePage').then((m) => ({ default: m.PayrollTimePage })),
+)
+const PayrollSchedulePage = lazy(() =>
+  import('../pages/reports/PayrollSchedulePage').then((m) => ({ default: m.PayrollSchedulePage })),
+)
+const PayrollSummaryPage = lazy(() =>
+  import('../pages/reports/PayrollSummaryPage').then((m) => ({ default: m.PayrollSummaryPage })),
+)
+const PayrollSummaryEmployeeDetailPage = lazy(() =>
+  import('../pages/reports/PayrollSummaryEmployeeDetailPage').then((m) => ({
+    default: m.PayrollSummaryEmployeeDetailPage,
+  })),
+)
+const TaskReportsPage = lazy(() =>
+  import('../pages/reports/TaskReportsPage').then((m) => ({ default: m.TaskReportsPage })),
+)
+const AbsenceReportsPage = lazy(() =>
+  import('../pages/reports/AbsenceReportsPage').then((m) => ({ default: m.AbsenceReportsPage })),
+)
+
+function LazyReport({ children }: { children: ReactNode }) {
+  return <Suspense fallback={<RouteLoading />}>{children}</Suspense>
+}
 
 function MitarbeiterToEmployeesProfile() {
   const { employeeId } = useParams()
@@ -151,11 +172,9 @@ export const router = createBrowserRouter([
                 <EmployeesProvider>
                   <ScheduleShiftsProvider>
                     <AbsencesProvider>
-                      <TasksProvider>
-                        <TimeTrackingProvider>
-                          <Outlet />
-                        </TimeTrackingProvider>
-                      </TasksProvider>
+                      <TimeTrackingProvider>
+                        <Outlet />
+                      </TimeTrackingProvider>
                     </AbsencesProvider>
                   </ScheduleShiftsProvider>
                 </EmployeesProvider>
@@ -208,7 +227,11 @@ export const router = createBrowserRouter([
       },
       {
         path: 'tasks',
-        element: <TasksPage />,
+        element: (
+          <TasksProvider>
+            <TasksPage />
+          </TasksProvider>
+        ),
         handle: { title: 'Aufgaben' },
       },
       {
@@ -300,37 +323,65 @@ export const router = createBrowserRouter([
       },
       {
         path: 'reports/payroll-time',
-        element: <PayrollTimePage />,
+        element: (
+          <LazyReport>
+            <PayrollTimePage />
+          </LazyReport>
+        ),
         handle: { title: 'Lohnabrechnung (Zeiterfassung)' },
       },
       {
         path: 'reports/payroll-time-tracking',
-        element: <PayrollTimePage />,
+        element: (
+          <LazyReport>
+            <PayrollTimePage />
+          </LazyReport>
+        ),
         handle: { title: 'Lohnabrechnung (Zeiterfassung)' },
       },
       {
         path: 'reports/payroll-schedule',
-        element: <PayrollSchedulePage />,
+        element: (
+          <LazyReport>
+            <PayrollSchedulePage />
+          </LazyReport>
+        ),
         handle: { title: 'Lohnabrechnung (Schichtplan)' },
       },
       {
         path: 'reports/payroll-summary',
-        element: <PayrollSummaryPage />,
+        element: (
+          <LazyReport>
+            <PayrollSummaryPage />
+          </LazyReport>
+        ),
         handle: { title: 'Lohnabrechnung Zusammenfassung' },
       },
       {
         path: 'reports/payroll-summary/employee/:employeeId',
-        element: <PayrollSummaryEmployeeDetailPage />,
+        element: (
+          <LazyReport>
+            <PayrollSummaryEmployeeDetailPage />
+          </LazyReport>
+        ),
         handle: { title: 'Lohnabrechnung · Mitarbeiter-Detail' },
       },
       {
         path: 'reports/tasks',
-        element: <TaskReportsPage />,
+        element: (
+          <LazyReport>
+            <TaskReportsPage />
+          </LazyReport>
+        ),
         handle: { title: 'Auswertung Aufgaben' },
       },
       {
         path: 'reports/absences',
-        element: <AbsenceReportsPage />,
+        element: (
+          <LazyReport>
+            <AbsenceReportsPage />
+          </LazyReport>
+        ),
         handle: { title: 'Auswertung Abwesenheiten' },
       },
       {

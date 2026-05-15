@@ -1,14 +1,48 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AlertTriangle, CalendarClock, ClipboardList, Plane, UserRound } from 'lucide-react'
 import { StatCard } from '../../components/ui/StatCard'
-import { useTasks } from '../../context/tasks-context'
+import { useStation } from '../../context/station-context'
+import type { Task, TaskLog } from '../../types/task'
+import { apiGet } from '../../services/api'
 import { countOpenTasks, countOverdueTasks, toISODateLocal } from '../../utils/taskUtils'
 import { DashboardOpenShiftsDetailModal } from './DashboardOpenShiftsDetailModal'
 import { useDashboardLiveStats } from './useDashboardLiveStats'
 
 function OpenTasksStatCompact() {
-  const { tasks, logs, loading, error } = useTasks()
+  const { stationId } = useStation()
+  const [tasks, setTasks] = useState<Task[]>([])
+  const [logs, setLogs] = useState<TaskLog[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    if (!stationId) {
+      setTasks([])
+      setLogs([])
+      setLoading(false)
+      return
+    }
+    setLoading(true)
+    setError(null)
+    const [tRes, lRes] = await Promise.all([
+      apiGet<Task[]>('/tasks', { stationId }),
+      apiGet<TaskLog[]>('/task-logs', { stationId }),
+    ])
+    if (tRes.ok && Array.isArray(tRes.data)) setTasks(tRes.data)
+    else {
+      setTasks([])
+      if (!tRes.ok) setError(tRes.error)
+    }
+    if (lRes.ok && Array.isArray(lRes.data)) setLogs(lRes.data)
+    else if (!lRes.ok) setError((p) => (p ? `${p}; ${lRes.error}` : lRes.error))
+    setLoading(false)
+  }, [stationId])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
   const date = toISODateLocal(new Date())
   const now = new Date()
   const open = countOpenTasks(tasks, logs, date, now)

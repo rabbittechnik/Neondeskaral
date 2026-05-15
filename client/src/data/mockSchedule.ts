@@ -203,6 +203,8 @@ export type ResolvedShiftBlock = {
   actualPendingApproval?: boolean
   /** Nur Ist ohne geplanten Dienst */
   istOnly?: boolean
+  /** Aktive Stempelung (Ende = „läuft“) */
+  actualRunning?: boolean
 }
 
 export function scheduleShiftToResolved(

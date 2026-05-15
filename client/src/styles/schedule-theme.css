@@ -1,0 +1,95 @@
+/* Schichtplan: Light-Mode-Kontrast für Badges, Legende, Infokarten */
+
+[data-theme='light'] .schedule-legend-pill {
+  border-color: var(--border-soft) !important;
+  background: var(--badge-bg) !important;
+  color: var(--text-muted) !important;
+}
+
+[data-theme='light'] .schedule-legend-pill strong,
+[data-theme='light'] .schedule-legend-pill .schedule-legend-label {
+  color: var(--text-main) !important;
+}
+
+[data-theme='light'] .schedule-open-legend {
+  border-color: rgba(234, 88, 12, 0.35) !important;
+  background: var(--badge-warn-bg) !important;
+  color: var(--badge-warn-text) !important;
+}
+
+[data-theme='light'] .schedule-stats-value {
+  color: var(--accent-text-strong) !important;
+}
+
+[data-theme='light'] .schedule-employee-hours {
+  color: var(--accent-text) !important;
+}
+
+[data-theme='light'] .schedule-timeline-track {
+  background: var(--schedule-track-bg) !important;
+  border-color: var(--border-soft) !important;
+}
+
+[data-theme='light'] .schedule-today-badge {
+  border-color: rgba(2, 132, 199, 0.35) !important;
+  background: var(--badge-info-bg) !important;
+  color: var(--badge-info-text) !important;
+}
+
+[data-theme='light'] .schedule-shift-bar--ist-only {
+  background: var(--schedule-ist-bar-bg) !important;
+  border-color: var(--schedule-ist-bar-border) !important;
+  color: var(--schedule-ist-bar-text) !important;
+}
+
+[data-theme='light'] .schedule-shift-bar--ist-only .schedule-shift-bar-muted {
+  color: var(--schedule-ist-bar-text-muted) !important;
+}
+
+[data-theme='light'] .schedule-shift-bar-badge {
+  border-color: var(--border-soft) !important;
+  background: var(--badge-bg) !important;
+  color: var(--text-main) !important;
+  text-shadow: none !important;
+}
+
+[data-theme='light'] .schedule-pending-tag {
+  color: var(--badge-warn-text) !important;
+}
+
+[data-theme='light'] .schedule-drop-hint {
+  color: var(--accent-text) !important;
+}
+
+[data-theme='light'] .schedule-shift-bar--ist-only .text-white,
+[data-theme='light'] .schedule-shift-bar--ist-only .text-white\/70,
+[data-theme='light'] .schedule-shift-bar--ist-only .text-white\/75,
+[data-theme='light'] .schedule-shift-bar--ist-only .text-white\/95 {
+  color: var(--schedule-ist-bar-text) !important;
+  text-shadow: none !important;
+}
+
+[data-theme='light'] .schedule-shift-bar--ist-only .schedule-shift-bar-muted {
+  color: var(--schedule-ist-bar-text-muted) !important;
+}
+
+[data-theme='light'] .text-violet-200\/90,
+[data-theme='light'] .text-violet-300\/80 {
+  color: #6d28d9 !important;
+}
+
+[data-theme='light'] .text-rose-200\/85 {
+  color: var(--accent-danger) !important;
+}
+
+[data-theme='light'] .text-pink-300 {
+  color: var(--accent-pink) !important;
+}
+
+[data-theme='light'] .schedule-conflict-title {
+  color: #9a3412 !important;
+}
+
+[data-theme='light'] .border-orange-500\/20 {
+  background: var(--badge-warn-bg) !important;
+}

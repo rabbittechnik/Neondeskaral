@@ -53,6 +53,7 @@ import { useTimeTracking } from '../../context/time-tracking-context'
 import {
   buildIstOnlyBlocksForWeek,
   enrichBlocksWithActualTimes,
+  filterRenderableScheduleBlocks,
 } from '../../utils/scheduleActualTimes'
 import { apiGet, apiSend } from '../../services/api'
 import type { ShiftDraft } from '../../components/schedule/shift/shiftConflicts'
@@ -199,7 +200,7 @@ export function SchedulePage() {
     }
     const gaps =
       workAreaFilter === 'all' || workAreaFilter === 'K' ? requirementGapBlocks : []
-    return [...list, ...istFiltered, ...gaps]
+    return filterRenderableScheduleBlocks([...list, ...istFiltered, ...gaps])
   }, [allBlocks, workAreaFilter, employeeFilter, requirementGapBlocks, timeEntries, weekDates, employees])
 
   const weeklyHoursBreakdownById = useMemo(

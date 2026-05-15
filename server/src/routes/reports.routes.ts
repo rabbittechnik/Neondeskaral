@@ -4,13 +4,13 @@ import { jsonErr, jsonOk } from '../utils/http.js'
 import { requireAnyPermission } from '../middleware/stationAuth.js'
 import { buildAbsenceYearSummary, type AbsenceSummaryCohort } from '../services/absenceSummaryReportService.js'
 import type { AbsenceCountMode } from '../utils/absenceYearCalculator.js'
+import { listPayrollTimeEntryDetails } from '../services/payrollReportService.js'
 import {
-  calculatePayrollCombinedReport,
-  calculatePayrollForEmployeeRange,
-  calculatePayrollScheduleReport,
-  calculatePayrollTimeTrackingReport,
-  listPayrollTimeEntryDetails,
-} from '../services/payrollReportService.js'
+  payrollCombinedEmployeeHandler,
+  payrollCombinedHandler,
+  payrollScheduleHandler,
+  payrollTimeTrackingHandler,
+} from './payrollReportHandlers.js'
 import { buildPayrollValidationReport } from '../services/payrollCalculationService.js'
 
 export const reportsRouter = Router()
@@ -55,14 +55,7 @@ reportsRouter.get('/payroll-time-tracking', (req, res) => {
       jsonErr(res, 'from und to (YYYY-MM-DD) erforderlich', 400)
       return
     }
-    const employmentType = typeof req.query.employmentType === 'string' ? req.query.employmentType : undefined
-    const data = calculatePayrollTimeTrackingReport(getDb(), {
-      stationId: stationId!,
-      fromDate: from,
-      toDate: to,
-      employmentFilter: employmentType,
-    })
-    jsonOk(res, data)
+    payrollTimeTrackingHandler(req, res)
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
   }
@@ -78,14 +71,7 @@ reportsRouter.get('/payroll-schedule', (req, res) => {
       jsonErr(res, 'from und to (YYYY-MM-DD) erforderlich', 400)
       return
     }
-    const employmentType = typeof req.query.employmentType === 'string' ? req.query.employmentType : undefined
-    const data = calculatePayrollScheduleReport(getDb(), {
-      stationId: stationId!,
-      fromDate: from,
-      toDate: to,
-      employmentFilter: employmentType,
-    })
-    jsonOk(res, data)
+    payrollScheduleHandler(req, res)
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
   }
@@ -102,17 +88,7 @@ reportsRouter.get('/payroll-combined/employee/:employeeId', (req, res) => {
       jsonErr(res, 'employeeId, from und to (YYYY-MM-DD) erforderlich', 400)
       return
     }
-    const data = calculatePayrollForEmployeeRange(getDb(), {
-      stationId: stationId!,
-      employeeId,
-      fromDate: from,
-      toDate: to,
-    })
-    if (!data) {
-      jsonErr(res, 'Keine Daten für diesen Mitarbeiter im Zeitraum', 404)
-      return
-    }
-    jsonOk(res, data)
+    payrollCombinedEmployeeHandler(req, res)
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
   }
@@ -128,16 +104,7 @@ reportsRouter.get('/payroll-combined', (req, res) => {
       jsonErr(res, 'from und to (YYYY-MM-DD) erforderlich', 400)
       return
     }
-    const employmentType = typeof req.query.employmentType === 'string' ? req.query.employmentType : undefined
-    const employeeIds = typeof req.query.employeeIds === 'string' ? req.query.employeeIds : undefined
-    const data = calculatePayrollCombinedReport(getDb(), {
-      stationId: stationId!,
-      fromDate: from,
-      toDate: to,
-      employmentFilter: employmentType,
-      employeeIds,
-    })
-    jsonOk(res, data)
+    payrollCombinedHandler(req, res)
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
   }

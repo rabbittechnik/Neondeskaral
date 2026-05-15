@@ -33,11 +33,14 @@ authRouter.post('/login', (req, res) => {
 })
 
 authRouter.get('/me', (req, res) => {
+  const t0 = Date.now()
   if (!req.adminUser) {
     jsonErr(res, 'Nicht angemeldet', 401)
     return
   }
   const me = buildAuthMeUser(getDb(), req.adminUser.sub)
+  const ms = Date.now() - t0
+  if (ms >= 300) console.info(`[startup] GET /auth/me ${ms}ms`)
   if (!me) {
     jsonErr(res, 'Benutzer nicht gefunden', 404)
     return

@@ -26,7 +26,7 @@ export function ScheduleTimelineLegend({ variant = 'full' }: Props) {
         return (
           <span
             key={id}
-            className={`inline-flex items-center gap-1 rounded-full border border-white/10 bg-black/25 text-[var(--text-muted)] ${
+            className={`schedule-legend-pill inline-flex items-center gap-1 rounded-full border border-white/10 bg-black/25 text-[var(--text-muted)] ${
               compact ? 'px-1.5 py-0.5 text-[9px]' : 'gap-1.5 px-2.5 py-1 text-[11px]'
             }`}
           >
@@ -34,7 +34,7 @@ export function ScheduleTimelineLegend({ variant = 'full' }: Props) {
               className={`shrink-0 rounded-sm border ${t.cardClass} ${compact ? 'h-1.5 w-1.5' : 'h-2 w-2'}`}
               aria-hidden
             />
-            <span className="font-medium text-[var(--text-main)]">{t.label}</span>
+            <span className="schedule-legend-label font-medium text-[var(--text-main)]">{t.label}</span>
             {t.legendTime ? (
               <span className={`tabular-nums text-[var(--text-faint)] ${compact ? 'text-[8px]' : ''}`}>
                 {t.legendTime}
@@ -44,7 +44,7 @@ export function ScheduleTimelineLegend({ variant = 'full' }: Props) {
         )
       })}
       <span
-        className={`inline-flex items-center gap-1 rounded-full border border-red-400/35 bg-red-500/10 text-orange-100/95 ${
+        className={`schedule-open-legend inline-flex items-center gap-1 rounded-full border border-red-400/35 bg-red-500/10 text-orange-100/95 ${
           compact ? 'px-1.5 py-0.5 text-[9px]' : 'gap-1.5 px-2.5 py-1 text-[11px]'
         }`}
       >

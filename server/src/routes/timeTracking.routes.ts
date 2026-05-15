@@ -3,6 +3,7 @@ import { getDb } from '../db/database.js'
 import { jsonErr, jsonOk } from '../utils/http.js'
 import { requirePermission, requireAnyPermission } from '../middleware/stationAuth.js'
 import * as timeTracking from '../services/timeTrackingService.js'
+import { prunePlaceholderTimeEntries } from '../services/timeEntryPlaceholderService.js'
 import * as timeEntryCorrections from '../services/timeEntryCorrectionService.js'
 import * as terminal from '../services/terminalService.js'
 import { updateShiftChecklistReviewItems } from '../services/shiftChecklistReviewService.js'
@@ -82,6 +83,18 @@ timeEntriesRouter.get('/', (req, res) => {
         status: typeof req.query.status === 'string' ? req.query.status : undefined,
       }),
     )
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
+  }
+})
+
+timeEntriesRouter.post('/prune-placeholders', (req, res) => {
+  try {
+    const stationId = typeof req.query.stationId === 'string' ? req.query.stationId : undefined
+    if (!requirePermission(req, res, stationId, 'time.correct')) return
+    const dryRun = req.query.dryRun === '1' || req.query.dryRun === 'true'
+    const out = prunePlaceholderTimeEntries(getDb(), stationId!, { dryRun })
+    jsonOk(res, { ...out, dryRun })
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
   }

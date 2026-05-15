@@ -51,7 +51,7 @@ export function ScheduleStatsPanel({
           <CalendarX2 className="h-4 w-4 text-cyan-300" aria-hidden />
           Offene Schichten diese Woche
         </h3>
-        <p className="mt-1 text-2xl font-semibold tabular-nums text-cyan-200">
+        <p className="schedule-stats-value mt-1 text-2xl font-semibold tabular-nums text-cyan-200">
           {openShifts.length}
         </p>
         <ul className="mt-3 space-y-2 text-xs text-[var(--text-muted)]">

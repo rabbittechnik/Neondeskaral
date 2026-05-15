@@ -53,8 +53,9 @@ export function AbsencesProvider({ children }: { children: ReactNode }) {
     }
     setLoading(true)
     setError(null)
-    const from = '2025-01-01'
-    const to = '2027-12-31'
+    const y = new Date().getFullYear()
+    const from = `${y - 1}-01-01`
+    const to = `${y + 1}-12-31`
     const [aRes, vRes] = await Promise.all([
       apiGet<Absence[]>('/absences', { stationId, from, to }),
       apiGet<VacationBlock[]>('/vacation-blocks', { stationId }),

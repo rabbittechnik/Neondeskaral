@@ -87,8 +87,8 @@ export function ScheduleShiftsProvider({ children }: { children: ReactNode }) {
       }
       setLoading(true)
       const base = startOfWeekMonday(new Date())
-      const from = toISODate(addDays(base, -14))
-      const to = toISODate(addDays(base, 56))
+      const from = toISODate(addDays(base, -7))
+      const to = toISODate(addDays(base, 27))
       await refetchRange(from, to)
       if (stationIdRef.current === stationId) setLoading(false)
     }
