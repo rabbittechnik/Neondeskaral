@@ -7,7 +7,10 @@ import { Avatar } from '../ui/Avatar'
 import { EmployeeStatusBadge } from './EmployeeStatusBadge'
 import { EmploymentTypeBadge } from './EmploymentTypeBadge'
 import { EmployeeReserveBadge } from './EmployeeReserveBadge'
-import { employeeReserveBadgeLabel } from './planning/employeeReserveDisplay'
+import {
+  employeeReserveBadgeLabel,
+  employeeReserveYesTextClassName,
+} from './planning/employeeReserveDisplay'
 import { WorkAreaBadges } from './WorkAreaBadges'
 import { formatEuroDe, formatHoursDe } from './employeeFormat'
 import { formatShiftPrefList, formatWeekdayPrefList } from './planning/planningPreferenceLabels'
@@ -116,7 +119,7 @@ export function EmployeeTable({
                   ) : (
                     <div className="flex flex-col gap-0.5">
                       {e.reserveEnabled ? (
-                        <span className="text-amber-900 dark:text-amber-100/95">
+                        <span className={employeeReserveYesTextClassName}>
                           Reserve: Ja
                           {e.reserveNote?.trim() ? ` · ${e.reserveNote.trim()}` : ''}
                         </span>

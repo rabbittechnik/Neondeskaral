@@ -6,7 +6,11 @@ import { Button } from '../ui/Button'
 import { EmployeeStatusBadge } from './EmployeeStatusBadge'
 import { EmploymentTypeBadge } from './EmploymentTypeBadge'
 import { EmployeeReserveBadge } from './EmployeeReserveBadge'
-import { employeeReserveBadgeLabel, employeeReserveSummaryLines } from './planning/employeeReserveDisplay'
+import {
+  employeeReserveBadgeLabel,
+  employeeReserveSummaryLines,
+  employeeReserveYesTextClassName,
+} from './planning/employeeReserveDisplay'
 import { WorkAreaBadges } from './WorkAreaBadges'
 import { formatEuroDe, formatHoursDe } from './employeeFormat'
 import { useStation } from '../../context/station-context'
@@ -29,9 +33,7 @@ function EmployeePlanningChips({ employee }: { employee: Employee }) {
         <span className="text-[var(--text-faint)]">Reserve:</span>
         <span
           className={
-            employee.reserveEnabled
-              ? 'font-medium text-amber-900 dark:text-amber-100'
-              : 'text-[var(--text-muted)]'
+            employee.reserveEnabled ? employeeReserveYesTextClassName : 'text-[var(--text-muted)]'
           }
         >
           {reserveInfo.reserve}
