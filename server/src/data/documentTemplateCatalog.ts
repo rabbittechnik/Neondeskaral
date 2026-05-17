@@ -55,6 +55,7 @@ export function getDocumentTemplateByKey(key: string): DocumentTemplateDef | und
   return DOCUMENT_TEMPLATE_CATALOG.find((t) => t.key === key)
 }
 
+/** Relativer Ordnername (Legacy); Auflösung erfolgt in stationDocumentService. */
 export function documentTemplatesRootDir(): string {
-  return 'server/data/document-templates'
+  return 'data/document-templates'
 }

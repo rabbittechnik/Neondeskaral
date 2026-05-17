@@ -115,8 +115,14 @@ export function DocumentTemplatesSection({
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
           Vorlagen werden geladen…
         </p>
+      ) : templates.length === 0 ? (
+        <p className="rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-sm text-amber-100/90">
+          Keine Vorlagen geladen. Bitte den Server einmal neu starten. Fehlen die PDFs weiterhin, prüfen Sie{' '}
+          <span className="font-mono">server/data/document-templates/</span> auf dem Server.
+        </p>
       ) : null}
 
+      {templates.length > 0 ? (
       <div className="overflow-x-auto">
         <table className="w-full min-w-[720px] text-left text-sm">
           <thead>
@@ -187,6 +193,7 @@ export function DocumentTemplatesSection({
           </tbody>
         </table>
       </div>
+      ) : null}
     </Card>
   )
 }

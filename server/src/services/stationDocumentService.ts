@@ -4,7 +4,6 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import {
   DOCUMENT_TEMPLATE_CATALOG,
-  documentTemplatesRootDir,
   getDocumentTemplateByKey,
   type DocumentTemplateKey,
 } from '../data/documentTemplateCatalog.js'
@@ -34,20 +33,58 @@ export type StationDocumentRow = {
   version_label: string | null
 }
 
-/** Relativer Pfad unter dem Arbeitsverzeichnis (z. B. server/data/station-documents/…). */
+/** Stations-Uploads (cwd = server/ auf Railway, Repo-Root lokal). */
 export function documentsRootDir(): string {
   const fromEnv = process.env.STATION_DOCUMENTS_DIR?.trim()
   if (fromEnv) return path.isAbsolute(fromEnv) ? fromEnv : path.join(process.cwd(), fromEnv)
-  return path.join(process.cwd(), 'server', 'data', 'station-documents')
+  const direct = path.join(process.cwd(), 'data', 'station-documents')
+  const nested = path.join(process.cwd(), 'server', 'data', 'station-documents')
+  if (fs.existsSync(direct) || !fs.existsSync(nested)) return direct
+  return nested
+}
+
+/** PDF-Vorlagen aus dem Repo (server/data/document-templates). */
+export function documentTemplatesRoot(): string {
+  const fromEnv = process.env.DOCUMENT_TEMPLATES_DIR?.trim()
+  if (fromEnv) return path.isAbsolute(fromEnv) ? fromEnv : path.join(process.cwd(), fromEnv)
+  const direct = path.join(process.cwd(), 'data', 'document-templates')
+  const nested = path.join(process.cwd(), 'server', 'data', 'document-templates')
+  if (fs.existsSync(direct) || !fs.existsSync(nested)) return direct
+  return nested
+}
+
+function allowedDocumentRoots(): string[] {
+  const roots = new Set<string>()
+  for (const r of [
+    path.resolve(documentsRootDir()),
+    path.resolve(process.cwd(), 'data', 'station-documents'),
+    path.resolve(process.cwd(), 'server', 'data', 'station-documents'),
+  ]) {
+    roots.add(r)
+  }
+  return [...roots]
 }
 
 export function resolveDocumentAbsolutePath(storedRelative: string): string {
   const rel = String(storedRelative ?? '').replace(/\\/g, '/').replace(/^\/+/, '')
   if (!rel || rel.includes('..')) throw new Error('Ungültiger Dateipfad')
-  const abs = path.resolve(process.cwd(), rel)
-  const root = path.resolve(documentsRootDir())
-  if (!abs.startsWith(root)) throw new Error('Pfad außerhalb des Dokumentenordners')
-  return abs
+
+  const candidates = [path.resolve(process.cwd(), rel)]
+  if (rel.startsWith('server/')) {
+    candidates.push(path.resolve(process.cwd(), rel.slice('server/'.length)))
+  } else {
+    candidates.push(path.resolve(process.cwd(), 'server', rel))
+  }
+
+  const allowed = allowedDocumentRoots()
+  for (const abs of candidates) {
+    if (!fs.existsSync(abs)) continue
+    if (allowed.some((root) => abs === root || abs.startsWith(root + path.sep))) return abs
+  }
+
+  const fallback = candidates[0]!
+  if (allowed.some((root) => fallback === root || fallback.startsWith(root + path.sep))) return fallback
+  throw new Error('Pfad außerhalb des Dokumentenordners')
 }
 
 function ensureDir(dir: string) {
@@ -55,8 +92,8 @@ function ensureDir(dir: string) {
 }
 
 export function relativePathForNewDocument(stationId: string, documentId: string, safeFileName: string): string {
-  const rel = path.posix.join('server', 'data', 'station-documents', stationId, documentId, safeFileName)
-  return rel
+  const abs = path.join(documentsRootDir(), stationId, documentId, safeFileName)
+  return path.relative(process.cwd(), abs).replace(/\\/g, '/')
 }
 
 export function listStationDocuments(
@@ -300,16 +337,35 @@ function copyFileToStationDocument(stationId: string, documentId: string, fileNa
 
 /** Legt die drei festen PDF-Vorlagen pro Station an (Original bleibt unverändert). */
 export function ensureStationDocumentTemplates(db: Database, stationId: string, createdBy?: string | null): void {
-  const root = path.join(process.cwd(), documentTemplatesRootDir())
+  const root = documentTemplatesRoot()
+  if (!fs.existsSync(root)) {
+    console.warn(`[documents] Vorlagenordner nicht gefunden: ${root} (cwd=${process.cwd()})`)
+  }
   for (const tpl of DOCUMENT_TEMPLATE_CATALOG) {
     const existing = db
       .prepare(`SELECT id FROM station_documents WHERE station_id = ? AND template_key = ? AND is_template = 1 LIMIT 1`)
       .get(stationId, tpl.key) as { id: string } | undefined
-    if (existing) continue
 
     const sourceAbs = path.join(root, tpl.sourceFile)
     if (!fs.existsSync(sourceAbs)) {
       console.warn(`[documents] Vorlage fehlt auf Disk: ${sourceAbs}`)
+      continue
+    }
+
+    if (existing) {
+      try {
+        const row = getStationDocument(db, existing.id)
+        if (row && !fs.existsSync(resolveDocumentAbsolutePath(row.file_path))) {
+          copyFileToStationDocument(stationId, existing.id, tpl.fileName, sourceAbs)
+          db.prepare(`UPDATE station_documents SET file_name = ?, updated_at = ? WHERE id = ?`).run(
+            tpl.fileName,
+            nowIso(),
+            existing.id,
+          )
+        }
+      } catch {
+        /* ignore repair errors */
+      }
       continue
     }
     const docId = `doc-tpl-${tpl.key}-${stationId}`
