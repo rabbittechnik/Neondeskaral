@@ -30,11 +30,22 @@ export function AssistantSuggestionCard({ item }: Props) {
         <AssistantScoreBadge level={item.level} score={item.score} />
       </div>
       <div className="mt-1 text-sm text-cyan-100/90">{name}</div>
+      {item.isReserve ? (
+        <p className="mt-1 text-[10px] font-medium text-amber-200/95">Reserve-Einsatz</p>
+      ) : null}
+      {item.planningSummary ? (
+        <p className="mt-1 text-[10px] text-emerald-200/85">{item.planningSummary.summaryText}</p>
+      ) : null}
       <div className="mt-1 text-[10px] text-[var(--text-muted)]">
         Bereich: <span className="text-[var(--text-main)]">{item.workAreaId}</span>
         {item.hints.length ? (
           <span className="mt-0.5 block text-emerald-200/80">
             {item.hints.slice(0, 4).join(' · ')}
+          </span>
+        ) : null}
+        {(item.warnings ?? []).length ? (
+          <span className="mt-0.5 block text-amber-200/90">
+            {(item.warnings ?? []).slice(0, 2).join(' · ')}
           </span>
         ) : null}
       </div>

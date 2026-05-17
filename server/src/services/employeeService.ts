@@ -11,6 +11,17 @@ import {
   revokeAllDevicesForEmployee,
 } from './employeeAppDeviceService.js'
 import { buildEmployeeMinimumWageHints } from './employeeMinimumWageHints.js'
+import {
+  parseReserveConditionsJson,
+  parseWeekdayAvailabilityJson,
+  parsePreferredShiftPolicy,
+  parseWeekendDayPreference,
+  deriveWeekdayAvailabilityFromLegacy,
+  type ReserveConditions,
+  type WeekdayAvailabilityMap,
+  type PreferredShiftPolicy,
+  type WeekendDayPreference,
+} from '../utils/employeePlanningRules.js'
 
 function jsonStringArrayFromBody(body: Record<string, unknown>, key: string): string {
   const v = body[key]
@@ -71,6 +82,15 @@ export type EmployeeRow = {
   max_preferred_days_per_week?: number | null
   max_weekly_hours?: number | null
   planning_notes?: string | null
+  desired_shifts_per_month?: number | null
+  min_shifts_per_month?: number | null
+  max_shifts_per_month?: number | null
+  desired_weekends_per_month?: number | null
+  weekend_day_preference?: string | null
+  preferred_shift_policy?: string | null
+  weekday_availability_json?: string | null
+  reserve_enabled?: number | null
+  reserve_conditions_json?: string | null
   created_at?: string | null
   updated_at?: string | null
 } & Record<string, unknown>
@@ -239,6 +259,21 @@ function rowToEmployeeApiFull(row: EmployeeRow, workAreaIds: string[], includeAc
     maxPreferredDaysPerWeek: rOptNum(R, 'max_preferred_days_per_week'),
     maxWeeklyHours: rOptNum(R, 'max_weekly_hours'),
     planningNotes: rStr(R, 'planning_notes'),
+    desiredShiftsPerMonth: rOptNum(R, 'desired_shifts_per_month'),
+    minShiftsPerMonth: rOptNum(R, 'min_shifts_per_month'),
+    maxShiftsPerMonth: rOptNum(R, 'max_shifts_per_month'),
+    desiredWeekendsPerMonth: rOptNum(R, 'desired_weekends_per_month'),
+    weekendDayPreference: parseWeekendDayPreference(row.weekend_day_preference as string),
+    preferredShiftPolicy: parsePreferredShiftPolicy(row.preferred_shift_policy as string),
+    weekdayAvailability:
+      parseWeekdayAvailabilityJson(row.weekday_availability_json as string) ??
+      deriveWeekdayAvailabilityFromLegacy({
+        preferredWorkDays: parseJsonStringArray(row.preferred_work_days_json),
+        notPreferredWorkDays: parseJsonStringArray(row.not_preferred_work_days_json),
+        canWorkWeekends: (row.can_work_weekends ?? 1) !== 0,
+      }),
+    reserveEnabled: (row.reserve_enabled ?? 0) === 1,
+    reserveConditions: parseReserveConditionsJson(row.reserve_conditions_json as string),
     deletedAt: rStr(R, 'deleted_at').trim() || undefined,
     deletedBy: rStr(R, 'deleted_by').trim() || undefined,
   }
@@ -348,6 +383,15 @@ export type EmployeeApi = {
   maxPreferredDaysPerWeek?: number
   maxWeeklyHours?: number
   planningNotes: string
+  desiredShiftsPerMonth?: number
+  minShiftsPerMonth?: number
+  maxShiftsPerMonth?: number
+  desiredWeekendsPerMonth?: number
+  weekendDayPreference?: WeekendDayPreference
+  preferredShiftPolicy?: PreferredShiftPolicy
+  weekdayAvailability?: WeekdayAvailabilityMap
+  reserveEnabled?: boolean
+  reserveConditions?: ReserveConditions
   deletedAt?: string
   deletedBy?: string
   employeeAccessToken?: string
@@ -688,8 +732,153 @@ export function createEmployee(
   )
 
   syncWorkAreas(db, id, stationId, workAreaIds)
+  syncEmployeePlanningRules(db, id, body)
 
   return getEmployee(db, id, { includeAccessToken: true, includeSensitive: allowSensitive })
+}
+
+function hasPlanningRulesPatch(body: Record<string, unknown>): boolean {
+  return [
+    'preferredShiftTypes',
+    'preferredWorkDays',
+    'notPreferredWorkDays',
+    'canWorkWeekends',
+    'canWorkHolidays',
+    'maxPreferredDaysPerWeek',
+    'maxWeeklyHours',
+    'planningNotes',
+    'desiredShiftsPerMonth',
+    'minShiftsPerMonth',
+    'maxShiftsPerMonth',
+    'desiredWeekendsPerMonth',
+    'weekendDayPreference',
+    'preferredShiftPolicy',
+    'weekdayAvailability',
+    'reserveEnabled',
+    'reserveConditions',
+  ].some((k) => body[k] !== undefined)
+}
+
+function syncEmployeePlanningRules(db: Database, id: string, body: Record<string, unknown>) {
+  if (!hasPlanningRulesPatch(body)) return
+  const cur = db.prepare(`SELECT * FROM employees WHERE id = ?`).get(id) as EmployeeRow
+  const prefShift =
+    body.preferredShiftTypes !== undefined
+      ? jsonStringArrayFromBody(body, 'preferredShiftTypes')
+      : (cur.preferred_shift_types_json ?? '[]')
+  const prefDays =
+    body.preferredWorkDays !== undefined
+      ? jsonStringArrayFromBody(body, 'preferredWorkDays')
+      : (cur.preferred_work_days_json ?? '[]')
+  const notPref =
+    body.notPreferredWorkDays !== undefined
+      ? jsonStringArrayFromBody(body, 'notPreferredWorkDays')
+      : (cur.not_preferred_work_days_json ?? '[]')
+  const cWk =
+    body.canWorkWeekends !== undefined ? (body.canWorkWeekends ? 1 : 0) : (cur.can_work_weekends ?? 1)
+  const cH =
+    body.canWorkHolidays !== undefined ? (body.canWorkHolidays ? 1 : 0) : (cur.can_work_holidays ?? 1)
+  const maxDays =
+    body.maxPreferredDaysPerWeek !== undefined
+      ? body.maxPreferredDaysPerWeek == null
+        ? null
+        : Number(body.maxPreferredDaysPerWeek)
+      : cur.max_preferred_days_per_week
+  const maxH =
+    body.maxWeeklyHours !== undefined
+      ? body.maxWeeklyHours == null
+        ? null
+        : Number(body.maxWeeklyHours)
+      : cur.max_weekly_hours
+  const pNotes =
+    body.planningNotes !== undefined ? String(body.planningNotes ?? '') : (cur.planning_notes ?? '')
+
+  const desiredShifts =
+    body.desiredShiftsPerMonth !== undefined
+      ? body.desiredShiftsPerMonth == null
+        ? null
+        : Number(body.desiredShiftsPerMonth)
+      : cur.desired_shifts_per_month
+  const minShifts =
+    body.minShiftsPerMonth !== undefined
+      ? body.minShiftsPerMonth == null
+        ? null
+        : Number(body.minShiftsPerMonth)
+      : cur.min_shifts_per_month
+  const maxShifts =
+    body.maxShiftsPerMonth !== undefined
+      ? body.maxShiftsPerMonth == null
+        ? null
+        : Number(body.maxShiftsPerMonth)
+      : cur.max_shifts_per_month
+  const desiredWe =
+    body.desiredWeekendsPerMonth !== undefined
+      ? body.desiredWeekendsPerMonth == null
+        ? null
+        : Number(body.desiredWeekendsPerMonth)
+      : cur.desired_weekends_per_month
+  const wePref =
+    body.weekendDayPreference !== undefined
+      ? String(body.weekendDayPreference ?? 'either')
+      : (cur.weekend_day_preference ?? 'either')
+  const shiftPolicy =
+    body.preferredShiftPolicy !== undefined
+      ? String(body.preferredShiftPolicy ?? 'any')
+      : (cur.preferred_shift_policy ?? 'any')
+  let weekdayJson = cur.weekday_availability_json
+  if (body.weekdayAvailability !== undefined && body.weekdayAvailability != null) {
+    weekdayJson = JSON.stringify(body.weekdayAvailability)
+  }
+  const reserveOn =
+    body.reserveEnabled !== undefined ? (body.reserveEnabled ? 1 : 0) : (cur.reserve_enabled ?? 0)
+  const reserveJson =
+    body.reserveConditions !== undefined
+      ? JSON.stringify(body.reserveConditions ?? {})
+      : (cur.reserve_conditions_json ?? '{}')
+
+  const ts = nowIso()
+  db.prepare(
+    `UPDATE employees SET
+      preferred_shift_types_json = ?,
+      preferred_work_days_json = ?,
+      not_preferred_work_days_json = ?,
+      can_work_weekends = ?,
+      can_work_holidays = ?,
+      max_preferred_days_per_week = ?,
+      max_weekly_hours = ?,
+      planning_notes = ?,
+      desired_shifts_per_month = ?,
+      min_shifts_per_month = ?,
+      max_shifts_per_month = ?,
+      desired_weekends_per_month = ?,
+      weekend_day_preference = ?,
+      preferred_shift_policy = ?,
+      weekday_availability_json = ?,
+      reserve_enabled = ?,
+      reserve_conditions_json = ?,
+      updated_at = ?
+    WHERE id = ?`,
+  ).run(
+    prefShift,
+    prefDays,
+    notPref,
+    cWk,
+    cH,
+    maxDays,
+    maxH,
+    pNotes,
+    desiredShifts,
+    minShifts,
+    maxShifts,
+    desiredWe,
+    wePref,
+    shiftPolicy,
+    weekdayJson,
+    reserveOn,
+    reserveJson,
+    ts,
+    id,
+  )
 }
 
 export function updateEmployee(
@@ -944,61 +1133,7 @@ export function updateEmployee(
     else db.prepare(`UPDATE employees SET pin_hash = NULL, updated_at = ? WHERE id = ?`).run(ts, id)
   }
 
-  if (
-    body.preferredShiftTypes !== undefined ||
-    body.preferredWorkDays !== undefined ||
-    body.notPreferredWorkDays !== undefined ||
-    body.canWorkWeekends !== undefined ||
-    body.canWorkHolidays !== undefined ||
-    body.maxPreferredDaysPerWeek !== undefined ||
-    body.maxWeeklyHours !== undefined ||
-    body.planningNotes !== undefined
-  ) {
-    const cur = db.prepare(`SELECT * FROM employees WHERE id = ?`).get(id) as EmployeeRow
-    const prefShift =
-      body.preferredShiftTypes !== undefined
-        ? jsonStringArrayFromBody(body, 'preferredShiftTypes')
-        : (cur.preferred_shift_types_json ?? '[]')
-    const prefDays =
-      body.preferredWorkDays !== undefined
-        ? jsonStringArrayFromBody(body, 'preferredWorkDays')
-        : (cur.preferred_work_days_json ?? '[]')
-    const notPref =
-      body.notPreferredWorkDays !== undefined
-        ? jsonStringArrayFromBody(body, 'notPreferredWorkDays')
-        : (cur.not_preferred_work_days_json ?? '[]')
-    const cWk =
-      body.canWorkWeekends !== undefined ? (body.canWorkWeekends ? 1 : 0) : (cur.can_work_weekends ?? 1)
-    const cH =
-      body.canWorkHolidays !== undefined ? (body.canWorkHolidays ? 1 : 0) : (cur.can_work_holidays ?? 1)
-    const maxDays =
-      body.maxPreferredDaysPerWeek !== undefined
-        ? body.maxPreferredDaysPerWeek == null
-          ? null
-          : Number(body.maxPreferredDaysPerWeek)
-        : cur.max_preferred_days_per_week
-    const maxH =
-      body.maxWeeklyHours !== undefined
-        ? body.maxWeeklyHours == null
-          ? null
-          : Number(body.maxWeeklyHours)
-        : cur.max_weekly_hours
-    const pNotes =
-      body.planningNotes !== undefined ? String(body.planningNotes ?? '') : (cur.planning_notes ?? '')
-    db.prepare(
-      `UPDATE employees SET
-        preferred_shift_types_json = ?,
-        preferred_work_days_json = ?,
-        not_preferred_work_days_json = ?,
-        can_work_weekends = ?,
-        can_work_holidays = ?,
-        max_preferred_days_per_week = ?,
-        max_weekly_hours = ?,
-        planning_notes = ?,
-        updated_at = ?
-      WHERE id = ?`,
-    ).run(prefShift, prefDays, notPref, cWk, cH, maxDays, maxH, pNotes, ts, id)
-  }
+  syncEmployeePlanningRules(db, id, body)
 
   if (Array.isArray(body.workAreaIds)) {
     syncWorkAreas(db, id, sid, body.workAreaIds as string[])

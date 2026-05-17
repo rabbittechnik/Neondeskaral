@@ -150,7 +150,7 @@ function EmployeeProfilePlanningSection({ employee }: { employee: Employee }) {
 
 const TABS = [
   { id: 'overview', label: 'Übersicht' },
-  { id: 'planning', label: 'Schichtwünsche' },
+  { id: 'planning', label: 'Schichtwünsche & Regeln' },
   { id: 'employeeApp', label: 'Mitarbeiter-App / QR-Code' },
   { id: 'shifts', label: 'Schichten' },
   { id: 'absences', label: 'Abwesenheiten' },

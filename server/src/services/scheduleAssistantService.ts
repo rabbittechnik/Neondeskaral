@@ -15,6 +15,12 @@ import {
   type ProposedMonthShift,
 } from './employeePlannedHoursService.js'
 import { listShiftRowsForStationDateRange, type ShiftRow } from './shiftService.js'
+import {
+  buildPlanningRulesFromEmployee,
+  countMonthShiftDays,
+  countWeekendDaysInMonth,
+  evaluatePlanningAssignment,
+} from '../utils/employeePlanningRules.js'
 
 export type AssistantMode = 'fill_gaps' | 'replace_drafts' | 'full_refresh'
 
@@ -39,6 +45,16 @@ export type GenerateBody = {
   federalState?: string
 }
 
+export type AssistantPlanningSummary = {
+  monthShiftDays: number
+  desiredShiftsPerMonth?: number | null
+  monthHours: number
+  maxHoursPerMonth?: number | null
+  wishFulfilled: boolean
+  isReserve: boolean
+  summaryText: string
+}
+
 export type SuggestedShift = {
   id: string
   date: string
@@ -51,6 +67,9 @@ export type SuggestedShift = {
   score: number
   level: 'good' | 'warn' | 'bad'
   hints: string[]
+  warnings?: string[]
+  isReserve?: boolean
+  planningSummary?: AssistantPlanningSummary
   existingShiftId?: string
 }
 
@@ -139,6 +158,82 @@ function prefKindMatchesSlot(
 }
 
 type Emp = ReturnType<typeof employeeService.listEmployees>[number]
+
+function isMainStaffEmployment(emp: Emp): boolean {
+  const t = String(emp.employmentType ?? '').toLowerCase()
+  return t !== 'aushilfe' && t !== 'minijob'
+}
+
+function isMainStaffAbsentOnDay(
+  employees: Emp[],
+  absenceRows: AbsenceRow[],
+  date: string,
+  workAreaId: string,
+): boolean {
+  return employees.some((e) => {
+    if (!isMainStaffEmployment(e)) return false
+    if (!isAbsentApproved(e.id, date, absenceRows)) return false
+    const areas = e.workAreaIds ?? []
+    return areas.length === 0 || areas.includes(workAreaId)
+  })
+}
+
+function buildPlanningSummary(
+  emp: Emp,
+  rules: ReturnType<typeof buildPlanningRulesFromEmployee>,
+  monthShiftRows: ShiftRow[],
+  monthAbsenceRows: AbsenceRow[],
+  proposed: ProposedMonthShift[],
+  testProposed: ProposedMonthShift[],
+  federalState: GermanState,
+  monthFrom: string,
+  monthTo: string,
+  isReserve: boolean,
+): AssistantPlanningSummary {
+  const projected = applyProposedToMonthShiftRows(monthShiftRows, testProposed)
+  const br = calculateEmployeePlannedHoursFromRows(
+    emp.id,
+    projected,
+    monthAbsenceRows,
+    String(emp.employmentType ?? 'teilzeit'),
+    federalState,
+    monthFrom,
+    monthTo,
+  )
+  const monthShiftDays = countMonthShiftDays(
+    monthShiftRows.map((r) => ({
+      employee_id: r.employee_id,
+      date: r.date,
+      shift_type: r.shift_type,
+    })),
+    emp.id,
+    testProposed.map((p) => ({ employeeId: p.employeeId, date: p.date })),
+  )
+  const desired = rules.desiredShiftsPerMonth
+  const maxH = emp.maxHoursPerMonth
+  const wishFulfilled =
+    (desired == null || monthShiftDays <= desired) &&
+    !isReserve &&
+    (maxH == null || maxH <= 0 || br.totalHours <= maxH)
+  const parts: string[] = []
+  if (desired != null && desired > 0) {
+    parts.push(`${monthShiftDays} / ${desired} gewünschte Arbeitstage`)
+  }
+  if (maxH != null && maxH > 0) {
+    parts.push(`${br.totalHours.toFixed(1).replace('.', ',')} / ${maxH.toFixed(1).replace('.', ',')} Monatsstunden`)
+  }
+  if (isReserve) parts.push('Reserve-Einsatz')
+  else if (wishFulfilled) parts.push('Schichtwunsch weitgehend erfüllt')
+  return {
+    monthShiftDays,
+    desiredShiftsPerMonth: desired,
+    monthHours: br.totalHours,
+    maxHoursPerMonth: maxH,
+    wishFulfilled,
+    isReserve,
+    summaryText: parts.join(' · ') || '—',
+  }
+}
 
 function isAbsentApproved(empId: string, date: string, rows: AbsenceRow[]): boolean {
   return rows.some((r) => r.employee_id === empId && r.start_date <= date && r.end_date >= date)
@@ -456,6 +551,89 @@ export function generateScheduleSuggestions(db: Database, body: GenerateBody) {
           noShiftYetOnThisDay: !hasShiftThisDay,
         })
 
+        const rules = buildPlanningRulesFromEmployee(emp)
+        const projectedRows = applyProposedToMonthShiftRows(monthShiftRows, testProposed)
+        const monthHoursBr = calculateEmployeePlannedHoursFromRows(
+          emp.id,
+          projectedRows,
+          monthAbsenceRows,
+          String(emp.employmentType ?? 'teilzeit'),
+          federalState,
+          monthRange.from,
+          monthRange.to,
+        )
+        const monthDaysAfter = countMonthShiftDays(
+          monthShiftRows.map((r) => ({
+            employee_id: r.employee_id,
+            date: r.date,
+            shift_type: r.shift_type,
+          })),
+          emp.id,
+          testProposed.map((p) => ({ employeeId: p.employeeId, date: p.date })),
+        )
+        const weekendDaysAfter = countWeekendDaysInMonth(
+          monthShiftRows.map((r) => ({ employee_id: r.employee_id, date: r.date })),
+          emp.id,
+          testProposed.map((p) => ({ employeeId: p.employeeId, date: p.date })),
+        )
+        const mainAbsent = isMainStaffAbsentOnDay(employees, absenceRows, day.date, slot.workAreaId)
+        const planEval = evaluatePlanningAssignment({
+          rules,
+          slot: { date: day.date, kind: slot.kind, workAreaId: slot.workAreaId },
+          federalState,
+          monthShiftDaysAfter: monthDaysAfter,
+          monthHoursAfter: monthHoursBr.totalHours,
+          maxHoursPerMonth: emp.maxHoursPerMonth,
+          weekendDaysInMonthAfter: weekendDaysAfter,
+          weeklyMinutesAfter: wMin + slotMin,
+          weeklyContractMinutes: contractMin,
+          maxWeeklyMinutes: maxW,
+          assignedDaysThisWeek: dayCount,
+          isOpenShiftFill: Boolean(open),
+          mainStaffAbsentOnDay: mainAbsent,
+          hasWorkArea: (emp.workAreaIds ?? []).includes(slot.workAreaId),
+        })
+
+        if (!planEval.allowed) {
+          candidates.push({
+            id: `sug-${randomUUID()}`,
+            date: day.date,
+            startTime: slot.startTime,
+            endTime: slot.endTime,
+            workAreaId: slot.workAreaId,
+            shiftType: kindToShiftType(slot.kind),
+            employeeId: emp.id,
+            employeeName: emp.displayName,
+            score: -1000,
+            level: 'bad',
+            hints: planEval.hints.length ? planEval.hints : ['Planungsregel blockiert'],
+            warnings: planEval.warnings,
+            existingShiftId: open?.id,
+          })
+          continue
+        }
+
+        const combinedScore = sc.score + planEval.score
+        const combinedLevel =
+          planEval.level === 'bad' || sc.level === 'bad'
+            ? 'bad'
+            : planEval.level === 'warn' || sc.level === 'warn' || planEval.isReserve
+              ? 'warn'
+              : 'good'
+        const combinedHints = [...new Set([...sc.hints, ...planEval.hints])].slice(0, 8)
+        const planningSummary = buildPlanningSummary(
+          emp,
+          rules,
+          monthShiftRows,
+          monthAbsenceRows,
+          proposed,
+          testProposed,
+          federalState,
+          monthRange.from,
+          monthRange.to,
+          planEval.isReserve,
+        )
+
         candidates.push({
           id: `sug-${randomUUID()}`,
           date: day.date,
@@ -465,9 +643,12 @@ export function generateScheduleSuggestions(db: Database, body: GenerateBody) {
           shiftType: kindToShiftType(slot.kind),
           employeeId: emp.id,
           employeeName: emp.displayName,
-          score: sc.score,
-          level: sc.level,
-          hints: sc.hints,
+          score: combinedScore,
+          level: combinedLevel,
+          hints: combinedHints,
+          warnings: planEval.warnings,
+          isReserve: planEval.isReserve,
+          planningSummary,
           existingShiftId: open?.id,
         })
       }
@@ -484,6 +665,9 @@ export function generateScheduleSuggestions(db: Database, body: GenerateBody) {
           end: best.endTime,
           existingShiftId: best.existingShiftId,
         })
+        for (const w of best.warnings ?? []) {
+          if (!warnings.includes(w)) warnings.push(w)
+        }
         suggestedShifts.push(best)
       } else {
         warnings.push(

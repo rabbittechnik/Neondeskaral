@@ -50,6 +50,7 @@ export function runMigrations(db: Database.Database) {
   addEmployeeColumn(db, empCols, 'max_preferred_days_per_week', 'max_preferred_days_per_week INTEGER')
   addEmployeeColumn(db, empCols, 'max_weekly_hours', 'max_weekly_hours REAL')
   addEmployeeColumn(db, empCols, 'planning_notes', 'planning_notes TEXT')
+  migrateEmployeePlanningRulesColumns(db)
 
   migrateEmployeeExtendedColumns(db)
   migrateShiftBakingNoticesToBackshopAck(db)
@@ -215,6 +216,91 @@ export function runMigrations(db: Database.Database) {
   ensureWeeklySchedulePublicationsTable(db)
   ensureEmployeePayrollDocumentsTable(db)
   mergeEmployeePayrollDocumentsPermissionsIntoAccess(db)
+  ensureSteveScheifenEmployee(db)
+}
+
+function migrateEmployeePlanningRulesColumns(db: Database.Database) {
+  let empCols = employeesColumnNames(db)
+  const add = (col: string, ddl: string) => addEmployeeColumn(db, empCols, col, ddl)
+  add('desired_shifts_per_month', 'desired_shifts_per_month INTEGER')
+  add('min_shifts_per_month', 'min_shifts_per_month INTEGER')
+  add('max_shifts_per_month', 'max_shifts_per_month INTEGER')
+  add('desired_weekends_per_month', 'desired_weekends_per_month INTEGER')
+  add('weekend_day_preference', `weekend_day_preference TEXT DEFAULT 'either'`)
+  add('preferred_shift_policy', `preferred_shift_policy TEXT DEFAULT 'any'`)
+  add('weekday_availability_json', 'weekday_availability_json TEXT')
+  add('reserve_enabled', 'reserve_enabled INTEGER DEFAULT 0')
+  add('reserve_conditions_json', `reserve_conditions_json TEXT DEFAULT '{}'`)
+}
+
+/** Neuer Mitarbeiter Steve Scheifen (nur anlegen, wenn noch nicht vorhanden). */
+function ensureSteveScheifenEmployee(db: Database.Database) {
+  const sid = 'aral-bodelshausen'
+  const existing = db
+    .prepare(
+      `SELECT id FROM employees WHERE station_id = ? AND lower(trim(last_name)) = 'scheifen'
+       AND lower(trim(first_name)) = 'steve' AND (deleted_at IS NULL OR trim(deleted_at) = '') LIMIT 1`,
+    )
+    .get(sid) as { id: string } | undefined
+  if (existing?.id) return
+
+  const ts = nowIso()
+  const id = randomUUID()
+  const weekdayJson = JSON.stringify({
+    monday: 'unavailable',
+    tuesday: 'unavailable',
+    wednesday: 'unavailable',
+    thursday: 'unavailable',
+    friday: 'unavailable',
+    saturday: 'preferred',
+    sunday: 'preferred',
+  })
+  db.prepare(
+    `INSERT INTO employees (
+      id, station_id, salutation, first_name, last_name, display_name,
+      birthday, role, employment_role, employment_type,
+      hourly_wage, weekly_hours, monthly_hours, vacation_days_total, vacation_days_used,
+      color, status, terminal_enabled, time_tracking_enabled,
+      pay_type, max_hours_per_month, work_days_json,
+      start_date, notes, active,
+      employee_access_enabled,
+      preferred_shift_types_json, preferred_work_days_json, not_preferred_work_days_json,
+      can_work_weekends, can_work_holidays, max_preferred_days_per_week, planning_notes,
+      desired_shifts_per_month, min_shifts_per_month, max_shifts_per_month,
+      desired_weekends_per_month, weekend_day_preference, preferred_shift_policy,
+      weekday_availability_json, reserve_enabled, reserve_conditions_json,
+      created_at, updated_at
+    ) VALUES (
+      ?, ?, 'none', 'Steve', 'Scheifen', 'Steve Scheifen',
+      '1996-08-16', 'Aushilfe', 'Aushilfe', 'aushilfe',
+      12.82, 0, 0, 0, 0,
+      '#a855f7', 'aktiv', 1, 1,
+      'hourly', 43, '[]',
+      ?, ?, 1,
+      0,
+      ?, ?, ?,
+      1, 1, 2, ?,
+      2, 2, 2,
+      1, 'either', 'late_preferred',
+      ?, 0, '{}',
+      ?, ?
+    )`,
+  ).run(
+    id,
+    sid,
+    ts.slice(0, 10),
+    'Adresse: Uhlandstr. 27/2, 72411 Bodelshausen',
+    JSON.stringify(['late', 'early']),
+    JSON.stringify(['saturday', 'sunday']),
+    JSON.stringify(['monday', 'tuesday', 'wednesday', 'thursday', 'friday']),
+    'Bevorzugt Spätschicht am Wochenende, ca. 2 Arbeitstage/Monat. Unter der Woche nicht automatisch einplanen.',
+    weekdayJson,
+    ts,
+    ts,
+  )
+  db.prepare(
+    `INSERT INTO employee_work_areas (id, employee_id, station_id, work_area_id) VALUES (?, ?, ?, ?)`,
+  ).run(randomUUID(), id, sid, 'kasse')
 }
 
 function ensureEmployeePayrollDocumentsTable(db: Database.Database) {

@@ -66,6 +66,11 @@ export function employeeDefaults(): Omit<Employee, 'id'> {
     canWorkWeekends: true,
     canWorkHolidays: true,
     planningNotes: '',
+    weekdayAvailability: undefined,
+    reserveEnabled: false,
+    reserveConditions: {},
+    preferredShiftPolicy: 'any',
+    weekendDayPreference: 'either',
   }
 }
 
@@ -88,6 +93,15 @@ export function mergeEmployeeFromApi(data: Partial<Employee> & { id: string }): 
     preferredShiftTypes: data.preferredShiftTypes ?? [],
     preferredWorkDays: data.preferredWorkDays ?? [],
     notPreferredWorkDays: data.notPreferredWorkDays ?? [],
+    weekdayAvailability: data.weekdayAvailability,
+    reserveEnabled: data.reserveEnabled ?? false,
+    reserveConditions: data.reserveConditions ?? {},
+    preferredShiftPolicy: data.preferredShiftPolicy ?? 'any',
+    weekendDayPreference: data.weekendDayPreference ?? 'either',
+    desiredShiftsPerMonth: data.desiredShiftsPerMonth,
+    minShiftsPerMonth: data.minShiftsPerMonth,
+    maxShiftsPerMonth: data.maxShiftsPerMonth,
+    desiredWeekendsPerMonth: data.desiredWeekendsPerMonth,
     displayName:
       data.displayName?.trim() ||
       `${data.firstName ?? ''} ${data.lastName ?? ''}`.trim() ||

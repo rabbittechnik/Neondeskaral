@@ -17,6 +17,16 @@ export type DayRequirement = {
   slots: DayRequirementSlot[]
 }
 
+export type AssistantPlanningSummary = {
+  monthShiftDays: number
+  desiredShiftsPerMonth?: number | null
+  monthHours: number
+  maxHoursPerMonth?: number | null
+  wishFulfilled: boolean
+  isReserve: boolean
+  summaryText: string
+}
+
 export type AssistantSuggestedShift = {
   id: string
   date: string
@@ -29,6 +39,9 @@ export type AssistantSuggestedShift = {
   score: number
   level: 'good' | 'warn' | 'bad'
   hints: string[]
+  warnings?: string[]
+  isReserve?: boolean
+  planningSummary?: AssistantPlanningSummary
   existingShiftId?: string
 }
 

@@ -139,6 +139,15 @@ export type Employee = {
   maxPreferredDaysPerWeek?: number
   maxWeeklyHours?: number
   planningNotes?: string
+  desiredShiftsPerMonth?: number
+  minShiftsPerMonth?: number
+  maxShiftsPerMonth?: number
+  desiredWeekendsPerMonth?: number
+  weekendDayPreference?: import('./employeePlanning').WeekendDayPreference
+  preferredShiftPolicy?: import('./employeePlanning').PreferredShiftPolicy
+  weekdayAvailability?: import('./employeePlanning').WeekdayAvailabilityMap
+  reserveEnabled?: boolean
+  reserveConditions?: import('./employeePlanning').ReserveConditions
   /** Nur beim Speichern setzen, nie aus API lesen */
   pin?: string
 }

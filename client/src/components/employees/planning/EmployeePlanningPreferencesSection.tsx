@@ -4,6 +4,7 @@ import { labelClass, inputClass } from '../../schedule/shift/fieldStyles'
 import { PlanningNotesField } from './PlanningNotesField'
 import { ShiftPreferenceChips } from './ShiftPreferenceChips'
 import { WorkDayPreferenceChips } from './WorkDayPreferenceChips'
+import { EmployeePlanningRulesCards } from './EmployeePlanningRulesCards'
 
 type Props = {
   value: Employee
@@ -20,11 +21,23 @@ export function EmployeePlanningPreferencesSection({ value, onChange, disabled }
   return (
     <div className="space-y-5 rounded-[var(--radius-md)] border border-cyan-500/15 bg-[var(--bg-elevated)]/25 p-4">
       <h3 className="text-xs font-semibold uppercase tracking-wide text-cyan-200/90">
-        Schichtwünsche & Verfügbarkeit
+        Schichtwünsche & Einsatzregeln
       </h3>
       <p className="text-[11px] text-[var(--text-muted)]">
-        Bevorzugte Angaben – der Schichtplan-Assistent berücksichtigt sie, blockiert aber nicht hart.
+        Erweiterte Wünsche und Reserve-Regeln — der Assistent bewertet weich; hart bleiben Abwesenheit
+        und das Monatsstunden-Limit aus dem Profil.
       </p>
+
+      <EmployeePlanningRulesCards value={value} onChange={onChange} disabled={disabled} />
+
+      <div className="border-t border-[var(--border-subtle)] pt-4">
+        <h4 className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+          Klassische Chips (optional)
+        </h4>
+        <p className="mt-1 mb-3 text-[10px] text-[var(--text-muted)]">
+          Bestehende Einstellungen bleiben erhalten und werden mit den neuen Regeln kombiniert.
+        </p>
+      </div>
 
       <div>
         <span className={labelClass}>Bevorzugte Schichtarten</span>
