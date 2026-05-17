@@ -19,6 +19,7 @@ import { inputClass } from '../../components/schedule/shift/fieldStyles'
 
 import { EmployeeAppQrSection } from '../../components/employees/EmployeeAppQrSection'
 import { EmployeeProfileDocumentsSection } from '../../components/employees/EmployeeProfileDocumentsSection'
+import { EmployeeProfilePayrollDocumentsSection } from '../../components/employees/EmployeeProfilePayrollDocumentsSection'
 
 function EmployeeApplyMinWageButton({ employeeId, onDone }: { employeeId: string; onDone: () => void }) {
   const [busy, setBusy] = useState(false)
@@ -156,6 +157,7 @@ const TABS = [
   { id: 'tasks', label: 'Aufgaben' },
   { id: 'times', label: 'Arbeitszeiten' },
   { id: 'pay', label: 'Lohn' },
+  { id: 'payrollSlips', label: 'Lohnabrechnung' },
   { id: 'docs', label: 'Dokumente' },
   { id: 'settings', label: 'Einstellungen' },
 ] as const
@@ -173,14 +175,23 @@ export function EmployeeProfilePage() {
     hasPermission('payroll.view') ||
     hasPermission('employees.manageSensitive')
   const canQr = hasPermission('employees.qr')
+  const canPayrollSlips =
+    hasPermission('employeePayrollDocuments.view') ||
+    hasPermission('employeePayrollDocuments.manage') ||
+    hasPermission('payroll.view') ||
+    hasPermission('employees.manageSensitive')
+  const visibleTabs = useMemo(
+    () => TABS.filter((t) => t.id !== 'payrollSlips' || canPayrollSlips),
+    [canPayrollSlips],
+  )
   const [tab, setTab] = useState<TabId>('overview')
   const [fetchedEmployee, setFetchedEmployee] = useState<Employee | null>(null)
   const [employeeFetchLoading, setEmployeeFetchLoading] = useState(false)
 
   useEffect(() => {
     const st = location.state as { initialTab?: TabId } | null
-    if (st?.initialTab && TABS.some((t) => t.id === st.initialTab)) setTab(st.initialTab)
-  }, [location.state, employeeId])
+    if (st?.initialTab && visibleTabs.some((t) => t.id === st.initialTab)) setTab(st.initialTab)
+  }, [location.state, employeeId, visibleTabs])
 
   const fromList = useMemo(
     () => (employeeId ? employees.find((e) => e.id === employeeId) : undefined),
@@ -282,7 +293,7 @@ export function EmployeeProfilePage() {
       ) : null}
 
       <div className="flex gap-1 overflow-x-auto pb-1 [scrollbar-width:thin]">
-        {TABS.map((t) => (
+        {visibleTabs.map((t) => (
           <button
             key={t.id}
             type="button"
@@ -463,6 +474,11 @@ export function EmployeeProfilePage() {
         )
       ) : tab === 'docs' ? (
         <EmployeeProfileDocumentsSection employeeId={employee.id} />
+      ) : tab === 'payrollSlips' ? (
+        <EmployeeProfilePayrollDocumentsSection
+          employeeId={employee.id}
+          employeeDisplayName={employee.displayName}
+        />
       ) : (
         <Card padding="md" className="border-dashed border-[var(--border-strong)] bg-[var(--bg-elevated)]/30">
           <p className="text-sm text-[var(--text-muted)]">

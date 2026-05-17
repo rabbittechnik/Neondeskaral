@@ -686,6 +686,7 @@ const statements = [
     notes TEXT,
     is_favorite INTEGER DEFAULT 0,
     seed_key TEXT,
+    business_card_path TEXT,
     active INTEGER DEFAULT 1,
     created_by TEXT,
     created_at TEXT,
@@ -843,6 +844,28 @@ const statements = [
     UNIQUE(document_id, employee_id)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_station_document_employees_emp ON station_document_employees(employee_id)`,
+  `CREATE TABLE IF NOT EXISTS employee_payroll_documents (
+    id TEXT PRIMARY KEY,
+    station_id TEXT NOT NULL,
+    employee_id TEXT NOT NULL,
+    year INTEGER NOT NULL,
+    month INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    original_filename TEXT NOT NULL,
+    stored_filename TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    mime_type TEXT NOT NULL DEFAULT 'application/pdf',
+    file_size INTEGER NOT NULL DEFAULT 0,
+    note TEXT,
+    uploaded_by_user_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    deleted_at TEXT,
+    FOREIGN KEY (station_id) REFERENCES stations(id),
+    FOREIGN KEY (employee_id) REFERENCES employees(id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_employee_payroll_documents_emp ON employee_payroll_documents(employee_id, year, month)`,
+  `CREATE INDEX IF NOT EXISTS idx_employee_payroll_documents_station ON employee_payroll_documents(station_id, deleted_at)`,
 ]
 
 export function runSchema(db: Database.Database) {

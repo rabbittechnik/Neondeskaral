@@ -20,6 +20,8 @@ export function mathiasStationsleiterPermissions(): Record<string, boolean> {
     'time.view',
     'time.approve',
     'payroll.view',
+    'employeePayrollDocuments.view',
+    'employeePayrollDocuments.manage',
     'reports.view',
     'reports.payroll',
     'tuvReports.view',

@@ -110,7 +110,15 @@ representativesRouter.delete('/:id', (req, res) => {
   try {
     const sid = representativeService.getRepresentativeStationId(getDb(), req.params.id)
     if (!sid) return jsonErr(res, 'Vertreter nicht gefunden', 404)
-    if (!requireAnyPermission(req, res, sid, ['representatives.edit', 'representatives.delete'])) return
+    const permanent =
+      req.query.permanent === '1' || String(req.query.permanent).toLowerCase() === 'true'
+    if (permanent) {
+      if (!requirePermission(req, res, sid, 'representatives.delete')) return
+      representativeService.deleteRepresentativePermanent(getDb(), req.params.id)
+      jsonOk(res, { deleted: true })
+      return
+    }
+    if (!requirePermission(req, res, sid, 'representatives.edit')) return
     jsonOk(res, representativeService.archiveRepresentative(getDb(), req.params.id))
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)

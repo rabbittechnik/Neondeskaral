@@ -224,6 +224,42 @@ employeeAccessRouter.post('/:token/revoke-this-device', (req, res) => {
   }
 })
 
+employeeAccessRouter.get('/:token/payroll-documents', (req, res) => {
+  try {
+    const meta = access.parseEmployeeAccessRequestMeta(req)
+    const out = access.employeeAccessListPayrollDocuments(getDb(), req.params.token, meta)
+    if (!out.ok) return jsonErr(res, denied(), 403)
+    jsonOk(res, { documents: out.documents })
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
+  }
+})
+
+employeeAccessRouter.get('/:token/payroll-documents/:documentId/download', (req, res) => {
+  try {
+    const meta = access.parseEmployeeAccessRequestMeta(req)
+    const inline = req.query.inline === '1' || req.query.inline === 'true'
+    const out = access.employeeAccessDownloadPayrollDocument(
+      getDb(),
+      req.params.token,
+      req.params.documentId,
+      meta,
+      inline,
+    )
+    if (!out.ok) return jsonErr(res, denied(), 403)
+    res.setHeader('Content-Type', 'application/pdf')
+    res.setHeader(
+      'Content-Disposition',
+      `${out.inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(out.downloadName)}`,
+    )
+    res.sendFile(out.absPath, (err) => {
+      if (err && !res.headersSent) res.status(500).json({ ok: false, error: 'Download fehlgeschlagen' })
+    })
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
+  }
+})
+
 employeeAccessRouter.get('/:token/session', (req, res) => {
   try {
     const meta = access.parseEmployeeAccessRequestMeta(req)

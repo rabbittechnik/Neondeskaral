@@ -12,6 +12,7 @@ import {
   Palmtree,
   Stethoscope,
   Timer,
+  FileText,
 } from 'lucide-react'
 import { employeeAccessGet, employeeAccessGetQuery, employeeAccessPost, employeeAccessPostJson } from '../../services/api'
 import type { Task, TaskLog } from '../../types/task'
@@ -42,6 +43,7 @@ import { EmployeeUrlaubTab } from './EmployeeUrlaubTab'
 import { EmployeeKrankTab } from './EmployeeKrankTab'
 import { EmployeeTasksTab } from './EmployeeTasksTab'
 import { EmployeeZeitenTab } from './EmployeeZeitenTab'
+import { EmployeePayrollTab } from './EmployeePayrollTab'
 import {
   computeTodayEmployeeStatus,
   findNextFutureShift,
@@ -113,6 +115,7 @@ export type TabId =
   | 'urlaub'
   | 'krank'
   | 'zeiten'
+  | 'lohnabrechnung'
   | 'info'
 
 type Props = {
@@ -564,6 +567,7 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
     { id: 'urlaub' as const, label: 'Urlaub', Icon: Palmtree },
     { id: 'krank' as const, label: 'Krank', Icon: Stethoscope },
     { id: 'zeiten' as const, label: 'Zeiten', Icon: Timer },
+    { id: 'lohnabrechnung' as const, label: 'Lohn', Icon: FileText },
     { id: 'info' as const, label: 'Info', Icon: Info },
   ]
 
@@ -936,6 +940,8 @@ export function EmployeeAppHome({ accessToken, persistSession, onSessionStored, 
       ) : null}
 
       {tab === 'zeiten' ? <EmployeeZeitenTab accessToken={t} /> : null}
+
+      {tab === 'lohnabrechnung' ? <EmployeePayrollTab accessToken={t} /> : null}
 
       {tab === 'info' ? (
         <section className="mt-5 space-y-4 text-sm text-slate-300">

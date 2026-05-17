@@ -64,6 +64,9 @@ export const PERMISSION_KEYS = [
   'documents.archive',
   'documents.print',
   'documents.create_employee_from_document',
+  /** PDF-Lohnabrechnungen im Mitarbeiterprofil (vertraulich). */
+  'employeePayrollDocuments.view',
+  'employeePayrollDocuments.manage',
 ] as const
 
 export type PermissionKey = (typeof PERMISSION_KEYS)[number]

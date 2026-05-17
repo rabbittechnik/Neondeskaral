@@ -39,6 +39,7 @@ import {
   getWeekPublication,
   isWeekPublishedForStation,
 } from './weekSchedulePublicationService.js'
+import * as payrollDocService from './employeePayrollDocumentService.js'
 
 /** Mitarbeiter sehen Schichten nur in Kalenderwochen mit status=published (weekly_schedule_publications). */
 export const EMPLOYEE_APP_WEEK_SCHEDULE_PUBLISHED_ONLY = true
@@ -1114,5 +1115,46 @@ export function employeeAccessListTimeEntriesReadModel(
       },
       entries: entriesOut,
     },
+  }
+}
+
+export function employeeAccessListPayrollDocuments(
+  db: Database,
+  token: string,
+  meta?: EmployeeAccessRequestMeta,
+):
+  | { ok: true; documents: payrollDocService.EmployeePayrollDocumentApi[] }
+  | { ok: false } {
+  const ctx = resolveEmployeeAccessContext(db, token, meta)
+  if (!ctx.ok) return { ok: false }
+  const docs = payrollDocService.listEmployeePayrollDocuments(db, ctx.row.station_id, ctx.row.id)
+  return { ok: true, documents: docs }
+}
+
+export function employeeAccessDownloadPayrollDocument(
+  db: Database,
+  token: string,
+  documentId: string,
+  meta: EmployeeAccessRequestMeta | undefined,
+  inline: boolean,
+):
+  | { ok: true; absPath: string; downloadName: string; inline: boolean }
+  | { ok: false } {
+  const ctx = resolveEmployeeAccessContext(db, token, meta)
+  if (!ctx.ok) return { ok: false }
+  try {
+    const row = payrollDocService.getEmployeePayrollDocumentForAccess(db, documentId, {
+      stationId: ctx.row.station_id,
+      employeeId: ctx.row.id,
+    })
+    const abs = payrollDocService.resolvePayrollDocumentAbsolutePath(row.file_path)
+    return {
+      ok: true,
+      absPath: abs,
+      downloadName: row.original_filename || 'lohnabrechnung.pdf',
+      inline,
+    }
+  } catch {
+    return { ok: false }
   }
 }

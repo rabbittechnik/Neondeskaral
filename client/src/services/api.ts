@@ -339,3 +339,24 @@ export async function employeeAccessPostJson<T>(
   }
   return { ...(json as ApiEnvelope<T> & { ok: true }), httpStatus }
 }
+
+/** GET Lohnabrechnung-PDF über Mitarbeiter-Zugangstoken (kein Admin-Bearer). */
+export async function employeeAccessGetPayrollBlob(
+  token: string,
+  documentId: string,
+  opts?: { inline?: boolean },
+): Promise<{ ok: true; blob: Blob } | { ok: false; error: string; httpStatus?: number }> {
+  const q = opts?.inline ? '?inline=1' : ''
+  const url = `${API_BASE}/employee-access/${encodeURIComponent(token)}/payroll-documents/${encodeURIComponent(documentId)}/download${q}`
+  const res = await fetch(url, { headers: { ...getEmployeeAppDeviceHeaders() } })
+  const httpStatus = res.status
+  if (!res.ok) {
+    try {
+      const j = (await res.json()) as { error?: string }
+      return { ok: false, error: j.error ?? `HTTP ${res.status}`, httpStatus }
+    } catch {
+      return { ok: false, error: `HTTP ${res.status}`, httpStatus }
+    }
+  }
+  return { ok: true, blob: await res.blob() }
+}

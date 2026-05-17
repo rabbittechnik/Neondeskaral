@@ -21,6 +21,8 @@ export const ADMIN_PERMISSION_UI: { key: string; label: string }[] = [
   { key: 'stationTablets.manage', label: 'Stations-Tablets verwalten (anlegen, QR, deaktivieren)' },
   { key: 'employees.viewSensitive', label: 'Sensible Mitarbeiterdaten (PIN/Karte/Entgelt)' },
   { key: 'payroll.view', label: 'Lohn-/Entgeltdaten einsehen' },
+  { key: 'employeePayrollDocuments.view', label: 'Lohnabrechnungs-PDFs ansehen (Mitarbeiterprofil)' },
+  { key: 'employeePayrollDocuments.manage', label: 'Lohnabrechnungs-PDFs hochladen / ersetzen / löschen' },
   { key: 'employees.manageSensitive', label: 'Sensible Mitarbeiterdaten verwalten' },
   { key: 'absences.view', label: 'Abwesenheiten ansehen' },
   { key: 'absences.create', label: 'Abwesenheiten erstellen' },

@@ -11,8 +11,11 @@ import {
   RB_ADMIN_ALL,
 } from '../services/employeeAppDeviceService.js'
 import { listActiveShiftWarningsForEmployee, acknowledgeShiftWarningByAdmin } from '../services/employeeShiftWarningService.js'
+import { employeePayrollDocumentsRouter } from './employeePayrollDocuments.routes.js'
 
 export const employeesRouter = Router()
+
+employeesRouter.use('/:employeeId/payroll-documents', employeePayrollDocumentsRouter)
 
 function canViewEmployeeSensitive(req: import('express').Request, stationId: string): boolean {
   const ctx = getAccess(req)

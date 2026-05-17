@@ -3,14 +3,23 @@ import { randomUUID } from 'node:crypto'
 import { nowIso } from '../utils/timestamps.js'
 
 export const REPRESENTATIVE_CATEGORY_VALUES = [
-  'Tabak / Zigaretten',
-  'Gas / Propangas',
+  'Tabak',
+  'Gas',
+  'Hauptlieferant / Aral',
   'Technik',
+  'Bank / Kasse',
+  'Lotto',
+  'Lebensmittel',
+  'Waschanlage',
   'TÜV / Sicherheit',
-  'Lebensmittel / Lieferanten',
-  'Wartung / Reparatur',
-  'Notfallkontakte',
-  'Sonstige Vertreter',
+  'Getränke / Energy',
+  'Shop / Warenlieferant',
+  'Papier / Hygiene',
+  'Ausbildung / IHK',
+  'E-Zigaretten / Liquids',
+  'Lederwaren',
+  'Tankstelle / Energie',
+  'Sonstige',
 ] as const
 
 export type RepresentativeRow = {
@@ -34,6 +43,7 @@ export type RepresentativeRow = {
   notes: string | null
   is_favorite: number | null
   seed_key: string | null
+  business_card_path: string | null
   active: number | null
   created_by: string | null
   created_at: string | null
@@ -61,6 +71,7 @@ export type RepresentativeApi = {
   category: string
   notes: string
   isFavorite: boolean
+  businessCardPath: string | null
   active: boolean
   createdBy: string | null
   createdAt: string | null
@@ -93,6 +104,7 @@ function rowToApi(r: RepresentativeRow): RepresentativeApi {
     category: r.category ?? '',
     notes: r.notes ?? '',
     isFavorite: (r.is_favorite ?? 0) === 1,
+    businessCardPath: r.business_card_path ?? null,
     active: (r.active ?? 1) === 1,
     createdBy: r.created_by,
     createdAt: r.created_at,
@@ -329,4 +341,10 @@ export function restoreRepresentative(db: Database, id: string): RepresentativeA
   const u = getRepresentative(db, id)
   if (!u) throw new Error('Wiederherstellen fehlgeschlagen')
   return u
+}
+
+export function deleteRepresentativePermanent(db: Database, id: string): void {
+  const existing = db.prepare(`SELECT id FROM representatives WHERE id = ?`).get(id)
+  if (!existing) throw new Error('Vertreter nicht gefunden')
+  db.prepare(`DELETE FROM representatives WHERE id = ?`).run(id)
 }

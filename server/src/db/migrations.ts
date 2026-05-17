@@ -213,6 +213,77 @@ export function runMigrations(db: Database.Database) {
   ensureTuvReportExtendedColumns(db)
   ensureTimeEntryCorrections2026(db)
   ensureWeeklySchedulePublicationsTable(db)
+  ensureEmployeePayrollDocumentsTable(db)
+  mergeEmployeePayrollDocumentsPermissionsIntoAccess(db)
+}
+
+function ensureEmployeePayrollDocumentsTable(db: Database.Database) {
+  db.exec(`CREATE TABLE IF NOT EXISTS employee_payroll_documents (
+    id TEXT PRIMARY KEY,
+    station_id TEXT NOT NULL,
+    employee_id TEXT NOT NULL,
+    year INTEGER NOT NULL,
+    month INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    original_filename TEXT NOT NULL,
+    stored_filename TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    mime_type TEXT NOT NULL DEFAULT 'application/pdf',
+    file_size INTEGER NOT NULL DEFAULT 0,
+    note TEXT,
+    uploaded_by_user_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    deleted_at TEXT,
+    FOREIGN KEY (station_id) REFERENCES stations(id),
+    FOREIGN KEY (employee_id) REFERENCES employees(id)
+  )`)
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_employee_payroll_documents_emp ON employee_payroll_documents(employee_id, year, month)`,
+  )
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_employee_payroll_documents_station ON employee_payroll_documents(station_id, deleted_at)`,
+  )
+}
+
+function mergeEmployeePayrollDocumentsPermissionsIntoAccess(db: Database.Database) {
+  const rows = db.prepare(`SELECT id, permissions_json FROM user_station_access`).all() as {
+    id: string
+    permissions_json: string
+  }[]
+  const ts = nowIso()
+  for (const r of rows) {
+    let p: Record<string, boolean> = {}
+    try {
+      p = JSON.parse(r.permissions_json || '{}') as Record<string, boolean>
+    } catch {
+      p = {}
+    }
+    let changed = false
+    const grantView =
+      p['payroll.view'] === true ||
+      p['employees.manageSensitive'] === true ||
+      p['employeePayrollDocuments.manage'] === true
+    if (grantView && p['employeePayrollDocuments.view'] === undefined) {
+      p['employeePayrollDocuments.view'] = true
+      changed = true
+    }
+    if (p['employees.manageSensitive'] === true && p['employeePayrollDocuments.manage'] === undefined) {
+      p['employeePayrollDocuments.manage'] = true
+      changed = true
+    }
+    if (p['payroll.view'] === true && p['employeePayrollDocuments.manage'] === undefined) {
+      p['employeePayrollDocuments.manage'] = true
+      changed = true
+    }
+    if (changed) {
+      db.prepare(`UPDATE user_station_access SET permissions_json = ?, updated_at = ? WHERE id = ?`).run(
+        JSON.stringify(p),
+        ts,
+        r.id,
+      )
+    }
+  }
 }
 
 function ensureWeeklySchedulePublicationsTable(db: Database.Database) {
@@ -1390,6 +1461,7 @@ function ensureRepresentativeExtendedColumns(db: Database.Database) {
   add('website', 'website TEXT')
   add('is_favorite', 'is_favorite INTEGER DEFAULT 0')
   add('seed_key', 'seed_key TEXT')
+  add('business_card_path', 'business_card_path TEXT')
   db.exec(
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_representatives_station_seed_key ON representatives(station_id, seed_key) WHERE seed_key IS NOT NULL AND trim(seed_key) != ''`,
   )

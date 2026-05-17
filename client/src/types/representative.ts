@@ -1,12 +1,21 @@
 export const REPRESENTATIVE_CATEGORIES = [
-  'Tabak / Zigaretten',
-  'Gas / Propangas',
+  'Tabak',
+  'Gas',
+  'Hauptlieferant / Aral',
   'Technik',
+  'Bank / Kasse',
+  'Lotto',
+  'Lebensmittel',
+  'Waschanlage',
   'TÜV / Sicherheit',
-  'Lebensmittel / Lieferanten',
-  'Wartung / Reparatur',
-  'Notfallkontakte',
-  'Sonstige Vertreter',
+  'Getränke / Energy',
+  'Shop / Warenlieferant',
+  'Papier / Hygiene',
+  'Ausbildung / IHK',
+  'E-Zigaretten / Liquids',
+  'Lederwaren',
+  'Tankstelle / Energie',
+  'Sonstige',
 ] as const
 
 export type RepresentativeCategory = (typeof REPRESENTATIVE_CATEGORIES)[number]
@@ -31,6 +40,7 @@ export type RepresentativeApi = {
   category: string
   notes: string
   isFavorite: boolean
+  businessCardPath: string | null
   active: boolean
   createdBy: string | null
   createdAt: string | null
