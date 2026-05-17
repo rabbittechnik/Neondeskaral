@@ -20,6 +20,7 @@ import {
   countMonthShiftDays,
   countWeekendDaysInMonth,
   evaluatePlanningAssignment,
+  isStaffingShortageContext,
 } from '../utils/employeePlanningRules.js'
 
 export type AssistantMode = 'fill_gaps' | 'replace_drafts' | 'full_refresh'
@@ -593,6 +594,21 @@ export function generateScheduleSuggestions(db: Database, body: GenerateBody) {
           mainStaffAbsentOnDay: mainAbsent,
           hasWorkArea: (emp.workAreaIds ?? []).includes(slot.workAreaId),
         })
+
+        if (
+          rules.reserveEnabled &&
+          isStaffingShortageContext({
+            isOpenShiftFill: Boolean(open),
+            mainStaffAbsentOnDay: mainAbsent,
+          }) &&
+          planEval.allowed
+        ) {
+          const shortageWarn = `Personalengpass erkannt – Reservekraft ${emp.displayName} könnte eingesetzt werden.`
+          if (!planEval.warnings.includes(shortageWarn)) {
+            planEval.warnings.push(shortageWarn)
+          }
+          planEval.isReserve = true
+        }
 
         if (!planEval.allowed) {
           candidates.push({

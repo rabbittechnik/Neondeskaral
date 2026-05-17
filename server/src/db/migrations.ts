@@ -231,6 +231,7 @@ function migrateEmployeePlanningRulesColumns(db: Database.Database) {
   add('weekday_availability_json', 'weekday_availability_json TEXT')
   add('reserve_enabled', 'reserve_enabled INTEGER DEFAULT 0')
   add('reserve_conditions_json', `reserve_conditions_json TEXT DEFAULT '{}'`)
+  add('reserve_note', 'reserve_note TEXT')
 }
 
 /** Neuer Mitarbeiter Steve Scheifen (nur anlegen, wenn noch nicht vorhanden). */

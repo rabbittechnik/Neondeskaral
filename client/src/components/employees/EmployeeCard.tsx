@@ -5,6 +5,8 @@ import { Avatar } from '../ui/Avatar'
 import { Button } from '../ui/Button'
 import { EmployeeStatusBadge } from './EmployeeStatusBadge'
 import { EmploymentTypeBadge } from './EmploymentTypeBadge'
+import { EmployeeReserveBadge } from './EmployeeReserveBadge'
+import { employeeReserveBadgeLabel, employeeReserveSummaryLines } from './planning/employeeReserveDisplay'
 import { WorkAreaBadges } from './WorkAreaBadges'
 import { formatEuroDe, formatHoursDe } from './employeeFormat'
 import { useStation } from '../../context/station-context'
@@ -15,13 +17,29 @@ import { formatShiftPrefList, formatWeekdayPrefList } from './planning/planningP
 function EmployeePlanningChips({ employee }: { employee: Employee }) {
   const shifts = employee.preferredShiftTypes ?? []
   const days = employee.preferredWorkDays ?? []
-  if (!shifts.length && !days.length) {
+  const reserveInfo = employeeReserveSummaryLines(employee)
+  if (!shifts.length && !days.length && !employee.reserveEnabled) {
     return <p className="text-[10px] italic text-[var(--text-faint)]">Keine Wünsche hinterlegt</p>
   }
   const shiftLabels = formatShiftPrefList(shifts).split(', ')
   const dayLabels = formatWeekdayPrefList(days).split(/\s+/)
   return (
     <div className="flex flex-col gap-1.5 text-[10px]">
+      <div className="flex flex-wrap items-center gap-1">
+        <span className="text-[var(--text-faint)]">Reserve:</span>
+        <span
+          className={
+            employee.reserveEnabled
+              ? 'font-medium text-amber-900 dark:text-amber-100'
+              : 'text-[var(--text-muted)]'
+          }
+        >
+          {reserveInfo.reserve}
+        </span>
+        {reserveInfo.hint ? (
+          <span className="text-[var(--text-muted)]">· Hinweis: {reserveInfo.hint}</span>
+        ) : null}
+      </div>
       {shifts.length ? (
         <div className="flex flex-wrap items-center gap-1">
           <span className="text-[var(--text-faint)]">Schicht:</span>
@@ -120,6 +138,9 @@ export function EmployeeCard({
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <EmploymentTypeBadge type={employee.employmentType} />
               <EmployeeStatusBadge variant="hr" status={employee.status} />
+              {employee.reserveEnabled ? (
+                <EmployeeReserveBadge label={employeeReserveBadgeLabel(employee)} />
+              ) : null}
               {employee.planHint ? (
                 <span className="text-[9px] uppercase text-[var(--text-faint)]">
                   Plan: {employee.planHint}

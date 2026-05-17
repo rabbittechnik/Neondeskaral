@@ -34,6 +34,90 @@ export function EmployeePlanningRulesCards({ value, onChange, disabled }: Props)
 
   return (
     <div className="space-y-4">
+      <div className="rounded-[var(--radius-md)] border border-amber-500/25 bg-amber-500/5 p-4">
+        <h4 className="text-[11px] font-semibold uppercase tracking-wide text-amber-900 dark:text-amber-200/90">
+          Reserve bei Personalengpass
+        </h4>
+        <p className="mt-1 text-[10px] text-[var(--text-muted)]">
+          Darf bei kurzfristigem Ausfall, Krankheit, Urlaub oder Unterbesetzung zusätzlich vom
+          Schichtplan-Assistenten vorgeschlagen werden — nicht wie reguläres Personal automatisch
+          eingeplant.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => patch({ reserveEnabled: true })}
+            className={`${boolChip} ${
+              value.reserveEnabled
+                ? 'border-amber-500/55 bg-amber-500/20 text-amber-950 dark:text-amber-100'
+                : 'border-[var(--border-strong)] bg-[var(--bg-card)]/50 text-[var(--text-muted)]'
+            }`}
+          >
+            {value.reserveEnabled ? <Check className="h-3 w-3" aria-hidden /> : null}
+            Aktiv
+          </button>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => patch({ reserveEnabled: false })}
+            className={`${boolChip} ${
+              !value.reserveEnabled
+                ? 'border-[var(--border-strong)] bg-[var(--bg-card)]/70 text-[var(--text-main)]'
+                : 'border-[var(--border-strong)] bg-[var(--bg-card)]/50 text-[var(--text-muted)]'
+            }`}
+          >
+            {!value.reserveEnabled ? <Check className="h-3 w-3" aria-hidden /> : null}
+            Nicht aktiv
+          </button>
+        </div>
+        {value.reserveEnabled ? (
+          <>
+            <div className="mt-3">
+              <label className={labelClass} htmlFor="reserve-note">
+                Reserve-Hinweis (optional)
+              </label>
+              <textarea
+                id="reserve-note"
+                disabled={disabled}
+                rows={2}
+                className={`${inputClass} mt-1 resize-y`}
+                placeholder="z. B. Nur Wochenende, nur Spätschicht, max. 2× im Monat …"
+                value={value.reserveNote ?? ''}
+                onChange={(e) => patch({ reserveNote: e.target.value })}
+              />
+            </div>
+            <p className="mt-2 text-[10px] font-medium text-[var(--text-faint)]">Zusatzbedingungen</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {(
+                [
+                  ['staffShortage', 'Nur bei Personalmangel'],
+                  ['monthHoursFree', 'Nur wenn Monatsstunden frei'],
+                  ['mainStaffAbsent', 'Nur wenn Hauptpersonal fehlt'],
+                  ['manualConfirmOnly', 'Nur nach manueller Bestätigung'],
+                  ['warnNotAuto', 'Warnhinweis, nicht blind einplanen'],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => patchReserve({ [key]: !reserve[key] })}
+                  className={`${boolChip} ${
+                    reserve[key]
+                      ? 'border-amber-400/55 bg-amber-500/15 text-amber-950 dark:text-amber-100'
+                      : 'border-[var(--border-strong)] bg-[var(--bg-card)]/50 text-[var(--text-muted)]'
+                  }`}
+                >
+                  {reserve[key] ? <Check className="h-3 w-3" aria-hidden /> : null}
+                  {label}
+                </button>
+              ))}
+            </div>
+          </>
+        ) : null}
+      </div>
+
       <div className="rounded-[var(--radius-md)] border border-cyan-500/12 bg-[var(--bg-card)]/40 p-4">
         <h4 className="text-[11px] font-semibold uppercase tracking-wide text-cyan-200/85">
           Monatliche Wünsche
@@ -159,57 +243,6 @@ export function EmployeePlanningRulesCards({ value, onChange, disabled }: Props)
         />
       </div>
 
-      <div className="rounded-[var(--radius-md)] border border-amber-500/20 bg-amber-500/5 p-4">
-        <h4 className="text-[11px] font-semibold uppercase tracking-wide text-amber-200/90">
-          Reserve-Einsatz
-        </h4>
-        <p className="mt-1 text-[10px] text-[var(--text-muted)]">
-          Außerhalb der normalen Wunschzeiten nur unter den gewählten Bedingungen — mit Hinweis im
-          Schichtplan-Assistenten.
-        </p>
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => patch({ reserveEnabled: !value.reserveEnabled })}
-          className={`${boolChip} mt-3 ${
-            value.reserveEnabled
-              ? 'border-amber-400/55 bg-amber-500/15 text-amber-100'
-              : 'border-[var(--border-strong)] bg-[var(--bg-card)]/50 text-[var(--text-muted)]'
-          }`}
-        >
-          {value.reserveEnabled ? <Check className="h-3 w-3" aria-hidden /> : null}
-          Reserve außerhalb Wunschzeiten erlaubt
-        </button>
-
-        {value.reserveEnabled ? (
-          <div className="mt-3 flex flex-wrap gap-2">
-            {(
-              [
-                ['staffShortage', 'Nur bei Personalmangel'],
-                ['monthHoursFree', 'Nur wenn Monatsstunden frei'],
-                ['mainStaffAbsent', 'Nur wenn Hauptpersonal fehlt'],
-                ['manualConfirmOnly', 'Nur nach manueller Bestätigung'],
-                ['warnNotAuto', 'Warnhinweis, nicht blind einplanen'],
-              ] as const
-            ).map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                disabled={disabled}
-                onClick={() => patchReserve({ [key]: !reserve[key] })}
-                className={`${boolChip} ${
-                  reserve[key]
-                    ? 'border-amber-400/55 bg-amber-500/15 text-amber-100'
-                    : 'border-[var(--border-strong)] bg-[var(--bg-card)]/50 text-[var(--text-muted)]'
-                }`}
-              >
-                {reserve[key] ? <Check className="h-3 w-3" aria-hidden /> : null}
-                {label}
-              </button>
-            ))}
-          </div>
-        ) : null}
-      </div>
     </div>
   )
 }

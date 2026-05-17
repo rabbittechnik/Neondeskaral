@@ -69,6 +69,7 @@ export function employeeDefaults(): Omit<Employee, 'id'> {
     weekdayAvailability: undefined,
     reserveEnabled: false,
     reserveConditions: {},
+    reserveNote: '',
     preferredShiftPolicy: 'any',
     weekendDayPreference: 'either',
   }
@@ -96,6 +97,7 @@ export function mergeEmployeeFromApi(data: Partial<Employee> & { id: string }): 
     weekdayAvailability: data.weekdayAvailability,
     reserveEnabled: data.reserveEnabled ?? false,
     reserveConditions: data.reserveConditions ?? {},
+    reserveNote: data.reserveNote ?? '',
     preferredShiftPolicy: data.preferredShiftPolicy ?? 'any',
     weekendDayPreference: data.weekendDayPreference ?? 'either',
     desiredShiftsPerMonth: data.desiredShiftsPerMonth,

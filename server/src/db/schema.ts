@@ -208,6 +208,7 @@ const statements = [
     weekday_availability_json TEXT,
     reserve_enabled INTEGER DEFAULT 0,
     reserve_conditions_json TEXT DEFAULT '{}',
+    reserve_note TEXT,
     created_at TEXT,
     updated_at TEXT,
     deleted_at TEXT,

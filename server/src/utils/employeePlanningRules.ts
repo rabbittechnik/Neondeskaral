@@ -45,6 +45,7 @@ export type EmployeePlanningRules = {
   weekdayAvailability: WeekdayAvailabilityMap
   reserveEnabled: boolean
   reserveConditions: ReserveConditions
+  reserveNote?: string
   planningNotes?: string
   /** Legacy-Felder (weiterhin unterstützt) */
   preferredShiftTypes: string[]
@@ -260,6 +261,12 @@ export type PlanningEvaluateResult = {
   hints: string[]
   warnings: string[]
   isReserve: boolean
+}
+
+export function isStaffingShortageContext(
+  ctx: Pick<PlanningEvaluateInput, 'isOpenShiftFill' | 'mainStaffAbsentOnDay'>,
+): boolean {
+  return ctx.isOpenShiftFill || ctx.mainStaffAbsentOnDay
 }
 
 function reserveAllowed(rules: EmployeePlanningRules, ctx: Omit<PlanningEvaluateInput, 'rules'>): boolean {
@@ -499,6 +506,7 @@ export function buildPlanningRulesFromEmployee(emp: {
   weekdayAvailability?: WeekdayAvailabilityMap | null
   reserveEnabled?: boolean
   reserveConditions?: ReserveConditions
+  reserveNote?: string
 }): EmployeePlanningRules {
   const weekdayAvailability =
     emp.weekdayAvailability ?? deriveWeekdayAvailabilityFromLegacy(emp)
@@ -512,6 +520,7 @@ export function buildPlanningRulesFromEmployee(emp: {
     weekdayAvailability,
     reserveEnabled: Boolean(emp.reserveEnabled),
     reserveConditions: emp.reserveConditions ?? {},
+    reserveNote: emp.reserveNote?.trim() || undefined,
     planningNotes: emp.planningNotes ?? '',
     preferredShiftTypes: emp.preferredShiftTypes ?? [],
     preferredWorkDays: emp.preferredWorkDays ?? [],

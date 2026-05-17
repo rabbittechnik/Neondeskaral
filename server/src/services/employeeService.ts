@@ -91,6 +91,7 @@ export type EmployeeRow = {
   weekday_availability_json?: string | null
   reserve_enabled?: number | null
   reserve_conditions_json?: string | null
+  reserve_note?: string | null
   created_at?: string | null
   updated_at?: string | null
 } & Record<string, unknown>
@@ -274,6 +275,7 @@ function rowToEmployeeApiFull(row: EmployeeRow, workAreaIds: string[], includeAc
       }),
     reserveEnabled: (row.reserve_enabled ?? 0) === 1,
     reserveConditions: parseReserveConditionsJson(row.reserve_conditions_json as string),
+    reserveNote: rStr(R, 'reserve_note').trim() || undefined,
     deletedAt: rStr(R, 'deleted_at').trim() || undefined,
     deletedBy: rStr(R, 'deleted_by').trim() || undefined,
   }
@@ -392,6 +394,7 @@ export type EmployeeApi = {
   weekdayAvailability?: WeekdayAvailabilityMap
   reserveEnabled?: boolean
   reserveConditions?: ReserveConditions
+  reserveNote?: string
   deletedAt?: string
   deletedBy?: string
   employeeAccessToken?: string
@@ -756,6 +759,7 @@ function hasPlanningRulesPatch(body: Record<string, unknown>): boolean {
     'weekdayAvailability',
     'reserveEnabled',
     'reserveConditions',
+    'reserveNote',
   ].some((k) => body[k] !== undefined)
 }
 
@@ -835,6 +839,10 @@ function syncEmployeePlanningRules(db: Database, id: string, body: Record<string
     body.reserveConditions !== undefined
       ? JSON.stringify(body.reserveConditions ?? {})
       : (cur.reserve_conditions_json ?? '{}')
+  const reserveNote =
+    body.reserveNote !== undefined
+      ? String(body.reserveNote ?? '').trim() || null
+      : (cur.reserve_note ?? null)
 
   const ts = nowIso()
   db.prepare(
@@ -856,6 +864,7 @@ function syncEmployeePlanningRules(db: Database, id: string, body: Record<string
       weekday_availability_json = ?,
       reserve_enabled = ?,
       reserve_conditions_json = ?,
+      reserve_note = ?,
       updated_at = ?
     WHERE id = ?`,
   ).run(
@@ -876,6 +885,7 @@ function syncEmployeePlanningRules(db: Database, id: string, body: Record<string
     weekdayJson,
     reserveOn,
     reserveJson,
+    reserveNote,
     ts,
     id,
   )

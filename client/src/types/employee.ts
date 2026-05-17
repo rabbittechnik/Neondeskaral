@@ -148,6 +148,8 @@ export type Employee = {
   weekdayAvailability?: import('./employeePlanning').WeekdayAvailabilityMap
   reserveEnabled?: boolean
   reserveConditions?: import('./employeePlanning').ReserveConditions
+  /** Freitext: z. B. „Nur Wochenende“, „Max. 2x im Monat“ */
+  reserveNote?: string
   /** Nur beim Speichern setzen, nie aus API lesen */
   pin?: string
 }

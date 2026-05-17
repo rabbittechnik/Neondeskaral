@@ -6,6 +6,8 @@ import { useAuth } from '../../context/auth-context'
 import { Avatar } from '../ui/Avatar'
 import { EmployeeStatusBadge } from './EmployeeStatusBadge'
 import { EmploymentTypeBadge } from './EmploymentTypeBadge'
+import { EmployeeReserveBadge } from './EmployeeReserveBadge'
+import { employeeReserveBadgeLabel } from './planning/employeeReserveDisplay'
 import { WorkAreaBadges } from './WorkAreaBadges'
 import { formatEuroDe, formatHoursDe } from './employeeFormat'
 import { formatShiftPrefList, formatWeekdayPrefList } from './planning/planningPreferenceLabels'
@@ -91,7 +93,12 @@ export function EmployeeTable({
                   <EmploymentTypeBadge type={e.employmentType} />
                 </td>
                 <td className="px-3 py-2.5">
-                  <EmployeeStatusBadge variant="hr" status={e.status} />
+                  <div className="flex flex-wrap gap-1">
+                    <EmployeeStatusBadge variant="hr" status={e.status} />
+                    {e.reserveEnabled ? (
+                      <EmployeeReserveBadge label={employeeReserveBadgeLabel(e)} />
+                    ) : null}
+                  </div>
                 </td>
                 <td className="px-3 py-2.5 tabular-nums text-cyan-200/85">
                   {formatHoursDe(e.weeklyHours)}
@@ -104,10 +111,16 @@ export function EmployeeTable({
                 </td>
                 <td className="px-3 py-2.5 tabular-nums">{e.remainingVacationDays} T</td>
                 <td className="max-w-[200px] px-3 py-2.5 align-top text-[10px] leading-snug text-[var(--text-muted)]">
-                  {!(e.preferredShiftTypes?.length || e.preferredWorkDays?.length) ? (
+                  {!(e.preferredShiftTypes?.length || e.preferredWorkDays?.length || e.reserveEnabled) ? (
                     <span className="italic text-[var(--text-faint)]">Keine Wünsche</span>
                   ) : (
                     <div className="flex flex-col gap-0.5">
+                      {e.reserveEnabled ? (
+                        <span className="text-amber-900 dark:text-amber-100/95">
+                          Reserve: Ja
+                          {e.reserveNote?.trim() ? ` · ${e.reserveNote.trim()}` : ''}
+                        </span>
+                      ) : null}
                       {e.preferredShiftTypes?.length ? (
                         <span className="text-emerald-200/85">{formatShiftPrefList(e.preferredShiftTypes)}</span>
                       ) : null}
