@@ -74,7 +74,25 @@ describe('computeScheduleShiftSupplementEuros', () => {
     expect(sup).toBe(0)
   })
 
-  it('pays holiday surcharge on 2026-05-01 (Tag der Arbeit)', () => {
+  it('pays B-Feiertag surcharge on 2026-05-01 when overlay marks special', () => {
+    const holidayOverlay = {
+      rules: [
+        {
+          date: '2026-05-01',
+          name: 'Tag der Arbeit',
+          payrollCategory: 'special' as const,
+          specialRuleTier: null,
+          allDay: true,
+          timeStart: null,
+          timeEnd: null,
+          referencePercent: 150,
+          active: true,
+        },
+      ],
+      extraPublicDates: new Set(['2026-05-01']),
+      extraNames: new Map([['2026-05-01', 'Tag der Arbeit']]),
+      specialAllDayDates: new Set(['2026-05-01']),
+    }
     const sup = computeScheduleShiftSupplementEuros({
       emp: mathiasLike,
       hourlyWage: 15,
@@ -84,10 +102,11 @@ describe('computeScheduleShiftSupplementEuros', () => {
       breakMinutes: 0,
       federalState: 'BW',
       stationRules: ARAL_BODELSHAUSEN_PAYROLL_SURCHARGE_RULES,
+      holidayOverlay,
     })
-    // 6.5 h × 15 € × 125 % ≈ 121,88 €
-    expect(sup).toBeGreaterThan(100)
-    expect(sup).toBeLessThan(130)
+    // 6.5 h × 15 € × 150 % ≈ 146,25 €
+    expect(sup).toBeGreaterThan(140)
+    expect(sup).toBeLessThan(155)
   })
 
   it('returns 0 when surcharge_mode is none', () => {

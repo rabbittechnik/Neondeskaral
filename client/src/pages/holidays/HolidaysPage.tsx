@@ -1,45 +1,51 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Pencil } from 'lucide-react'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { Button } from '../../components/ui/Button'
 import { Card } from '../../components/ui/Card'
+import { Badge } from '../../components/ui/Badge'
+import { HolidayEditModal } from '../../components/holidays/HolidayEditModal'
 import { useStation } from '../../context/station-context'
 import { useAuth } from '../../context/auth-context'
 import { apiGet, apiSend } from '../../services/api'
-import { GERMAN_HOLIDAYS } from '../../data/germanHolidays'
-import type { GermanState } from '../../data/germanHolidays'
-import { holidayAppliesToState } from '../../utils/holidayUtils'
+import type { StationHoliday } from '../../types/stationHoliday'
+import { categoryBadgeLabel, PAYROLL_HOLIDAY_CATEGORY_LABELS, timeRangeLabel } from '../../types/stationHoliday'
 
-type ExtraHoliday = {
-  id: string
-  date: string
-  name: string
-  countsAsPublic: boolean
-  countsAsSpecial: boolean
-  active: boolean
+function categoryBadgeTone(h: StationHoliday): 'default' | 'cyan' | 'amber' | 'success' {
+  if (h.payrollCategory === 'none' || !h.active) return 'default'
+  if (h.payrollCategory === 'special') return 'amber'
+  if (h.payrollCategory === 'special_rule') return 'cyan'
+  return 'success'
 }
 
 export function HolidaysPage() {
   const { stationId, federalState, hasPermission } = useStation()
   const { user } = useAuth()
-  const state = federalState as GermanState
   const canView = Boolean(user?.globalAdmin || hasPermission('settings.view'))
   const canEdit = Boolean(user?.globalAdmin || hasPermission('settings.edit'))
 
-  const statutory = useMemo(() => GERMAN_HOLIDAYS.filter((h) => holidayAppliesToState(h, state)).sort((a, b) => a.date.localeCompare(b.date)), [state])
-
-  const [extras, setExtras] = useState<ExtraHoliday[]>([])
+  const [holidays, setHolidays] = useState<StationHoliday[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [editOpen, setEditOpen] = useState(false)
+  const [editMode, setEditMode] = useState<'create' | 'edit'>('edit')
+  const [editing, setEditing] = useState<StationHoliday | null>(null)
 
   const load = useCallback(async () => {
     if (!stationId || !canView) return
     setLoading(true)
     setError(null)
-    const res = await apiGet<ExtraHoliday[]>('/station-extra-holidays', { stationId, includeInactive: 'true' })
+    const res = await apiGet<StationHoliday[]>('/station-extra-holidays', {
+      stationId,
+      includeInactive: 'true',
+      year: '2026',
+    })
     if (!res.ok) {
       setError(res.error)
-      setExtras([])
-    } else setExtras(Array.isArray(res.data) ? res.data : [])
+      setHolidays([])
+    } else {
+      setHolidays(Array.isArray(res.data) ? res.data : [])
+    }
     setLoading(false)
   }, [stationId, canView])
 
@@ -47,27 +53,35 @@ export function HolidaysPage() {
     void load()
   }, [load])
 
-  const addCustom = async () => {
+  const sorted = useMemo(
+    () => [...holidays].sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name)),
+    [holidays],
+  )
+
+  const openCreate = () => {
+    setEditMode('create')
+    setEditing(null)
+    setEditOpen(true)
+  }
+
+  const openEdit = (h: StationHoliday) => {
+    setEditMode('edit')
+    setEditing(h)
+    setEditOpen(true)
+  }
+
+  const saveHoliday = async (payload: Partial<StationHoliday> & { name: string; date: string }) => {
     if (!canEdit || !stationId) return
-    const name = window.prompt('Name des Zusatz-Feiertags?')
-    if (!name?.trim()) return
-    const date = window.prompt('Datum (YYYY-MM-DD)?')
-    if (!date?.trim()) return
     setLoading(true)
-    const res = await apiSend<ExtraHoliday>(
-      'POST',
-      '/station-extra-holidays',
-      {
-        name: name.trim(),
-        date: date.trim(),
-        isLegal: false,
-        countsAsPublic: true,
-        countsAsSpecial: false,
-      },
-      { stationId },
-    )
-    if (!res.ok) setError(res.error)
-    else await load()
+    setError(null)
+    if (editMode === 'create') {
+      const res = await apiSend<StationHoliday>('POST', '/station-extra-holidays', payload, { stationId })
+      if (!res.ok) setError(res.error)
+    } else if (editing?.id) {
+      const res = await apiSend<StationHoliday>('PUT', `/station-extra-holidays/${editing.id}`, payload)
+      if (!res.ok) setError(res.error)
+    }
+    await load()
     setLoading(false)
   }
 
@@ -81,55 +95,103 @@ export function HolidaysPage() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 p-6 pb-16">
+    <div className="mx-auto max-w-6xl space-y-6 p-6 pb-16">
       <PageHeader
         title="Feiertage"
-        description={`Kalender 2026 · Bundesland ${state} · Zusatz-Tage fließen in Lohn/Zuschläge ein, sofern „zählt als gesetzlich“ aktiv ist.`}
+        description={`Kalender 2026 · Bundesland ${federalState}. Gesetzliche Feiertage werden automatisch geladen und können pro Eintrag angepasst werden. Für die Lohnabrechnung gilt die Kategorie des Tages; der Prozentsatz kommt aus dem Mitarbeiterprofil.`}
       />
-      {error ? <p className="rounded-lg border border-red-400/40 bg-red-500/10 px-3 py-2 text-sm text-red-100">{error}</p> : null}
+
+      {error ? (
+        <p className="rounded-lg border border-red-400/40 bg-red-500/10 px-3 py-2 text-sm text-red-100">{error}</p>
+      ) : null}
+
       {canEdit ? (
-        <Button type="button" onClick={() => void addCustom()}>
+        <Button type="button" onClick={openCreate}>
           Zusatz-Feiertag
         </Button>
       ) : null}
 
-      <Card padding="md" className="border-[var(--border-subtle)]">
-        <h2 className="text-sm font-semibold text-[var(--text-main)]">Gesetzliche & regionale Feiertage ({state})</h2>
-        <ul className="mt-3 max-h-72 space-y-1 overflow-y-auto text-sm text-[var(--text-muted)]">
-          {statutory.map((h) => (
-            <li key={h.id} className="flex justify-between gap-2 border-b border-white/5 py-1">
-              <span>
-                {h.name}
-                {h.type === 'special' ? (
-                  <span className="ml-2 text-xs text-amber-200/90">B-Feiertag (150 %)</span>
-                ) : null}
-              </span>
-              <span className="tabular-nums text-[var(--text-faint)]">{h.date}</span>
-            </li>
-          ))}
-        </ul>
+      <Card padding="none" className="min-w-0 overflow-hidden border-[var(--border-subtle)]">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[880px] text-left text-sm">
+            <thead>
+              <tr className="border-b border-[var(--border-subtle)] bg-[var(--table-head-bg)] text-xs uppercase tracking-wide text-[var(--text-muted)]">
+                <th className="px-3 py-2 font-medium">Datum</th>
+                <th className="px-3 py-2 font-medium">Name</th>
+                <th className="px-3 py-2 font-medium">Kategorie</th>
+                <th className="px-3 py-2 font-medium">Zuschlag (Hinweis)</th>
+                <th className="px-3 py-2 font-medium">Zeitraum</th>
+                <th className="px-3 py-2 font-medium">Aktiv</th>
+                <th className="px-3 py-2 font-medium">Notiz</th>
+                {canEdit ? <th className="px-3 py-2 font-medium">Aktion</th> : null}
+              </tr>
+            </thead>
+            <tbody>
+              {loading && !sorted.length ? (
+                <tr>
+                  <td colSpan={canEdit ? 8 : 7} className="px-3 py-6 text-[var(--text-muted)]">
+                    Lade Feiertage…
+                  </td>
+                </tr>
+              ) : null}
+              {!loading && sorted.length === 0 ? (
+                <tr>
+                  <td colSpan={canEdit ? 8 : 7} className="px-3 py-6 text-[var(--text-muted)]">
+                    Keine Feiertage vorhanden.
+                  </td>
+                </tr>
+              ) : null}
+              {sorted.map((h) => (
+                <tr
+                  key={h.id}
+                  className={`border-b border-white/5 ${h.payrollCategory === 'special' ? 'bg-amber-500/[0.04]' : ''}`}
+                >
+                  <td className="whitespace-nowrap px-3 py-2 tabular-nums text-[var(--text-main)]">{h.date}</td>
+                  <td className="px-3 py-2 text-[var(--text-main)]">
+                    {h.name}
+                    {h.source === 'custom' ? (
+                      <span className="ml-1 text-[10px] text-[var(--text-faint)]">(Zusatz)</span>
+                    ) : null}
+                  </td>
+                  <td className="px-3 py-2 text-[var(--text-muted)]">
+                    {PAYROLL_HOLIDAY_CATEGORY_LABELS[h.payrollCategory]}
+                  </td>
+                  <td className="px-3 py-2">
+                    <Badge tone={categoryBadgeTone(h)}>{categoryBadgeLabel(h)}</Badge>
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-2 text-[var(--text-muted)]">{timeRangeLabel(h)}</td>
+                  <td className="px-3 py-2 text-[var(--text-muted)]">{h.active ? 'aktiv' : 'inaktiv'}</td>
+                  <td className="max-w-[12rem] truncate px-3 py-2 text-[var(--text-faint)]" title={h.note}>
+                    {h.note || '—'}
+                  </td>
+                  {canEdit ? (
+                    <td className="px-3 py-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="gap-1 px-2 py-1 text-xs"
+                        onClick={() => openEdit(h)}
+                      >
+                        <Pencil className="h-3.5 w-3.5" aria-hidden />
+                        Bearbeiten
+                      </Button>
+                    </td>
+                  ) : null}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </Card>
 
-      <Card padding="md" className="border-[var(--border-subtle)]">
-        <h2 className="text-sm font-semibold text-[var(--text-main)]">Stationsspezifische Zusatz-Feiertage</h2>
-        {loading && !extras.length ? <p className="mt-2 text-sm text-[var(--text-muted)]">Lade …</p> : null}
-        {!loading && extras.length === 0 ? (
-          <p className="mt-2 text-sm text-[var(--text-muted)]">Noch keine Zusatz-Feiertage.</p>
-        ) : (
-          <ul className="mt-3 space-y-2 text-sm">
-            {extras.map((e) => (
-              <li key={e.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white/5 px-3 py-2">
-                <span>
-                  {e.name} <span className="text-[var(--text-faint)]">({e.date})</span>
-                </span>
-                <span className="text-xs text-[var(--text-faint)]">
-                  {e.active ? 'aktiv' : 'inaktiv'} · öffentlich: {e.countsAsPublic ? 'ja' : 'nein'}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
+      <HolidayEditModal
+        open={editOpen}
+        mode={editMode}
+        holiday={editing}
+        federalState={federalState}
+        onClose={() => setEditOpen(false)}
+        onSave={(p) => void saveHoliday(p)}
+      />
     </div>
   )
 }

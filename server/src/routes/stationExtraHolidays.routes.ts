@@ -15,7 +15,8 @@ stationExtraHolidaysRouter.get('/', (req, res) => {
     const stationId = typeof req.query.stationId === 'string' ? req.query.stationId : undefined
     if (!requirePermission(req, res, stationId, 'settings.view')) return
     const includeInactive = String(req.query.includeInactive ?? '') === 'true'
-    jsonOk(res, extraHolidayService.listStationExtraHolidays(getDb(), stationId!, includeInactive))
+    const year = Number(req.query.year) || 2026
+    jsonOk(res, extraHolidayService.listStationExtraHolidays(getDb(), stationId!, includeInactive, year))
   } catch (e) {
     jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
   }

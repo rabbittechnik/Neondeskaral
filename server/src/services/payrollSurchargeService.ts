@@ -1,6 +1,10 @@
 import type { GermanState } from '../data/germanHolidays2026.js'
 import { GERMAN_HOLIDAYS_2026, holidayAppliesToState } from '../data/germanHolidays2026.js'
-import type { StationHolidayOverlay } from '../types/stationHolidayOverlay.js'
+import {
+  holidayNameAtMoment,
+  resolveHolidayTierAtMoment,
+  type StationHolidayOverlay,
+} from '../types/stationHolidayOverlay.js'
 import {
   DEFAULT_STATION_PAYROLL_SURCHARGE_RULES,
   type StationPayrollSurchargeRules,
@@ -70,13 +74,24 @@ function minuteInSpan(mod: number, startM: number, endM: number): boolean {
   return mod >= startM || mod < endM
 }
 
-/** Gesetzliche Feiertage laut Stammdatenliste (aktuell Kalender 2026; weitere Jahre: Liste erweitern). */
+function overlayHasPayrollRules(overlay?: StationHolidayOverlay | null): boolean {
+  return (overlay?.rules?.length ?? 0) > 0
+}
+
+/** Gesetzliche / verwaltete Feiertage (Stations-Feiertagsverwaltung hat Vorrang). */
 export function isGermanPublicHolidayYmd(ymd: string, state: GermanState, overlay?: StationHolidayOverlay | null): boolean {
+  if (overlayHasPayrollRules(overlay)) {
+    return resolveHolidayTierAtMoment(ymd, 12, 0, overlay) !== 'none'
+  }
   if (overlay?.extraPublicDates.has(ymd)) return true
   return GERMAN_HOLIDAYS_2026.some((h) => h.date === ymd && holidayAppliesToState(h, state))
 }
 
 export function publicHolidayNameDe(ymd: string, state: GermanState, overlay?: StationHolidayOverlay | null): string {
+  if (overlayHasPayrollRules(overlay)) {
+    const fromRules = holidayNameAtMoment(ymd, 12, 0, overlay)
+    if (fromRules) return fromRules
+  }
   const parts: string[] = []
   for (const h of GERMAN_HOLIDAYS_2026) {
     if (h.date !== ymd || !holidayAppliesToState(h, state)) continue
@@ -107,6 +122,9 @@ export function isSpecialHolidayYmd(
   hour = 12,
   minute = 0,
 ): boolean {
+  if (overlayHasPayrollRules(overlay)) {
+    return resolveHolidayTierAtMoment(ymd, hour, minute, overlay) === 'special'
+  }
   if (overlay?.specialAllDayDates.has(ymd)) return true
   return isSpecialHolidayCalendarMoment(ymd, hour, minute)
 }
@@ -121,6 +139,9 @@ export function resolveHolidayPayrollTier(
   hour = 12,
   minute = 0,
 ): HolidayPayrollTier {
+  if (overlayHasPayrollRules(overlay)) {
+    return resolveHolidayTierAtMoment(ymd, hour, minute, overlay)
+  }
   if (isSpecialHolidayYmd(ymd, overlay, hour, minute)) return 'special'
   if (isGermanPublicHolidayYmd(ymd, state, overlay)) return 'regular'
   return 'none'
@@ -255,21 +276,20 @@ function allowSundayBonus(weekday0Sun: number, rules: StationPayrollSurchargeRul
   return rules.sundaySurchargeEnabled
 }
 
+/** Prozentsatz nur aus dem Mitarbeiterprofil (Feiertagsverwaltung liefert die Kategorie). */
 function resolveHolidaySlicePercent(
-  isSpecialMoment: boolean,
-  isPublicHol: boolean,
+  holidayTier: 'none' | 'regular' | 'special',
   emp: EmployeeSurchargeFields,
-  rules: StationPayrollSurchargeRules,
 ): { percent: number; kind: 'special_holiday' | 'holiday' | null } {
-  const holPct = numOr0(emp.holiday_surcharge_percent)
-  const specHolPct = numOr0(emp.special_holiday_surcharge_percent)
-  if (isSpecialMoment) {
-    const pct = specHolPct > 0 ? specHolPct : rules.defaultSpecialHolidayPercent
+  if (holidayTier === 'special') {
+    const pct = numOr0(emp.special_holiday_surcharge_percent)
     if (pct > 0) return { percent: pct, kind: 'special_holiday' }
-    if (isPublicHol && holPct > 0) return { percent: holPct, kind: 'holiday' }
     return { percent: 0, kind: null }
   }
-  if (isPublicHol && holPct > 0) return { percent: holPct, kind: 'holiday' }
+  if (holidayTier === 'regular') {
+    const pct = numOr0(emp.holiday_surcharge_percent)
+    if (pct > 0) return { percent: pct, kind: 'holiday' }
+  }
   return { percent: 0, kind: null }
 }
 
@@ -322,15 +342,15 @@ function collectSurchargePercentsForInstant(
   const n04Hol = numOr0(emp.night_0_4_after_holiday_percent)
   const n04Spec = numOr0(emp.night_0_4_after_special_holiday_percent)
 
-  const isPublicHol = isGermanPublicHolidayYmd(ymd, state, overlay)
-  const isCustomSpecialAllDay = overlay?.specialAllDayDates.has(ymd) ?? false
-  const isSpecialMoment = isSpecialHolidayCalendarMoment(ymd, hour, minute) || isCustomSpecialAllDay
+  const holidayTier = resolveHolidayPayrollTier(ymd, state, overlay, hour, minute)
+  const isPublicHol = holidayTier !== 'none'
+  const isSpecialMoment = holidayTier === 'special'
   const isDec31Afternoon = ymd.endsWith('-12-31') && hour >= 14
 
   if (weekday0Sun === 6 && satPct > 0 && allowSaturdayBonus(weekday0Sun, rules)) percents.push(satPct)
   if (weekday0Sun === 0 && sunPct > 0 && allowSundayBonus(weekday0Sun, rules)) percents.push(sunPct)
 
-  const holSlice = resolveHolidaySlicePercent(isSpecialMoment, isPublicHol, emp, rules)
+  const holSlice = resolveHolidaySlicePercent(holidayTier, emp)
   if (holSlice.percent > 0) percents.push(holSlice.percent)
 
   const ns = parseHm(emp.night_surcharge_start)
@@ -572,9 +592,8 @@ function dominantSurchargeKindForInstant(
   const n04Hol = numOr0(emp.night_0_4_after_holiday_percent)
   const n04Spec = numOr0(emp.night_0_4_after_special_holiday_percent)
 
-  const isPublicHol = isGermanPublicHolidayYmd(ymd, state, overlay)
-  const isCustomSpecialAllDay = overlay?.specialAllDayDates.has(ymd) ?? false
-  const isSpecialMoment = isSpecialHolidayCalendarMoment(ymd, hour, minute) || isCustomSpecialAllDay
+  const holidayTier = resolveHolidayPayrollTier(ymd, state, overlay, hour, minute)
+  const isPublicHol = holidayTier !== 'none'
   const isDec31Afternoon = ymd.endsWith('-12-31') && hour >= 14
 
   if (weekday0Sun === 6 && satPct > 0 && allowSaturdayBonus(weekday0Sun, rules)) {
@@ -583,7 +602,7 @@ function dominantSurchargeKindForInstant(
   if (weekday0Sun === 0 && sunPct > 0 && allowSundayBonus(weekday0Sun, rules)) {
     candidates.push({ kind: 'sunday', pct: sunPct })
   }
-  const holSlice = resolveHolidaySlicePercent(isSpecialMoment, isPublicHol, emp, rules)
+  const holSlice = resolveHolidaySlicePercent(holidayTier, emp)
   if (holSlice.percent > 0 && holSlice.kind) candidates.push({ kind: holSlice.kind, pct: holSlice.percent })
 
   const ns = parseHm(emp.night_surcharge_start)

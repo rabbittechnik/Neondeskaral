@@ -12,6 +12,7 @@ import { applyMay2026BodelshausenOfficeShifts } from '../services/may2026Bodelsh
 import { applyPersonalstammBodelshausen2026 } from '../services/personalstammBodelshausenImport.js'
 import { ensureBodelshausenStationGuideVacations2026 } from '../services/stationGuideVacationImportService.js'
 import { seedTaskTemplatesIfMissing } from '../services/taskTemplateService.js'
+import { ensureStationStatutoryHolidaysSeeded } from '../services/stationExtraHolidayService.js'
 
 function employeesColumnNames(db: Database.Database): Set<string> {
   const rows = db.prepare(`PRAGMA table_info(employees)`).all() as { name: string }[]
@@ -203,6 +204,7 @@ export function runMigrations(db: Database.Database) {
   ensureStationPayrollSurchargeRuleColumns(db)
   ensureBodelshausenSundayHolidaySurchargePolicy(db)
   ensurePayrollQueryIndexes(db)
+  ensureStationHolidayPayrollColumns(db)
   ensureTimeEntryCorrections2026(db)
   ensureWeeklySchedulePublicationsTable(db)
 }
@@ -1767,6 +1769,49 @@ function ensureBodelshausenSundayHolidaySurchargePolicy(db: Database.Database) {
       updated_at = ?
     WHERE id = 'aral-bodelshausen'`,
   ).run(ts)
+}
+
+/** Feiertagsverwaltung: Kategorie, Zeitraum, Referenz-Prozent (Anzeige; Lohn nutzt Mitarbeiterprofil). */
+function ensureStationHolidayPayrollColumns(db: Database.Database) {
+  const cols = new Set(
+    (db.prepare(`PRAGMA table_info(station_extra_holidays)`).all() as { name: string }[]).map((c) => c.name),
+  )
+  const add = (name: string, ddl: string) => {
+    if (!cols.has(name)) {
+      db.exec(`ALTER TABLE station_extra_holidays ADD COLUMN ${ddl}`)
+      cols.add(name)
+    }
+  }
+  add('payroll_category', `payroll_category TEXT NOT NULL DEFAULT 'regular'`)
+  add('reference_percent', 'reference_percent REAL')
+  add('all_day', 'all_day INTEGER NOT NULL DEFAULT 1')
+  add('time_start', 'time_start TEXT')
+  add('time_end', 'time_end TEXT')
+  add('source', `source TEXT NOT NULL DEFAULT 'custom'`)
+  add('statutory_template_id', 'statutory_template_id TEXT')
+  add('is_manual_override', 'is_manual_override INTEGER NOT NULL DEFAULT 0')
+  add('special_rule_tier', 'special_rule_tier TEXT')
+
+  const ts = nowIso()
+  db.prepare(
+    `UPDATE station_extra_holidays SET
+      payroll_category = CASE
+        WHEN counts_as_special = 1 THEN 'special'
+        WHEN counts_as_public = 0 THEN 'none'
+        ELSE 'regular'
+      END,
+      reference_percent = COALESCE(reference_percent,
+        CASE WHEN counts_as_special = 1 THEN 150 ELSE 125 END),
+      all_day = COALESCE(all_day, 1),
+      source = COALESCE(NULLIF(source, ''), 'custom'),
+      updated_at = ?
+    WHERE payroll_category IS NULL OR payroll_category = ''`,
+  ).run(ts)
+
+  const stations = db.prepare(`SELECT id FROM stations`).all() as { id: string }[]
+  for (const s of stations) {
+    ensureStationStatutoryHolidaysSeeded(db, s.id, 2026)
+  }
 }
 
 function ensurePayrollQueryIndexes(db: Database.Database) {
