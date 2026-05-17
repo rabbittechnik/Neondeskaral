@@ -53,7 +53,7 @@ export function ScheduleEmployeeSummaryBar({
               Mitarbeiter
             </h2>
             <p className="truncate text-[10px] text-[var(--text-faint)]">
-              W / M = Schichtplan + genehmigter bezahlter Urlaub (8 Std./Tag, Urlaub ersetzt Schicht am selben Tag) ·
+              W / M = Schichtplan + genehmigter bezahlter Urlaub (Urlaub ersetzt Schicht am selben Tag); M mit / = Limit aus Profil ·
               Karte klicken zum Filtern
               {assignDragEnabled ? ' · Zum Zuweisen Mitarbeiter ziehen' : null}
             </p>

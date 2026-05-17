@@ -166,6 +166,7 @@ export function WeeklySchedule() {
 
   const canEditPlan = hasPermission('schedule.edit')
   const currentUserId = user?.id ?? ''
+  const monthRange = useMemo(() => calendarMonthRangeForDate(weekMonday), [weekMonday])
 
   const shiftInteractions = useScheduleShiftInteractions({
     canEdit: canEditPlan,
@@ -176,6 +177,9 @@ export function WeeklySchedule() {
     absences,
     stationId,
     currentUserId,
+    federalState,
+    monthShifts: shifts,
+    monthRange,
   })
 
   const openEdit = (block: ResolvedShiftBlock) => {

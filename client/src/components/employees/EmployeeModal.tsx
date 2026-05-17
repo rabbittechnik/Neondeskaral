@@ -4,6 +4,8 @@ import type { Employee } from '../../types/employee'
 import { createEmployeeId } from '../../lib/createEmployeeId'
 import { Button } from '../ui/Button'
 import { EmployeeForm } from './EmployeeForm'
+import { useEmployees } from '../../context/employees-context'
+import { suggestNextEmployeeColor, normalizeHexColor } from '../../utils/employeeColors'
 import { emptyEmployee } from './employeeDefaults'
 
 type Mode = 'create' | 'edit'
@@ -24,7 +26,7 @@ function validate(e: Employee): string[] {
   if (!e.firstName.trim()) err.push('Vorname fehlt.')
   if (!e.lastName.trim()) err.push('Nachname fehlt.')
   if (!e.salutation) err.push('Anrede fehlt.')
-  if (!e.color?.trim()) err.push('Farbe fehlt.')
+  if (!normalizeHexColor(e.color)) err.push('Farbe fehlt oder ist ungültig (HEX, z. B. #22d3ee).')
   if (!e.employmentType) err.push('Beschäftigungsart fehlt.')
   if (!e.startDate?.trim()) err.push('Eintrittsdatum fehlt.')
   if (!e.timeTrackingMode?.trim()) err.push('Zeiterfassung fehlt.')
@@ -43,6 +45,7 @@ export function EmployeeModal({
   onSaveCreate,
   onSaveEdit,
 }: Props) {
+  const { employees } = useEmployees()
   const [form, setForm] = useState<Employee>(() => emptyEmployee())
   const [errors, setErrors] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
@@ -53,9 +56,14 @@ export function EmployeeModal({
     if (mode === 'edit' && employee) {
       setForm(structuredClone(employee))
     } else {
-      setForm({ ...emptyEmployee(), ...createSeed })
+      const seed = { ...emptyEmployee(), ...createSeed }
+      const seedColor = normalizeHexColor(createSeed?.color)
+      if (!seedColor) {
+        seed.color = suggestNextEmployeeColor(employees)
+      }
+      setForm(seed)
     }
-  }, [open, mode, employee, createSeed])
+  }, [open, mode, employee, createSeed, employees])
 
   useEffect(() => {
     if (!open) return
@@ -72,11 +80,12 @@ export function EmployeeModal({
     if (v.length > 0) return
     setSaving(true)
     try {
+      const color = normalizeHexColor(form.color) ?? form.color.trim()
       if (mode === 'create') {
         const id = form.id?.trim() ? form.id : createEmployeeId()
-        await onSaveCreate({ ...form, id })
+        await onSaveCreate({ ...form, id, color })
       } else {
-        await onSaveEdit(form)
+        await onSaveEdit({ ...form, color })
       }
       onClose()
     } catch (err) {

@@ -2,6 +2,7 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import type { ScheduleEmployeeRow } from '../../types/employee'
 import type { Employee } from '../../types/employee'
+import type { GermanState } from '../../data/germanHolidays'
 import type { Absence } from '../../types/absence'
 import type { ResolvedShiftBlock, ScheduleShift } from '../../data/mockSchedule'
 import { workAreaLabel } from '../../data/mockSchedule'
@@ -55,6 +56,9 @@ export function useScheduleShiftInteractions(params: {
   absences: Absence[]
   stationId: string | null
   currentUserId: string
+  federalState?: GermanState
+  monthShifts?: ScheduleShift[]
+  monthRange?: { fromYmd: string; toYmd: string }
 }) {
   const {
     canEdit,
@@ -65,6 +69,9 @@ export function useScheduleShiftInteractions(params: {
     absences,
     stationId,
     currentUserId,
+    federalState,
+    monthShifts,
+    monthRange,
   } = params
 
   const [dragEmployeeId, setDragEmployeeId] = useState<string | null>(null)
@@ -239,6 +246,9 @@ export function useScheduleShiftInteractions(params: {
           employees,
           absences,
           excludeShiftId: targetId,
+          monthShifts: monthShifts ?? shifts,
+          monthRange,
+          federalState,
         })
         const pending: PendingAssign = {
           shiftId: targetId,

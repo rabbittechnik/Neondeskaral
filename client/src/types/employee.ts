@@ -151,6 +151,8 @@ export type ScheduleEmployeeRow = {
   color: string
   avatar?: string
   monthlyHours: number
+  /** Profilfeld max_hours_per_month — Obergrenze für geplante Monatsstunden */
+  maxHoursPerMonth?: number
   weeklyTargetHours?: number
   /** Badge in Mitarbeiter-Leiste */
   schedulePresence:
@@ -180,6 +182,7 @@ export function toScheduleEmployeeRow(e: Employee): ScheduleEmployeeRow {
     color: e.color,
     avatar: e.avatar,
     monthlyHours: e.monthlyHours,
+    maxHoursPerMonth: e.maxHoursPerMonth,
     weeklyTargetHours: e.weeklyHours,
     schedulePresence,
   }

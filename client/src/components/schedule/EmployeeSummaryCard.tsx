@@ -1,6 +1,7 @@
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import type { ScheduleEmployeeRow } from '../../types/employee'
 import type { EmployeePlannedHoursBreakdown } from '../../utils/employeePlannedHours'
+import { formatHoursLimitDe, isMonthHourLimitExceeded } from '../../utils/employeeMonthHourLimit'
 import { EmployeeStatusBadge } from '../employees/EmployeeStatusBadge'
 import { Avatar } from '../ui/Avatar'
 import type { TimelineViewportDensity } from './timelineLayout'
@@ -99,6 +100,12 @@ export function EmployeeSummaryCard({
 
   const nameShown = tight ? compactDisplayName(employee.name) : employee.name
   const monthHoursShown = monthPlannedHours ?? employee.monthlyHours
+  const monthCap = employee.maxHoursPerMonth
+  const monthOverLimit = isMonthHourLimitExceeded(monthHoursShown, monthCap)
+  const monthLine =
+    monthCap != null && monthCap > 0
+      ? `M: ${formatHoursLimitDe(monthHoursShown)} / ${formatHoursLimitDe(monthCap)} Std.${monthOverLimit ? ' ⚠️' : ''}`
+      : `M: ${formatHoursDe(monthHoursShown)}`
 
   const formatBreakdownLines = (label: string, b: EmployeePlannedHoursBreakdown) =>
     [
@@ -170,7 +177,7 @@ export function EmployeeSummaryCard({
           </p>
           <div className={statsCls}>
             <span className={wLineCls}>W: {formatHoursDe(weeklyHours)}</span>
-            <span className={mLineCls}>M: {formatHoursDe(monthHoursShown)}</span>
+            <span className={monthOverLimit ? `${mLineCls} font-medium text-amber-200/95` : mLineCls}>{monthLine}</span>
           </div>
           <div className={badgeWrapCls}>
             <EmployeeStatusBadge variant="presence" presence={employee.schedulePresence} />

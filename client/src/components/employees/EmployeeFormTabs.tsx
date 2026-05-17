@@ -131,7 +131,7 @@ function chipToggle(
 export function EmployeeFormTabs({ value, onChange, disabled, mode }: Props) {
   const [tab, setTab] = useState('stammdaten')
   const { hasPermission } = useStation()
-  const { getById } = useEmployees()
+  const { employees, getById } = useEmployees()
   const patch = (p: Partial<Employee>) => onChange({ ...value, ...p })
 
   const canSensitive =
@@ -320,7 +320,14 @@ export function EmployeeFormTabs({ value, onChange, disabled, mode }: Props) {
               <input className={inputClass} disabled={disabled} value={value.personnelNumber} onChange={(e) => patch({ personnelNumber: e.target.value })} />
             </div>
             <div className="sm:col-span-2">
-              <ColorPickerField id="emp-color" value={value.color} disabled={disabled} onChange={(c) => patch({ color: c })} />
+              <ColorPickerField
+                id="emp-color"
+                value={value.color}
+                disabled={disabled}
+                employees={employees}
+                currentEmployeeId={value.id}
+                onChange={(c) => patch({ color: c })}
+              />
             </div>
           </div>
         ) : null}

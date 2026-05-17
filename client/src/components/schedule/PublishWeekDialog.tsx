@@ -15,11 +15,20 @@ export type WeekPublicationApi = {
   hasUnpublishedChanges: boolean
 }
 
+export type MonthHourLimitViolation = {
+  employeeId: string
+  displayName: string
+  plannedHours: number
+  maxHours: number
+}
+
 export type WeekPublishSummary = {
   shiftCount: number
   openShiftCount: number
   employeesWithShifts: number
   conflictCount: number
+  monthHourLimitViolationCount: number
+  monthHourLimitViolations: MonthHourLimitViolation[]
 }
 
 type Props = {
@@ -100,6 +109,8 @@ export function PublishWeekDialog({
 
   const isPublished = publication?.status === 'published'
   const hasChanges = publication?.hasUnpublishedChanges ?? false
+  const monthViolations = summary?.monthHourLimitViolations ?? []
+  const monthBlocked = (summary?.monthHourLimitViolationCount ?? monthViolations.length) > 0
 
   return (
     <div
@@ -171,8 +182,30 @@ export function PublishWeekDialog({
                   {summary.conflictCount > 0 ? (
                     <li className="text-amber-200/95">{summary.conflictCount} Konflikt-Hinweis(e)</li>
                   ) : null}
+                  {monthViolations.length > 0 ? (
+                    <li className="text-red-200/95">
+                      {monthViolations.length} Mitarbeiter über dem maximalen Monatsstunden-Limit
+                    </li>
+                  ) : null}
                 </ul>
+                {monthViolations.length > 0 ? (
+                  <ul className="mt-3 max-h-40 space-y-1 overflow-y-auto text-xs text-red-100/90">
+                    {monthViolations.map((v) => (
+                      <li key={v.employeeId}>
+                        {v.displayName} überschreitet Monatslimit:{' '}
+                        {v.plannedHours.toFixed(2).replace('.', ',')} / {v.maxHours.toFixed(2).replace('.', ',')} Std.
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
               </div>
+            ) : null}
+
+            {monthBlocked ? (
+              <p className="rounded-[var(--radius-sm)] border border-red-400/40 bg-red-500/10 px-3 py-2 text-sm text-red-100">
+                Veröffentlichung ist blockiert, solange Mitarbeiter ihre im Profil hinterlegte maximale Monatsstundenzahl
+                überschreiten. Bitte Schichten anpassen oder das Monatslimit im Mitarbeiterprofil prüfen.
+              </p>
             ) : null}
 
             {!canPublish ? (
@@ -214,7 +247,7 @@ export function PublishWeekDialog({
               <Button
                 variant="primary"
                 type="button"
-                disabled={busy || loading}
+                disabled={busy || loading || monthBlocked}
                 onClick={() => void runAction('republish')}
               >
                 {busy ? 'Bitte warten…' : 'Erneut veröffentlichen'}
@@ -224,7 +257,7 @@ export function PublishWeekDialog({
               <Button
                 variant="primary"
                 type="button"
-                disabled={busy || loading}
+                disabled={busy || loading || monthBlocked}
                 onClick={() => void runAction('publish')}
               >
                 {busy ? 'Bitte warten…' : 'Woche veröffentlichen'}

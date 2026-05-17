@@ -7,6 +7,13 @@ import { getHolidayBadgeForDate } from '../data/germanHolidays2026.js'
 import type { GermanState } from '../data/germanHolidays2026.js'
 import type { AbsenceRow } from './absenceService.js'
 import * as employeeService from './employeeService.js'
+import {
+  applyProposedToMonthShiftRows,
+  calculateEmployeePlannedHoursFromRows,
+  calendarMonthRangeFromYmd,
+  wouldExceedMaxHoursPerMonth,
+  type ProposedMonthShift,
+} from './employeePlannedHoursService.js'
 import { listShiftRowsForStationDateRange, type ShiftRow } from './shiftService.js'
 
 export type AssistantMode = 'fill_gaps' | 'replace_drafts' | 'full_refresh'
@@ -323,10 +330,13 @@ export function generateScheduleSuggestions(db: Database, body: GenerateBody) {
   const employees = employeeService.listEmployees(db, stationId).filter((e) => e.status === 'aktiv' && e.visibleInTeamSchedule !== false)
   const absenceRows = listApprovedAbsenceRows(db, stationId, weekStart, weekEnd)
   const shiftRows = listShiftRowsForStationDateRange(db, stationId, weekStart, weekEnd)
+  const monthRange = calendarMonthRangeFromYmd(weekStart)
+  const monthAbsenceRows = listApprovedAbsenceRows(db, stationId, monthRange.from, monthRange.to)
+  const monthShiftRows = listShiftRowsForStationDateRange(db, stationId, monthRange.from, monthRange.to)
 
   const warnings: string[] = []
   const suggestedShifts: SuggestedShift[] = []
-  const proposed: { employeeId: string; date: string; start: string; end: string }[] = []
+  const proposed: ProposedMonthShift[] = []
 
   for (const day of requirements) {
     for (const slot of day.slots) {
@@ -357,6 +367,59 @@ export function generateScheduleSuggestions(db: Database, body: GenerateBody) {
           })
           continue
         }
+        const testProposed: ProposedMonthShift[] = [
+          ...proposed,
+          {
+            employeeId: emp.id,
+            date: day.date,
+            start: slot.startTime,
+            end: slot.endTime,
+            existingShiftId: open?.id,
+          },
+        ]
+        if (
+          wouldExceedMaxHoursPerMonth(
+            emp.id,
+            String(emp.employmentType ?? 'teilzeit'),
+            emp.maxHoursPerMonth,
+            monthShiftRows,
+            monthAbsenceRows,
+            testProposed,
+            federalState,
+            monthRange.from,
+            monthRange.to,
+          )
+        ) {
+          const cap = Number(emp.maxHoursPerMonth)
+          const projected = applyProposedToMonthShiftRows(monthShiftRows, testProposed)
+          const br = calculateEmployeePlannedHoursFromRows(
+            emp.id,
+            projected,
+            monthAbsenceRows,
+            String(emp.employmentType ?? 'teilzeit'),
+            federalState,
+            monthRange.from,
+            monthRange.to,
+          )
+          candidates.push({
+            id: `sug-${randomUUID()}`,
+            date: day.date,
+            startTime: slot.startTime,
+            endTime: slot.endTime,
+            workAreaId: slot.workAreaId,
+            shiftType: kindToShiftType(slot.kind),
+            employeeId: emp.id,
+            employeeName: emp.displayName,
+            score: -1000,
+            level: 'bad',
+            hints: [
+              `Monatslimit überschritten (${br.totalHours.toFixed(2).replace('.', ',')} / ${cap.toFixed(2).replace('.', ',')} Std.)`,
+            ],
+            existingShiftId: open?.id,
+          })
+          continue
+        }
+
         if (employeeOverlapsProposed(emp.id, day.date, slot.startTime, slot.endTime, shiftRows, proposed)) {
           candidates.push({
             id: `sug-${randomUUID()}`,
@@ -419,10 +482,13 @@ export function generateScheduleSuggestions(db: Database, body: GenerateBody) {
           date: best.date,
           start: best.startTime,
           end: best.endTime,
+          existingShiftId: best.existingShiftId,
         })
         suggestedShifts.push(best)
       } else {
-        warnings.push(`Kein passender Mitarbeiter für ${day.date} ${slot.kind} (${slot.startTime}–${slot.endTime})`)
+        warnings.push(
+          `Kein passender Mitarbeiter für ${day.date} ${slot.kind} (${slot.startTime}–${slot.endTime}) — ggf. Monatslimit oder Abwesenheit`,
+        )
         suggestedShifts.push({
           id: `sug-${randomUUID()}`,
           date: day.date,

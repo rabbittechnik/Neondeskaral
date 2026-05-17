@@ -10,7 +10,7 @@ import {
 } from 'react'
 import type { ScheduleShift } from '../data/mockSchedule'
 import { toISODate } from '../data/mockSchedule'
-import { addDays, startOfWeekMonday } from '../components/schedule/scheduleWeekUtils'
+import { addDays, calendarMonthRangeForDate, startOfWeekMonday } from '../components/schedule/scheduleWeekUtils'
 import { apiGet, apiSend } from '../services/api'
 import { useStation } from './station-context'
 
@@ -97,9 +97,8 @@ export function ScheduleShiftsProvider({ children }: { children: ReactNode }) {
 
   const ensureWeekSeeded = useCallback(
     (weekMonday: Date) => {
-      const from = toISODate(weekMonday)
-      const to = toISODate(addDays(weekMonday, 6))
-      void refetchRange(from, to)
+      const { fromYmd, toYmd } = calendarMonthRangeForDate(weekMonday)
+      void refetchRange(fromYmd, toYmd)
     },
     [refetchRange],
   )

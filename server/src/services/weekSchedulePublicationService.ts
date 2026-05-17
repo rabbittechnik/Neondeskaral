@@ -1,6 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import type { Database } from 'better-sqlite3'
 import { mondayOfCalendarWeekBerlin } from './bwHolidayCalendar.js'
+import type { GermanState } from '../data/germanHolidays2026.js'
+import { listMonthHourLimitViolations, type MonthHourLimitViolation } from './employeePlannedHoursService.js'
+import { getStationFederalState } from './stationExtraHolidayService.js'
 import { listConflicts, listShifts, type ShiftRow } from './shiftService.js'
 
 function nowIso(): string {
@@ -173,6 +176,8 @@ export type WeekPublishSummary = {
   openShiftCount: number
   employeesWithShifts: number
   conflictCount: number
+  monthHourLimitViolationCount: number
+  monthHourLimitViolations: MonthHourLimitViolation[]
 }
 
 export function getWeekPublishSummary(
@@ -186,12 +191,29 @@ export function getWeekPublishSummary(
   const open = shifts.filter((s) => !s.employeeId && s.shiftType !== 'frei')
   const empIds = new Set(assigned.map((s) => s.employeeId).filter(Boolean))
   const conflicts = listConflicts(db, stationId, { from, to })
+  const federalState = getStationFederalState(db, stationId) as GermanState
+  const monthHourLimitViolations = listMonthHourLimitViolations(db, stationId, weekMondayIso, federalState)
   return {
     shiftCount: shifts.filter((s) => s.shiftType !== 'frei').length,
     openShiftCount: open.length,
     employeesWithShifts: empIds.size,
     conflictCount: conflicts.length,
+    monthHourLimitViolationCount: monthHourLimitViolations.length,
+    monthHourLimitViolations,
   }
+}
+
+function assertNoMonthHourLimitViolations(db: Database, stationId: string, weekMondayIso: string): void {
+  const federalState = getStationFederalState(db, stationId) as GermanState
+  const violations = listMonthHourLimitViolations(db, stationId, weekMondayIso, federalState)
+  if (!violations.length) return
+  const lines = violations.map(
+    (v) =>
+      `${v.displayName} überschreitet Monatslimit: ${v.plannedHours.toFixed(2).replace('.', ',')} / ${v.maxHours.toFixed(2).replace('.', ',')} Std.`,
+  )
+  throw new Error(
+    `Veröffentlichung blockiert: ${violations.length} Mitarbeiter über dem maximalen Monatsstunden-Limit.\n${lines.join('\n')}`,
+  )
 }
 
 export function publishWeekSchedule(
@@ -203,6 +225,7 @@ export function publishWeekSchedule(
   const sid = String(stationId ?? '').trim()
   const mon = mondayOfCalendarWeekBerlin(weekMondayIso)
   if (!sid || !mon) throw new Error('stationId und weekMonday erforderlich')
+  assertNoMonthHourLimitViolations(db, sid, mon)
   ensurePublicationRow(db, sid, mon)
   const ts = nowIso()
   db.prepare(

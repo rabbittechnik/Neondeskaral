@@ -1,6 +1,7 @@
 import { useRef, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
 import type { ResolvedShiftBlock } from '../../data/mockSchedule'
 import { getShiftTypeDef, workAreaLabel } from '../../data/mockSchedule'
+import { getReadableTextColor } from '../../utils/employeeColors'
 import { darkenHex, hexToRgba, lightenHex } from './scheduleDayUtils'
 import type { TimelineLayout } from './timelineLayout'
 import type { WeekTimelineEditBridge } from './scheduleTimelineEditTypes'
@@ -66,6 +67,7 @@ export function TimelineShiftBlock({
   const h = layout.blockHeight
   const g = layout.rowGap
   const top = headerOffsetPx + row * (h + g)
+  const barTextColor = getReadableTextColor(accentColor)
   const hi = lightenHex(accentColor, 0.14)
   const lo = darkenHex(accentColor, 0.22)
   const deep = darkenHex(accentColor, 0.38)
@@ -186,11 +188,12 @@ export function TimelineShiftBlock({
             seamAfter ? 'inset -1px 0 0 rgba(255,255,255,0.38),' : ''
           } 0 0 10px ${glow}, 0 0 18px ${glowSoft}, inset 0 1px 0 ${hexToRgba(borderHi, 0.5)}, inset 0 -1px 0 ${hexToRgba(deep, 0.42)}`,
           borderColor: borderHi,
-          textShadow: textShadowStrong,
+          color: barTextColor,
+          textShadow: barTextColor === '#ffffff' ? textShadowStrong : 'none',
           ['--accent-glow' as string]: glow,
           ['--accent-glow-soft' as string]: glowSoft,
         }}
-        className={`schedule-shift-bar-colored group absolute inset-0 z-[8] flex items-center overflow-hidden border px-2 py-[3px] text-left text-white transition-[box-shadow,filter,transform,opacity] duration-150 hover:z-[12] hover:brightness-[1.05] hover:shadow-[0_0_20px_var(--accent-glow),0_0_34px_var(--accent-glow-soft),inset_0_1px_0_rgba(255,255,255,0.38)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/60 active:scale-[0.99] ${rL} ${rR} ${
+        className={`schedule-shift-bar-colored group absolute inset-0 z-[8] flex items-center overflow-hidden border px-2 py-[3px] text-left transition-[box-shadow,filter,transform,opacity] duration-150 hover:z-[12] hover:brightness-[1.05] hover:shadow-[0_0_20px_var(--accent-glow),0_0_34px_var(--accent-glow-soft),inset_0_1px_0_rgba(255,255,255,0.38)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/60 active:scale-[0.99] ${rL} ${rR} ${
           seamBefore ? 'border-l-0' : ''
         } ${seamAfter ? 'border-r-0' : ''} ${preview ? 'opacity-90' : ''} ${
           block.conflict ? 'ring-1 ring-orange-400 ring-offset-1 ring-offset-[var(--bg-card)]' : ''
@@ -206,8 +209,12 @@ export function TimelineShiftBlock({
           </span>
         ) : null}
         <div
-          className={`flex h-full min-h-0 min-w-0 flex-1 items-center gap-1 whitespace-nowrap ${layout.shiftNameClass} text-white`}
-          style={{ textShadow: textShadowStrong, lineHeight: 1.15 }}
+          className={`flex h-full min-h-0 min-w-0 flex-1 items-center gap-1 whitespace-nowrap ${layout.shiftNameClass}`}
+          style={{
+            color: barTextColor,
+            textShadow: barTextColor === '#ffffff' ? textShadowStrong : 'none',
+            lineHeight: 1.15,
+          }}
         >
           <span className="min-w-0 truncate font-semibold">{displayName}</span>
           <span className="shrink-0 text-white/70">·</span>

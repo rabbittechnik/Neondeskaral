@@ -1,7 +1,10 @@
+import type { GermanState } from '../data/germanHolidays'
 import type { Absence } from '../types/absence'
 import type { Employee } from '../types/employee'
 import { WEEKDAY_IDS } from '../components/employees/planning/planningPreferenceLabels'
-import type { ResolvedShiftBlock } from '../data/mockSchedule'
+import type { ResolvedShiftBlock, ScheduleShift } from '../data/mockSchedule'
+import { calculateEmployeePlannedHours } from './employeePlannedHours'
+import { formatHoursLimitDe } from './employeeMonthHourLimit'
 import { formatShiftTimeRangeDE } from './dateFormat'
 import { timeToMinutes } from './scheduleTimeline'
 
@@ -43,6 +46,10 @@ export function evaluateShiftAssignConflicts(params: {
   employees: Employee[]
   absences: Absence[]
   excludeShiftId: string
+  /** Schichten im Kalendermonat der Zielschicht (für Monatslimit-Prüfung) */
+  monthShifts?: ScheduleShift[]
+  monthRange?: { fromYmd: string; toYmd: string }
+  federalState?: GermanState
 }): AssignConflictReport {
   const hard: string[] = []
   const soft: string[] = []
@@ -114,6 +121,46 @@ export function evaluateShiftAssignConflicts(params: {
   const targetHWeekly = emp.weeklyHours
   if (typeof targetHWeekly === 'number' && targetHWeekly > 0 && totalWeek > targetHWeekly + 0.5) {
     soft.push(`Geplante Wochenstunden liegen über dem Soll (${targetHWeekly} h/Woche).`)
+  }
+
+  const maxMonth = emp.maxHoursPerMonth
+  if (
+    typeof maxMonth === 'number' &&
+    maxMonth > 0 &&
+    params.monthShifts &&
+    params.monthRange &&
+    params.federalState
+  ) {
+    const projected = params.monthShifts.map((s) =>
+      s.id === params.excludeShiftId
+        ? {
+            ...s,
+            employeeId: params.newEmployeeId,
+            startTime: params.targetShift.start,
+            endTime: params.targetShift.end,
+          }
+        : s,
+    )
+    const employeesById = new Map([
+      [
+        emp.id,
+        { displayName: emp.displayName, employmentType: emp.employmentType },
+      ],
+    ])
+    const breakdown = calculateEmployeePlannedHours(
+      emp.id,
+      projected,
+      params.absences,
+      employeesById,
+      params.monthRange.fromYmd,
+      params.monthRange.toYmd,
+      params.federalState,
+    )
+    if (breakdown.totalHours > maxMonth + 1e-6) {
+      hard.push(
+        `Monatslimit würde überschritten (${formatHoursLimitDe(breakdown.totalHours)} / ${formatHoursLimitDe(maxMonth)} Std.).`,
+      )
+    }
   }
 
   return { hard, soft }

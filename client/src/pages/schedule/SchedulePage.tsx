@@ -11,6 +11,7 @@ import {
   type WeekAbsence,
 } from '../../data/mockSchedule'
 import { buildEmployeePlannedHoursMap } from '../../utils/employeePlannedHours'
+import { buildMonthHourLimitConflicts } from '../../utils/employeeMonthHourLimit'
 import { ScheduleStatsPanel } from '../../components/schedule/ScheduleStatsPanel'
 import { ScheduleToolbar } from '../../components/schedule/ScheduleToolbar'
 import type { ScheduleViewMode } from '../../components/schedule/ScheduleViewTabs'
@@ -119,9 +120,11 @@ export function SchedulePage() {
     [employees, shifts],
   )
 
+  const monthRange = useMemo(() => calendarMonthRangeForDate(weekMonday), [weekMonday])
+
   const handleAssistantApplied = useCallback(async () => {
-    await refetchRange(weekStartIso, weekEndIso)
-  }, [refetchRange, weekStartIso, weekEndIso])
+    await refetchRange(monthRange.fromYmd, monthRange.toYmd)
+  }, [refetchRange, monthRange.fromYmd, monthRange.toYmd])
 
   const employeeHourLabels = useMemo(
     () =>
@@ -202,7 +205,7 @@ export function SchedulePage() {
   )
 
   const monthlyHoursBreakdownById = useMemo(() => {
-    const { fromYmd, toYmd } = calendarMonthRangeForDate(weekMonday)
+    const { fromYmd, toYmd } = monthRange
     return buildEmployeePlannedHoursMap(
       employees.map((e) => e.id),
       shifts,
@@ -212,7 +215,7 @@ export function SchedulePage() {
       toYmd,
       federalState,
     )
-  }, [employees, shifts, absences, employeesByIdForHours, weekMonday, federalState])
+  }, [employees, shifts, absences, employeesByIdForHours, monthRange, federalState])
 
   const hoursByEmployee = useMemo(() => {
     const m = new Map<string, number>()
@@ -230,6 +233,11 @@ export function SchedulePage() {
     return m
   }, [employees, monthlyHoursBreakdownById])
 
+  const monthHourLimitConflicts = useMemo(
+    () => buildMonthHourLimitConflicts(employees, monthlyPlannedHoursById),
+    [employees, monthlyPlannedHoursById],
+  )
+
   const openShiftsThisWeek = useMemo(
     () => openShiftSlotsFromBlocks(allBlocks),
     [allBlocks],
@@ -239,8 +247,8 @@ export function SchedulePage() {
   const [conflictsError, setConflictsError] = useState<string | null>(null)
 
   const panelConflicts = useMemo(
-    () => [...openShiftWarnings(allBlocks), ...scheduleConflicts],
-    [allBlocks, scheduleConflicts],
+    () => [...openShiftWarnings(allBlocks), ...scheduleConflicts, ...monthHourLimitConflicts],
+    [allBlocks, scheduleConflicts, monthHourLimitConflicts],
   )
 
   useEffect(() => {
@@ -461,6 +469,9 @@ export function SchedulePage() {
     absences,
     stationId,
     currentUserId,
+    federalState,
+    monthShifts: shifts,
+    monthRange,
   })
 
   return (
