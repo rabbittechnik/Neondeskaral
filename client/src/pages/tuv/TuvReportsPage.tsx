@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../context/auth-context'
 import { useStation } from '../../context/station-context'
 import { apiGet, apiSend, API_BASE, getAdminToken } from '../../services/api'
@@ -12,6 +12,7 @@ import { TuvReportMonthPicker } from '../../components/tuv/TuvReportMonthPicker'
 
 export function TuvReportsPage() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { user } = useAuth()
   const { stationId, availableStations, canSwitchStation, hasPermission } = useStation()
   const [filterStation, setFilterStation] = useState(stationId ?? '')
@@ -59,6 +60,52 @@ export function TuvReportsPage() {
   useEffect(() => {
     void load()
   }, [load])
+
+  const openMonthFromQuery = useCallback(async () => {
+    const om = Number(searchParams.get('openMonth'))
+    const oy = Number(searchParams.get('openYear'))
+    if (!Number.isFinite(om) || !Number.isFinite(oy)) return
+    const sid = filterStation || stationId
+    if (!sid || !canCreate) return
+    setBusy(true)
+    setErr(null)
+    const res = await apiSend<TuvReportDetail & { created?: boolean }>(
+      'POST',
+      '/tuv-reports/open-month',
+      { month: om, year: oy, reportDate: new Date().toISOString().slice(0, 10) },
+      { stationId: sid },
+    )
+    setBusy(false)
+    setSearchParams({}, { replace: true })
+    if (!res.ok) {
+      setErr(res.error)
+      return
+    }
+    navigate(`/tuv-berichte/${res.data.report.id}`)
+  }, [searchParams, filterStation, stationId, canCreate, navigate, setSearchParams])
+
+  useEffect(() => {
+    void openMonthFromQuery()
+  }, [openMonthFromQuery])
+
+  async function openCurrentMonthChecklist() {
+    const sid = filterStation || stationId
+    if (!sid || !canCreate) return
+    const now = new Date()
+    setBusy(true)
+    const res = await apiSend<TuvReportDetail & { created?: boolean }>(
+      'POST',
+      '/tuv-reports/open-month',
+      { month: now.getMonth() + 1, year: now.getFullYear(), reportDate: now.toISOString().slice(0, 10) },
+      { stationId: sid },
+    )
+    setBusy(false)
+    if (!res.ok) {
+      setErr(res.error)
+      return
+    }
+    navigate(`/tuv-berichte/${res.data.report.id}`)
+  }
 
   async function createReport() {
     const sid = filterStation || stationId
@@ -113,17 +160,27 @@ export function TuvReportsPage() {
         description="Monatliche Kontrollberichte deiner Station erfassen, speichern und ausdrucken."
         actions={
           canCreate ? (
-            <button
-              type="button"
-              onClick={() => {
-                setModal(true)
-                setDupWarn(null)
-                setErr(null)
-              }}
-              className="rounded-lg bg-gradient-to-r from-cyan-500/80 to-fuchsia-600/70 px-4 py-2 text-sm font-semibold text-white shadow-[var(--glow-cyan)]"
-            >
-              + Neuer TÜV-Bericht
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void openCurrentMonthChecklist()}
+                className="rounded-lg border border-cyan-400/40 bg-cyan-500/15 px-4 py-2 text-sm font-semibold text-cyan-100 hover:bg-cyan-500/25 disabled:opacity-40"
+              >
+                Monatscheckliste ausfüllen
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setModal(true)
+                  setDupWarn(null)
+                  setErr(null)
+                }}
+                className="rounded-lg bg-gradient-to-r from-cyan-500/80 to-fuchsia-600/70 px-4 py-2 text-sm font-semibold text-white shadow-[var(--glow-cyan)]"
+              >
+                + Neuer TÜV-Bericht
+              </button>
+            </div>
           ) : null
         }
       />

@@ -13,6 +13,8 @@ import { applyPersonalstammBodelshausen2026 } from '../services/personalstammBod
 import { ensureBodelshausenStationGuideVacations2026 } from '../services/stationGuideVacationImportService.js'
 import { seedTaskTemplatesIfMissing } from '../services/taskTemplateService.js'
 import { ensureStationStatutoryHolidaysSeeded } from '../services/stationExtraHolidayService.js'
+import { ensureStationDocumentTemplates } from '../services/stationDocumentService.js'
+import { seedAralBodelshausenRepresentatives } from '../services/representativeSeedService.js'
 
 function employeesColumnNames(db: Database.Database): Set<string> {
   const rows = db.prepare(`PRAGMA table_info(employees)`).all() as { name: string }[]
@@ -180,7 +182,9 @@ export function runMigrations(db: Database.Database) {
   ensureStationTabletDevicesTable(db)
   mergeStationTabletPermissionsIntoAccess(db)
   ensureRepresentativesTable(db)
+  ensureRepresentativeExtendedColumns(db)
   mergeRepresentativesPermissionsIntoAccess(db)
+  seedAralBodelshausenRepresentativesMigration(db)
   ensureUsersLastLoginAtColumn(db)
   ensureUserAuditLogTable(db)
   syncMathiasRaselowskiAccount(db)
@@ -205,6 +209,8 @@ export function runMigrations(db: Database.Database) {
   ensureBodelshausenSundayHolidaySurchargePolicy(db)
   ensurePayrollQueryIndexes(db)
   ensureStationHolidayPayrollColumns(db)
+  ensureStationDocumentTemplateColumns(db)
+  ensureTuvReportExtendedColumns(db)
   ensureTimeEntryCorrections2026(db)
   ensureWeeklySchedulePublicationsTable(db)
 }
@@ -1366,6 +1372,38 @@ function ensureRepresentativesTable(db: Database.Database) {
   db.exec(`CREATE INDEX IF NOT EXISTS idx_representatives_station_active ON representatives(station_id, active, company)`)
 }
 
+function representativeColumnNames(db: Database.Database): Set<string> {
+  const rows = db.prepare(`PRAGMA table_info(representatives)`).all() as { name: string }[]
+  return new Set(rows.map((r) => r.name))
+}
+
+function ensureRepresentativeExtendedColumns(db: Database.Database) {
+  let cols = representativeColumnNames(db)
+  const add = (name: string, ddl: string) => {
+    if (!cols.has(name)) {
+      db.exec(`ALTER TABLE representatives ADD COLUMN ${ddl}`)
+      cols.add(name)
+    }
+  }
+  add('position', 'position TEXT')
+  add('postal_address', 'postal_address TEXT')
+  add('website', 'website TEXT')
+  add('is_favorite', 'is_favorite INTEGER DEFAULT 0')
+  add('seed_key', 'seed_key TEXT')
+  db.exec(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_representatives_station_seed_key ON representatives(station_id, seed_key) WHERE seed_key IS NOT NULL AND trim(seed_key) != ''`,
+  )
+}
+
+function seedAralBodelshausenRepresentativesMigration(db: Database.Database) {
+  const r = seedAralBodelshausenRepresentatives(db)
+  if (r.inserted > 0 || r.updated > 0) {
+    console.log(
+      `[migrations] Vertreter Bodelshausen: ${r.inserted} neu, ${r.updated} aktualisiert`,
+    )
+  }
+}
+
 /** Vertreter-Berechtigungen für bestehende Schichtplan-/Stammdaten-Rollen ergänzen. */
 function mergeRepresentativesPermissionsIntoAccess(db: Database.Database) {
   const rows = db.prepare(`SELECT id, permissions_json FROM user_station_access`).all() as {
@@ -1812,6 +1850,44 @@ function ensureStationHolidayPayrollColumns(db: Database.Database) {
   for (const s of stations) {
     ensureStationStatutoryHolidaysSeeded(db, s.id, 2026)
   }
+}
+
+function ensureStationDocumentTemplateColumns(db: Database.Database) {
+  const cols = new Set(
+    (db.prepare(`PRAGMA table_info(station_documents)`).all() as { name: string }[]).map((c) => c.name),
+  )
+  if (!cols.has('template_key')) {
+    db.exec(`ALTER TABLE station_documents ADD COLUMN template_key TEXT`)
+  }
+  if (!cols.has('version_label')) {
+    db.exec(`ALTER TABLE station_documents ADD COLUMN version_label TEXT`)
+  }
+  const stations = db.prepare(`SELECT id FROM stations`).all() as { id: string }[]
+  for (const s of stations) {
+    ensureStationDocumentTemplates(db, s.id)
+  }
+}
+
+function ensureTuvReportExtendedColumns(db: Database.Database) {
+  const cols = new Set((db.prepare(`PRAGMA table_info(tuv_reports)`).all() as { name: string }[]).map((c) => c.name))
+  if (!cols.has('form_json')) {
+    db.exec(`ALTER TABLE tuv_reports ADD COLUMN form_json TEXT`)
+  }
+  if (!cols.has('source_template_document_id')) {
+    db.exec(`ALTER TABLE tuv_reports ADD COLUMN source_template_document_id TEXT`)
+  }
+  db.exec(`CREATE TABLE IF NOT EXISTS tuv_report_audit_log (
+    id TEXT PRIMARY KEY,
+    report_id TEXT NOT NULL,
+    user_id TEXT,
+    user_name TEXT,
+    field_name TEXT NOT NULL,
+    old_value TEXT,
+    new_value TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (report_id) REFERENCES tuv_reports(id) ON DELETE CASCADE
+  )`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_tuv_report_audit_report ON tuv_report_audit_log(report_id, created_at)`)
 }
 
 function ensurePayrollQueryIndexes(db: Database.Database) {

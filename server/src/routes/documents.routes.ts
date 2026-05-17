@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto'
 import { getDb } from '../db/database.js'
 import { jsonErr, jsonOk } from '../utils/http.js'
 import { getAccess, requirePermission, requireAnyPermission, requireStationId } from '../middleware/stationAuth.js'
+import { DOCUMENT_TEMPLATE_CATALOG, type DocumentTemplateKey } from '../data/documentTemplateCatalog.js'
 import * as stationDocumentService from '../services/stationDocumentService.js'
 import * as employeeService from '../services/employeeService.js'
 import type { StationDocumentRow } from '../services/stationDocumentService.js'
@@ -50,6 +51,8 @@ function rowToApi(row: StationDocumentRow, linkedIds: string[]) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     linkedEmployeeIds: linkedIds,
+    templateKey: row.template_key ?? null,
+    versionLabel: row.version_label ?? null,
   }
 }
 
@@ -78,16 +81,53 @@ function sendFileResolved(res: import('express').Response, absPath: string, down
   })
 }
 
+documentsRouter.get('/templates/catalog', (_req, res) => {
+  jsonOk(res, { templates: DOCUMENT_TEMPLATE_CATALOG })
+})
+
+documentsRouter.get('/templates', (req, res) => {
+  try {
+    const stationId = typeof req.query.stationId === 'string' ? req.query.stationId : undefined
+    if (!requirePermission(req, res, stationId, 'documents.view')) return
+    const db = getDb()
+    const rows = stationDocumentService.listStationDocumentTemplates(db, stationId!)
+    const items = rows.map((r) => rowToApi(r, stationDocumentService.listLinkedEmployeeIds(db, r.id)))
+    jsonOk(res, { templates: items })
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 500)
+  }
+})
+
+documentsRouter.post('/templates/:templateKey/copy', (req, res) => {
+  try {
+    const stationId = typeof req.query.stationId === 'string' ? req.query.stationId : undefined
+    if (!requirePermission(req, res, stationId, 'documents.edit')) return
+    const key = String(req.params.templateKey ?? '').trim() as DocumentTemplateKey
+    const body = (req.body ?? {}) as { titleSuffix?: string; employeeId?: string }
+    const ctx = getAccess(req)
+    const row = stationDocumentService.copyStationDocumentFromTemplate(getDb(), stationId!, key, {
+      titleSuffix: body.titleSuffix,
+      linkedEmployeeId: body.employeeId,
+      createdBy: ctx?.userId ?? null,
+    })
+    const linked = stationDocumentService.listLinkedEmployeeIds(getDb(), row.id)
+    jsonOk(res, { document: rowToApi(row, linked) }, 201)
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
+  }
+})
+
 documentsRouter.get('/', (req, res) => {
   try {
     const stationId = typeof req.query.stationId === 'string' ? req.query.stationId : undefined
     if (!requirePermission(req, res, stationId, 'documents.view')) return
+    const db = getDb()
+    stationDocumentService.ensureStationDocumentTemplates(db, stationId!)
     const q = typeof req.query.q === 'string' ? req.query.q : undefined
     const category = typeof req.query.category === 'string' ? req.query.category : undefined
     const documentType = typeof req.query.documentType === 'string' ? req.query.documentType : undefined
     const includeArchived = req.query.includeArchived === '1' || req.query.includeArchived === 'true'
     const linkedEmployeeId = typeof req.query.linkedEmployeeId === 'string' ? req.query.linkedEmployeeId : undefined
-    const db = getDb()
     const rows = stationDocumentService.listStationDocuments(db, {
       stationId: stationId!,
       q,

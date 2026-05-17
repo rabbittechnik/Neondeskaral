@@ -25,10 +25,13 @@ representativesRouter.get('/', (req, res) => {
       req.query.includeArchived === '1' || String(req.query.includeArchived).toLowerCase() === 'true'
     const sort = req.query.sort === 'name' ? 'name' : 'company'
     const categoryFilter = typeof req.query.category === 'string' ? req.query.category : undefined
+    const favoritesOnly =
+      req.query.favoritesOnly === '1' || String(req.query.favoritesOnly).toLowerCase() === 'true'
     const rows = representativeService.listRepresentatives(getDb(), stationId!, {
       includeArchived,
       sort,
       categoryFilter,
+      favoritesOnly,
     })
     jsonOk(res, rows)
   } catch (e) {

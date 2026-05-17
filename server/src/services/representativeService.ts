@@ -3,11 +3,14 @@ import { randomUUID } from 'node:crypto'
 import { nowIso } from '../utils/timestamps.js'
 
 export const REPRESENTATIVE_CATEGORY_VALUES = [
-  'Vertreter',
-  'Lieferant',
-  'Außendienst',
-  'Wartung / Service',
-  'Sonstige',
+  'Tabak / Zigaretten',
+  'Gas / Propangas',
+  'Technik',
+  'TÜV / Sicherheit',
+  'Lebensmittel / Lieferanten',
+  'Wartung / Reparatur',
+  'Notfallkontakte',
+  'Sonstige Vertreter',
 ] as const
 
 export type RepresentativeRow = {
@@ -15,17 +18,22 @@ export type RepresentativeRow = {
   station_id: string
   company: string
   name: string
+  position: string | null
   email: string | null
   street: string | null
   house_number: string | null
   post_code: string | null
   city: string | null
+  postal_address: string | null
   phone: string | null
   mobile_1: string | null
   mobile_2: string | null
   fax: string | null
+  website: string | null
   category: string | null
   notes: string | null
+  is_favorite: number | null
+  seed_key: string | null
   active: number | null
   created_by: string | null
   created_at: string | null
@@ -38,17 +46,21 @@ export type RepresentativeApi = {
   stationId: string
   company: string
   name: string
+  position: string
   email: string
   street: string
   houseNumber: string
   postCode: string
   city: string
+  postalAddress: string
   phone: string
   mobile1: string
   mobile2: string
   fax: string
+  website: string
   category: string
   notes: string
+  isFavorite: boolean
   active: boolean
   createdBy: string | null
   createdAt: string | null
@@ -57,10 +69,7 @@ export type RepresentativeApi = {
 }
 
 function normalizeCategory(raw: unknown): string {
-  const s = typeof raw === 'string' ? raw.trim() : ''
-  if (!s) return ''
-  if ((REPRESENTATIVE_CATEGORY_VALUES as readonly string[]).includes(s)) return s
-  return ''
+  return typeof raw === 'string' ? raw.trim() : ''
 }
 
 function rowToApi(r: RepresentativeRow): RepresentativeApi {
@@ -69,17 +78,21 @@ function rowToApi(r: RepresentativeRow): RepresentativeApi {
     stationId: r.station_id,
     company: r.company,
     name: r.name,
+    position: r.position ?? '',
     email: r.email ?? '',
     street: r.street ?? '',
     houseNumber: r.house_number ?? '',
     postCode: r.post_code ?? '',
     city: r.city ?? '',
+    postalAddress: r.postal_address ?? '',
     phone: r.phone ?? '',
     mobile1: r.mobile_1 ?? '',
     mobile2: r.mobile_2 ?? '',
     fax: r.fax ?? '',
+    website: r.website ?? '',
     category: r.category ?? '',
     notes: r.notes ?? '',
+    isFavorite: (r.is_favorite ?? 0) === 1,
     active: (r.active ?? 1) === 1,
     createdBy: r.created_by,
     createdAt: r.created_at,
@@ -107,6 +120,7 @@ export function getRepresentative(db: Database, id: string): RepresentativeApi |
 export type ListRepresentativesOpts = {
   includeArchived?: boolean
   categoryFilter?: string
+  favoritesOnly?: boolean
   sort?: 'company' | 'name'
 }
 
@@ -116,6 +130,7 @@ export function listRepresentatives(
   opts?: ListRepresentativesOpts,
 ): RepresentativeApi[] {
   const includeArchived = opts?.includeArchived === true
+  const favoritesOnly = opts?.favoritesOnly === true
   const sort = opts?.sort === 'name' ? 'name' : 'company'
   const cat = (opts?.categoryFilter ?? '').trim()
 
@@ -127,20 +142,21 @@ export function listRepresentatives(
     clauses.push(`(archived_at IS NULL OR trim(archived_at) = '')`)
   }
 
+  if (favoritesOnly) {
+    clauses.push(`is_favorite = 1`)
+  }
+
   if (cat && cat !== 'all') {
-    if (cat === 'Vertreter') {
-      clauses.push(`(category = 'Vertreter' OR category = 'Außendienst')`)
-    } else if (cat === 'Lieferant' || cat === 'Wartung / Service' || cat === 'Sonstige') {
-      clauses.push(`category = ?`)
-      params.push(cat)
-    }
+    clauses.push(`category = ?`)
+    params.push(cat)
   }
 
   const where = clauses.join(' AND ')
-  const orderBy =
+  const sortTail =
     sort === 'name'
       ? `name COLLATE NOCASE ASC, company COLLATE NOCASE ASC`
       : `company COLLATE NOCASE ASC, name COLLATE NOCASE ASC`
+  const orderBy = `is_favorite DESC, ${sortTail}`
 
   const rows = db.prepare(`SELECT * FROM representatives WHERE ${where} ORDER BY ${orderBy}`).all(...params) as
     RepresentativeRow[]
@@ -163,27 +179,34 @@ export function createRepresentative(
   const ts = nowIso()
   const category = normalizeCategory(body.category)
 
+  const isFavorite = body.isFavorite === true || body.is_favorite === 1 || body.is_favorite === true
+
   db.prepare(
     `INSERT INTO representatives (
-      id, station_id, company, name, email, street, house_number, post_code, city,
-      phone, mobile_1, mobile_2, fax, category, notes, active, created_by, created_at, updated_at, archived_at
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      id, station_id, company, name, position, email, street, house_number, post_code, city,
+      postal_address, phone, mobile_1, mobile_2, fax, website, category, notes,
+      is_favorite, active, created_by, created_at, updated_at, archived_at
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   ).run(
     id,
     stationId,
     company,
     name,
+    str(body.position) || null,
     str(body.email) || null,
     str(body.street) || null,
     str(body.houseNumber) || str(body.house_number) || null,
     str(body.postCode) || str(body.post_code) || null,
     str(body.city) || null,
+    str(body.postalAddress) || str(body.postal_address) || null,
     str(body.phone) || null,
     str(body.mobile1) || str(body.mobile_1) || null,
     str(body.mobile2) || str(body.mobile_2) || null,
     str(body.fax) || null,
+    str(body.website) || null,
     category || null,
     str(body.notes) || null,
+    isFavorite ? 1 : 0,
     body.active === false ? 0 : 1,
     createdBy,
     ts,
@@ -230,7 +253,19 @@ export function updateRepresentative(db: Database, id: string, body: Record<stri
       ? str(body.mobile2) || str(body.mobile_2) || null
       : existing.mobile_2
   const fax = body.fax !== undefined ? str(body.fax) || null : existing.fax
+  const website = body.website !== undefined ? str(body.website) || null : existing.website
+  const position = body.position !== undefined ? str(body.position) || null : existing.position
+  const postalAddress =
+    body.postalAddress !== undefined || body.postal_address !== undefined
+      ? str(body.postalAddress) || str(body.postal_address) || null
+      : existing.postal_address
   const notes = body.notes !== undefined ? str(body.notes) || null : existing.notes
+  const isFavorite =
+    body.isFavorite !== undefined || body.is_favorite !== undefined
+      ? body.isFavorite === true || body.is_favorite === 1 || body.is_favorite === true
+        ? 1
+        : 0
+      : (existing.is_favorite ?? 0)
   const active =
     body.active === undefined
       ? existing.active ?? 1
@@ -240,24 +275,28 @@ export function updateRepresentative(db: Database, id: string, body: Record<stri
 
   db.prepare(
     `UPDATE representatives SET
-      company = ?, name = ?, email = ?, street = ?, house_number = ?, post_code = ?, city = ?,
-      phone = ?, mobile_1 = ?, mobile_2 = ?, fax = ?, category = ?, notes = ?, active = ?,
-      updated_at = ?
+      company = ?, name = ?, position = ?, email = ?, street = ?, house_number = ?, post_code = ?, city = ?,
+      postal_address = ?, phone = ?, mobile_1 = ?, mobile_2 = ?, fax = ?, website = ?, category = ?, notes = ?,
+      is_favorite = ?, active = ?, updated_at = ?
     WHERE id = ?`,
   ).run(
     company,
     name,
+    position,
     email,
     street,
     houseNumber,
     postCode,
     city,
+    postalAddress,
     phone,
     mobile1,
     mobile2,
     fax,
+    website,
     category || null,
     notes,
+    isFavorite,
     active,
     ts,
     id,

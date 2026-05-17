@@ -36,7 +36,7 @@ export function TuvReportItemRow({
                 : 'border-[var(--border-subtle)] text-[var(--text-muted)] hover:border-emerald-400/40 hover:text-emerald-100'
             }`}
           >
-            In Ordnung
+            i.O.
           </button>
           <button
             type="button"
@@ -48,7 +48,7 @@ export function TuvReportItemRow({
                 : 'border-[var(--border-subtle)] text-[var(--text-muted)] hover:border-red-400/45 hover:text-red-100'
             }`}
           >
-            Nicht in Ordnung
+            n.i.O.
           </button>
           <button
             type="button"
@@ -66,7 +66,7 @@ export function TuvReportItemRow({
       </div>
       <div className="mt-3 grid gap-3 md:grid-cols-2">
         <label className="flex flex-col gap-1 text-sm">
-          <span className="text-[var(--text-muted)]">Bemerkung {nio ? '(Pflicht)' : ''}</span>
+          <span className="text-[var(--text-muted)]">Mangeltext {nio ? '(Pflicht)' : ''}</span>
           <textarea
             disabled={disabled}
             rows={2}

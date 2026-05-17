@@ -12,13 +12,14 @@ import {
   Upload,
   X,
 } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useStation } from '../../context/station-context'
 import { useEmployees } from '../../context/employees-context'
 import { apiGet, apiGetBlob, apiSend, apiUploadMultipart, apiUploadMultipartMethod } from '../../services/api'
 import { Card } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
 import { EmployeeModal } from '../../components/employees/EmployeeModal'
+import { DocumentTemplatesSection } from '../../components/documents/DocumentTemplatesSection'
 import { DOCUMENT_CATEGORIES, DOCUMENT_TYPES, documentTypeLabel, type StationDocumentApi } from './documentConstants'
 import { inputClass } from '../../components/schedule/shift/fieldStyles'
 
@@ -47,6 +48,7 @@ function DocThumb({ mime }: { mime: string }) {
 }
 
 export function DocumentsPage() {
+  const navigate = useNavigate()
   const { stationId, hasPermission } = useStation()
   const { employees, addEmployee } = useEmployees()
   const canView = hasPermission('documents.view')
@@ -87,7 +89,7 @@ export function DocumentsPage() {
       setDocs([])
       return
     }
-    setDocs(res.data.documents)
+    setDocs((res.data.documents ?? []).filter((d) => !d.isTemplate))
   }, [stationId, canView, q, category, showArchived])
 
   useEffect(() => {
@@ -215,6 +217,18 @@ export function DocumentsPage() {
           {msg}
         </div>
       ) : null}
+
+      <DocumentTemplatesSection
+        stationId={stationId}
+        canEdit={canEdit}
+        canPrint={canPrint}
+        onOpenDocument={(d) => void openDetail(d, true)}
+        onMessage={setMsg}
+        onTuvChecklistFill={() => {
+          const now = new Date()
+          navigate(`/tuv-berichte?openMonth=${now.getMonth() + 1}&openYear=${now.getFullYear()}`)
+        }}
+      />
 
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">

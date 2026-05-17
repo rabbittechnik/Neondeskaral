@@ -2,6 +2,12 @@ import type { Database } from 'better-sqlite3'
 import fs from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
+import {
+  DOCUMENT_TEMPLATE_CATALOG,
+  documentTemplatesRootDir,
+  getDocumentTemplateByKey,
+  type DocumentTemplateKey,
+} from '../data/documentTemplateCatalog.js'
 import { nowIso } from '../utils/timestamps.js'
 
 export type StationDocumentRow = {
@@ -24,6 +30,8 @@ export type StationDocumentRow = {
   created_at: string
   updated_at: string
   archived_at: string | null
+  template_key: string | null
+  version_label: string | null
 }
 
 /** Relativer Pfad unter dem Arbeitsverzeichnis (z. B. server/data/station-documents/…). */
@@ -280,4 +288,120 @@ export function writeDocumentBufferToDisk(relativePosix: string, buf: Buffer): v
   const abs = path.join(process.cwd(), ...relativePosix.split('/'))
   ensureDir(path.dirname(abs))
   fs.writeFileSync(abs, buf)
+}
+
+function copyFileToStationDocument(stationId: string, documentId: string, fileName: string, sourceAbs: string): string {
+  const rel = relativePathForNewDocument(stationId, documentId, fileName)
+  const destAbs = path.join(process.cwd(), ...rel.split('/'))
+  ensureDir(path.dirname(destAbs))
+  fs.copyFileSync(sourceAbs, destAbs)
+  return rel
+}
+
+/** Legt die drei festen PDF-Vorlagen pro Station an (Original bleibt unverändert). */
+export function ensureStationDocumentTemplates(db: Database, stationId: string, createdBy?: string | null): void {
+  const root = path.join(process.cwd(), documentTemplatesRootDir())
+  for (const tpl of DOCUMENT_TEMPLATE_CATALOG) {
+    const existing = db
+      .prepare(`SELECT id FROM station_documents WHERE station_id = ? AND template_key = ? AND is_template = 1 LIMIT 1`)
+      .get(stationId, tpl.key) as { id: string } | undefined
+    if (existing) continue
+
+    const sourceAbs = path.join(root, tpl.sourceFile)
+    if (!fs.existsSync(sourceAbs)) {
+      console.warn(`[documents] Vorlage fehlt auf Disk: ${sourceAbs}`)
+      continue
+    }
+    const docId = `doc-tpl-${tpl.key}-${stationId}`
+    const rel = copyFileToStationDocument(stationId, docId, tpl.fileName, sourceAbs)
+    const stat = fs.statSync(sourceAbs)
+    insertStationDocument(db, {
+      id: docId,
+      stationId,
+      globalDocument: false,
+      title: tpl.title,
+      description: tpl.description,
+      category: tpl.category,
+      documentType: tpl.documentType,
+      fileName: tpl.fileName,
+      relativePath: rel,
+      mimeType: tpl.mimeType,
+      fileSize: stat.size,
+      isTemplate: true,
+      active: true,
+      createdBy,
+    })
+    db.prepare(`UPDATE station_documents SET template_key = ?, version_label = ? WHERE id = ?`).run(
+      tpl.key,
+      tpl.version,
+      docId,
+    )
+  }
+}
+
+export function listStationDocumentTemplates(db: Database, stationId: string) {
+  ensureStationDocumentTemplates(db, stationId)
+  return db
+    .prepare(
+      `SELECT * FROM station_documents WHERE station_id = ? AND is_template = 1 AND (archived_at IS NULL OR trim(archived_at) = '') ORDER BY category, title`,
+    )
+    .all(stationId) as StationDocumentRow[]
+}
+
+export function findTemplateDocument(db: Database, stationId: string, templateKey: DocumentTemplateKey) {
+  ensureStationDocumentTemplates(db, stationId)
+  return db
+    .prepare(
+      `SELECT * FROM station_documents WHERE station_id = ? AND template_key = ? AND is_template = 1 LIMIT 1`,
+    )
+    .get(stationId, templateKey) as StationDocumentRow | undefined
+}
+
+/** Neue ausfüllbare Kopie – Originalvorlage wird nicht verändert. */
+export function copyStationDocumentFromTemplate(
+  db: Database,
+  stationId: string,
+  templateKey: DocumentTemplateKey,
+  opts?: { titleSuffix?: string; linkedEmployeeId?: string; createdBy?: string | null },
+): StationDocumentRow {
+  const tplDef = getDocumentTemplateByKey(templateKey)
+  if (!tplDef) throw new Error('Unbekannte Vorlage')
+  const source = findTemplateDocument(db, stationId, templateKey)
+  if (!source) throw new Error('Vorlage nicht gefunden – bitte Server neu starten (Migration).')
+
+  const sourceAbs = resolveDocumentAbsolutePath(source.file_path)
+  const newId = randomUUID()
+  const stamp = new Date().toISOString().slice(0, 10)
+  const base = path.basename(source.file_name, path.extname(source.file_name))
+  const ext = path.extname(source.file_name) || '.pdf'
+  const copyName = `${base}_Kopie_${stamp}${ext}`
+  const rel = copyFileToStationDocument(stationId, newId, copyName, sourceAbs)
+  const stat = fs.statSync(path.join(process.cwd(), ...rel.split('/')))
+
+  const title = opts?.titleSuffix
+    ? `${source.title} – ${opts.titleSuffix}`
+    : `${source.title} – Kopie ${stamp}`
+
+  const row = insertStationDocument(db, {
+    id: newId,
+    stationId,
+    globalDocument: false,
+    title,
+    description: source.description,
+    category: source.category,
+    documentType: source.document_type,
+    fileName: copyName,
+    relativePath: rel,
+    mimeType: source.mime_type,
+    fileSize: stat.size,
+    isTemplate: false,
+    active: true,
+    createdBy: opts?.createdBy ?? null,
+  })
+  db.prepare(`UPDATE station_documents SET template_key = NULL, version_label = ? WHERE id = ?`).run(
+    source.version_label ?? tplDef.version,
+    newId,
+  )
+  if (opts?.linkedEmployeeId) linkDocumentToEmployee(db, newId, opts.linkedEmployeeId)
+  return row
 }

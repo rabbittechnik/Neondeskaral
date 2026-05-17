@@ -15,11 +15,17 @@ export type StationDocumentApi = {
   createdAt: string
   updatedAt: string
   linkedEmployeeIds: string[]
+  templateKey?: string | null
+  versionLabel?: string | null
 }
 
 export const DOCUMENT_CATEGORIES = [
   { value: '', label: 'Alle Kategorien' },
   { value: 'Personal', label: 'Personal' },
+  { value: 'Schnuppertage / Probearbeit', label: 'Schnuppertage / Probearbeit' },
+  { value: 'TÜV / Sicherheit', label: 'TÜV / Sicherheit' },
+  { value: 'Unterweisungen', label: 'Unterweisungen' },
+  { value: 'Sonstige Dokumente', label: 'Sonstige Dokumente' },
   { value: 'TÜV', label: 'TÜV' },
   { value: 'Unterweisung', label: 'Unterweisung' },
   { value: 'Urlaub / Abwesenheit', label: 'Urlaub / Abwesenheit' },
@@ -32,6 +38,8 @@ export const DOCUMENT_CATEGORIES = [
 
 export const DOCUMENT_TYPES = [
   { value: 'personal_form', label: 'Personalbogen' },
+  { value: 'trial_work_agreement', label: 'Vereinbarung Schnuppertage' },
+  { value: 'tuv_checklist_template', label: 'TÜV-Monatscheckliste (Vorlage)' },
   { value: 'tuv_report', label: 'TÜV-Bericht' },
   { value: 'vacation_form', label: 'Urlaubsformular' },
   { value: 'sick_note_form', label: 'Krankmeldung / AU' },

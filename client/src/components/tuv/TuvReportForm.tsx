@@ -1,4 +1,6 @@
 import type { TuvReportDetail } from '../../types/tuvReport'
+import { emptyTuvFormData } from '../../types/tuvReport'
+import { TuvReportClosureSection } from './TuvReportClosureSection'
 import { TuvReportItemRow } from './TuvReportItemRow'
 import { TuvReportSignaturePad } from './TuvReportSignaturePad'
 import { TuvReportConfirmationBox } from './TuvReportConfirmationBox'
@@ -11,6 +13,7 @@ export function TuvReportForm({
   manageUnlock,
   onChangeReport,
   onChangeItem,
+  onChangeFormData,
   signatureDraft,
   onSignatureDraft,
   onConfirmClick,
@@ -23,6 +26,7 @@ export function TuvReportForm({
   manageUnlock?: boolean
   onChangeReport: (patch: Partial<TuvReportDetail['report']>) => void
   onChangeItem: (id: string, patch: Partial<TuvReportDetail['items'][0]>) => void
+  onChangeFormData?: (next: import('../../types/tuvReport').TuvReportFormData) => void
   signatureDraft: string
   onSignatureDraft: (v: string) => void
   onConfirmClick: () => void | Promise<void>
@@ -111,6 +115,12 @@ export function TuvReportForm({
           ))}
         </div>
       </section>
+
+      <TuvReportClosureSection
+        formData={report.formData ?? emptyTuvFormData()}
+        disabled={effectiveReadOnly}
+        onChange={(next) => onChangeFormData?.(next)}
+      />
 
       <section className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-1)]/70 p-5">
         <h2 className="text-lg font-semibold text-[var(--text-main)]">Unterschrift / Bestätigung</h2>

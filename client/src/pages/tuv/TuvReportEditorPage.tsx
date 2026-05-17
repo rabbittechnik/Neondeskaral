@@ -3,7 +3,8 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useStation } from '../../context/station-context'
 import { apiGet, apiSend } from '../../services/api'
 import { dispatchNotificationsRefresh } from '../../utils/notificationsRefresh'
-import type { TuvReportDetail, TuvReportStatus } from '../../types/tuvReport'
+import type { TuvReportDetail, TuvReportFormData, TuvReportStatus } from '../../types/tuvReport'
+import { emptyTuvFormData } from '../../types/tuvReport'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { TuvReportForm } from '../../components/tuv/TuvReportForm'
 import { TuvReportPrintView } from '../../components/tuv/TuvReportPrintView'
@@ -36,8 +37,10 @@ export function TuvReportEditorPage() {
       setErr(res.error)
       return
     }
-    setDetail(res.data)
-    setSignatureDraft(res.data.report.signatureDataUrl || '')
+    const data = res.data
+    if (!data.report.formData) data.report.formData = emptyTuvFormData()
+    setDetail(data)
+    setSignatureDraft(data.report.signatureDataUrl || '')
   }, [reportId])
 
   useEffect(() => {
@@ -79,6 +82,7 @@ export function TuvReportEditorPage() {
         responsible: i.responsible,
         dueDate: i.dueDate,
       })),
+      formData: detail.report.formData ?? emptyTuvFormData(),
     }
     const res = await apiSend<TuvReportDetail>('PUT', `/tuv-reports/${detail.report.id}`, body)
     setBusy(false)
@@ -210,7 +214,36 @@ export function TuvReportEditorPage() {
         manageUnlock={effectiveManageUnlock}
         onChangeReport={(patch) => setDetail((d) => (d ? { ...d, report: { ...d.report, ...patch } } : d))}
         onChangeItem={(id, patch) =>
-          setDetail((d) => (d ? { ...d, items: mergeItem(d.items, id, patch) } : d))
+          setDetail((d) => {
+            if (!d) return d
+            const items = mergeItem(d.items, id, patch)
+            let formData = d.report.formData ?? emptyTuvFormData()
+            const item = items.find((i) => i.id === id)
+            if (item?.status === 'not_ok' && item.note.trim()) {
+              const exists = formData.defects.some((x) => x.position === item.question)
+              if (!exists) {
+                formData = {
+                  ...formData,
+                  defects: [
+                    ...formData.defects,
+                    {
+                      id: `def-${id}`,
+                      position: item.question,
+                      defectText: item.note,
+                      doneByName: item.responsible,
+                      dueUntil: item.dueDate,
+                      fixedAt: '',
+                      fixedBySignature: '',
+                    },
+                  ],
+                }
+              }
+            }
+            return { ...d, items, report: { ...d.report, formData } }
+          })
+        }
+        onChangeFormData={(formData: TuvReportFormData) =>
+          setDetail((d) => (d ? { ...d, report: { ...d.report, formData } } : d))
         }
         signatureDraft={signatureDraft}
         onSignatureDraft={(v) => setSignatureDraft(v)}

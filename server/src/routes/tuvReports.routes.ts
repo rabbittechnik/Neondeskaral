@@ -57,6 +57,32 @@ tuvReportsRouter.get('/:id', (req, res) => {
   }
 })
 
+tuvReportsRouter.post('/open-month', (req, res) => {
+  try {
+    const stationId = typeof req.query.stationId === 'string' ? req.query.stationId : undefined
+    if (!requirePermission(req, res, stationId, 'tuvReports.create')) return
+    const b = (req.body ?? {}) as Record<string, unknown>
+    const month = Number(b.month ?? new Date().getMonth() + 1)
+    const year = Number(b.year ?? new Date().getFullYear())
+    if (!Number.isFinite(month) || month < 1 || month > 12) return jsonErr(res, 'Monat ungültig', 400)
+    if (!Number.isFinite(year) || year < 2000 || year > 2100) return jsonErr(res, 'Jahr ungültig', 400)
+    const { report, created } = tuvReportService.getOrOpenTuvReportForMonth(getDb(), {
+      stationId: stationId!,
+      month,
+      year,
+      reportDate: String(b.reportDate ?? new Date().toISOString().slice(0, 10)).trim(),
+      createdBy: req.adminUser!.sub,
+      createdByName: actorName(req),
+      inspectorRole: b.inspectorRole != null ? String(b.inspectorRole) : undefined,
+      weatherNote: b.weatherNote != null ? String(b.weatherNote) : undefined,
+      generalNote: b.generalNote != null ? String(b.generalNote) : undefined,
+    })
+    jsonOk(res, { ...report, created }, created ? 201 : 200)
+  } catch (e) {
+    jsonErr(res, e instanceof Error ? e.message : 'Fehler', 400)
+  }
+})
+
 tuvReportsRouter.post('/', (req, res) => {
   try {
     const stationId = typeof req.query.stationId === 'string' ? req.query.stationId : undefined
@@ -101,7 +127,11 @@ tuvReportsRouter.put('/:id', (req, res) => {
       if (!requirePermission(req, res, sid, 'tuvReports.manage')) return
       jsonOk(
         res,
-        tuvReportService.updateTuvReport(getDb(), req.params.id, req.body ?? {}, { allowWhenCompleted: true }),
+        tuvReportService.updateTuvReport(getDb(), req.params.id, req.body ?? {}, {
+          allowWhenCompleted: true,
+          auditUserId: req.adminUser!.sub,
+          auditUserName: actorName(req),
+        }),
       )
       return
     }

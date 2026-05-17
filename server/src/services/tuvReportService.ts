@@ -1,7 +1,8 @@
 import type { Database } from 'better-sqlite3'
 import { randomUUID } from 'node:crypto'
 import { nowIso } from '../utils/timestamps.js'
-import { TUV_REPORT_TEMPLATE_ITEMS } from '../data/tuvReportTemplate.js'
+import { formatTuvItemLabel, TUV_REPORT_TEMPLATE_ITEMS } from '../data/tuvReportTemplate.js'
+import { findTemplateDocument } from './stationDocumentService.js'
 
 export type TuvReportRow = {
   id: string
@@ -24,8 +25,58 @@ export type TuvReportRow = {
   confirmation_text: string | null
   signature_data_url: string | null
   printed_at: string | null
+  form_json: string | null
+  source_template_document_id: string | null
   created_at: string | null
   updated_at: string | null
+}
+
+export type TuvDefectRow = {
+  id: string
+  position: string
+  defectText: string
+  doneByName: string
+  dueUntil: string
+  fixedAt: string
+  fixedBySignature: string
+}
+
+export type TuvSignatureBlock = {
+  name: string
+  role: string
+  date: string
+  signatureDataUrl: string
+}
+
+export type TuvReportFormData = {
+  defects: TuvDefectRow[]
+  safetyCheck: TuvSignatureBlock
+  hsseInspection: TuvSignatureBlock
+  additionalNotes: string
+}
+
+export function emptyTuvFormData(): TuvReportFormData {
+  return {
+    defects: [],
+    safetyCheck: { name: '', role: '', date: '', signatureDataUrl: '' },
+    hsseInspection: { name: '', role: '', date: '', signatureDataUrl: '' },
+    additionalNotes: '',
+  }
+}
+
+function parseFormJson(raw: string | null | undefined): TuvReportFormData {
+  if (!raw?.trim()) return emptyTuvFormData()
+  try {
+    const p = JSON.parse(raw) as Partial<TuvReportFormData>
+    return {
+      defects: Array.isArray(p.defects) ? p.defects : [],
+      safetyCheck: { ...emptyTuvFormData().safetyCheck, ...(p.safetyCheck ?? {}) },
+      hsseInspection: { ...emptyTuvFormData().hsseInspection, ...(p.hsseInspection ?? {}) },
+      additionalNotes: String(p.additionalNotes ?? ''),
+    }
+  } catch {
+    return emptyTuvFormData()
+  }
 }
 
 export type TuvReportItemRow = {
@@ -66,6 +117,8 @@ function rowToReportApi(r: TuvReportRow) {
     confirmationText: r.confirmation_text ?? '',
     signatureDataUrl: r.signature_data_url ?? '',
     printedAt: r.printed_at ?? undefined,
+    formData: parseFormJson(r.form_json),
+    sourceTemplateDocumentId: r.source_template_document_id ?? undefined,
     createdAt: r.created_at ?? '',
     updatedAt: r.updated_at ?? '',
   }
@@ -179,12 +232,30 @@ export function createTuvReport(db: Database, input: CreateTuvReportInput) {
       id,
       tpl.sortOrder,
       tpl.category,
-      tpl.question,
+      formatTuvItemLabel(tpl),
       ts,
       ts,
     )
   }
+  const tplDoc = findTemplateDocument(db, input.stationId, 'tuv_monatscheckliste')
+  if (tplDoc) {
+    db.prepare(`UPDATE tuv_reports SET source_template_document_id = ? WHERE id = ?`).run(tplDoc.id, id)
+  }
   return getTuvReportWithItems(db, id)!
+}
+
+/** Monatsbericht öffnen: vorhandenen laden oder neuen leeren Bericht anlegen. */
+export function getOrOpenTuvReportForMonth(
+  db: Database,
+  input: CreateTuvReportInput,
+): { report: ReturnType<typeof getTuvReportWithItems>; created: boolean } {
+  const existing = findReportByStationMonth(db, input.stationId, input.month, input.year)
+  if (existing) {
+    const detail = getTuvReportWithItems(db, existing.id)!
+    return { report: detail, created: false }
+  }
+  const detail = createTuvReport(db, input)
+  return { report: detail, created: true }
 }
 
 export type TuvReportItemInput = {
@@ -206,8 +277,9 @@ export function updateTuvReport(
     generalNote?: string
     status?: string
     items?: TuvReportItemInput[]
+    formData?: TuvReportFormData
   },
-  opts?: { allowWhenCompleted?: boolean },
+  opts?: { allowWhenCompleted?: boolean; auditUserId?: string; auditUserName?: string },
 ) {
   const row = db.prepare(`SELECT * FROM tuv_reports WHERE id = ?`).get(id) as TuvReportRow | undefined
   if (!row) throw new Error('Bericht nicht gefunden')
@@ -216,6 +288,12 @@ export function updateTuvReport(
   }
   const ts = nowIso()
   const nextStatus = body.status && ['draft', 'in_progress', 'completed', 'printed'].includes(body.status) ? body.status : row.status
+  const formJson =
+    body.formData !== undefined ? JSON.stringify(body.formData) : row.form_json
+
+  if (opts?.allowWhenCompleted && opts.auditUserId && body.formData !== undefined) {
+    logTuvReportAudit(db, id, opts.auditUserId, opts.auditUserName ?? '', 'form_data', row.form_json, formJson)
+  }
 
   db.prepare(
     `UPDATE tuv_reports SET
@@ -224,6 +302,7 @@ export function updateTuvReport(
       weather_note = ?,
       general_note = ?,
       status = ?,
+      form_json = ?,
       updated_at = ?
     WHERE id = ?`,
   ).run(
@@ -232,6 +311,7 @@ export function updateTuvReport(
     body.weatherNote !== undefined ? body.weatherNote || null : row.weather_note,
     body.generalNote !== undefined ? body.generalNote || null : row.general_note,
     nextStatus,
+    formJson,
     ts,
     id,
   )
@@ -303,11 +383,30 @@ function validateItemsForComplete(db: Database, reportId: string) {
     if (!st) throw new Error(`Prüfpunkt nicht bewertet: ${it.question}`)
     if (st === 'not_ok') {
       const note = (it.note ?? '').trim()
-      const act = (it.action_required ?? '').trim()
-      if (!note) throw new Error(`Bemerkung fehlt bei: ${it.question}`)
-      if (!act) throw new Error(`Maßnahme fehlt bei: ${it.question}`)
+      if (!note) throw new Error(`Mangeltext fehlt bei: ${it.question}`)
     }
   }
+  const rep = db.prepare(`SELECT form_json FROM tuv_reports WHERE id = ?`).get(reportId) as { form_json: string | null }
+  const form = parseFormJson(rep?.form_json)
+  const safety = form.safetyCheck
+  if (!safety.name.trim() || !safety.role.trim() || !safety.date.trim()) {
+    throw new Error('Sicherheits-Check: Name, Funktion und Datum sind Pflicht.')
+  }
+}
+
+function logTuvReportAudit(
+  db: Database,
+  reportId: string,
+  userId: string,
+  userName: string,
+  fieldName: string,
+  oldValue: string | null,
+  newValue: string | null,
+) {
+  db.prepare(
+    `INSERT INTO tuv_report_audit_log (id, report_id, user_id, user_name, field_name, old_value, new_value, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(`tuva-${randomUUID()}`, reportId, userId, userName, fieldName, oldValue, newValue, nowIso())
 }
 
 export function completeTuvReport(db: Database, id: string, userId: string, displayName: string) {

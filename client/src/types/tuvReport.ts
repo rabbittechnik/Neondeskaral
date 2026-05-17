@@ -2,6 +2,39 @@ export type TuvReportStatus = 'draft' | 'in_progress' | 'completed' | 'printed'
 
 export type TuvItemStatus = 'ok' | 'not_ok' | 'not_applicable' | ''
 
+export type TuvDefectRow = {
+  id: string
+  position: string
+  defectText: string
+  doneByName: string
+  dueUntil: string
+  fixedAt: string
+  fixedBySignature: string
+}
+
+export type TuvSignatureBlock = {
+  name: string
+  role: string
+  date: string
+  signatureDataUrl: string
+}
+
+export type TuvReportFormData = {
+  defects: TuvDefectRow[]
+  safetyCheck: TuvSignatureBlock
+  hsseInspection: TuvSignatureBlock
+  additionalNotes: string
+}
+
+export function emptyTuvFormData(): TuvReportFormData {
+  return {
+    defects: [],
+    safetyCheck: { name: '', role: '', date: '', signatureDataUrl: '' },
+    hsseInspection: { name: '', role: '', date: '', signatureDataUrl: '' },
+    additionalNotes: '',
+  }
+}
+
 export type TuvReportApi = {
   id: string
   stationId: string
@@ -23,6 +56,8 @@ export type TuvReportApi = {
   confirmationText: string
   signatureDataUrl: string
   printedAt?: string
+  formData?: TuvReportFormData
+  sourceTemplateDocumentId?: string
   createdAt: string
   updatedAt: string
 }
